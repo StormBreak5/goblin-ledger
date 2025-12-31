@@ -2,7 +2,7 @@
 
 > **Trabalho de Conclusão de Curso (TCC) - Sistemas de Informação**
 > **Autor:** Itzac Albertin
-> **Status:** Em Desenvolvimento (Fase de Planejamento)
+> **Status:** Em Desenvolvimento Ativo | Fase 1 ✅ | Fase 2 🔄 (50%)
 
 ---
 
@@ -23,18 +23,22 @@ O sistema coleta dados históricos da Casa de Leilões (Auction House), processa
 
 ### Backend (Processamento e API)
 * **Linguagem:** Python 3.10+
-* **Framework API:** FastAPI (Performance e Documentação automática via Swagger).
-* **Ciência de Dados:** Pandas, Numpy.
-* **Machine Learning:** Facebook Prophet (ou Scikit-learn).
-* **Banco de Dados:** PostgreSQL (Produção) / SQLite (Dev).
-* **ORM:** SQLAlchemy ou Tortoise-ORM.
+* **Framework API:** FastAPI 0.128.0 (Performance e Documentação automática via Swagger).
+* **Server ASGI:** Uvicorn 0.40.0
+* **Validação de Dados:** Pydantic 2.12.5
+* **HTTP Client:** Requests (para consumir API da Blizzard)
+* **Variáveis de Ambiente:** Python-dotenv
+* **Banco de Dados:** *A implementar* (PostgreSQL + SQLAlchemy)
+* **Machine Learning:** *A implementar* (Facebook Prophet ou ARIMA)
 
 ### Frontend (Interface)
-* **Framework:** Next.js 14+ (App Router).
-* **Linguagem:** TypeScript.
-* **Estilização:** Tailwind CSS.
-* **Gráficos:** Recharts ou Chart.js.
-* **Ícones:** Lucide React.
+* **Framework:** Next.js 16.1.1 (App Router)
+* **Linguagem:** TypeScript 5.x
+* **Estilização:** Tailwind CSS 4.x
+* **Runtime:** React 19.2.3
+* **Linter:** ESLint 9.x
+* **Gráficos:** *A implementar* (Recharts ou Chart.js)
+* **Ícones:** *A implementar* (Lucide React)
 
 ---
 
@@ -65,45 +69,109 @@ O projeto utiliza um tema *Dark Mode* para alto contraste em visualização de d
 
 ---
 
-## 5. Estrutura de Diretórios Sugerida
+## 5. Estrutura de Diretórios (Implementação Atual)
 
 ```bash
 /goblin-ledger
 │
 ├── /backend                 # Tudo relacionado a Python
-│   ├── /app
-│   │   ├── /api             # Endpoints (Routes) do FastAPI
-│   │   ├── /core            # Configs (Env variables, DB connect)
-│   │   ├── /models          # Modelos do Banco de Dados (ORM)
-│   │   ├── /schemas         # Modelos Pydantic (Validação)
-│   │   ├── /services        # Lógica de negócio
-│   │   └── main.py          # Entrypoint da API
+│   ├── /api                 # ✅ Endpoints (Routes) do FastAPI
+│   │   └── auctions.py      # Rotas de leilões
 │   │
-│   ├── /etl                 # Scripts de Extração de Dados
-│   │   └── collector.py     # Script que bate na Blizzard
+│   ├── /services            # ✅ Lógica de negócio
+│   │   └── auction_service.py
 │   │
-│   ├── /ml                  # Inteligência Artificial
-│   │   └── forecaster.py    # Lógica do Prophet/Treinamento
+│   ├── /etl                 # ✅ Scripts de Extração de Dados
+│   │   └── collector.py     # Script que consome API da Blizzard
 │   │
-│   ├── requirements.txt     # Dependências Python
-│   └── .env                 # Segredos (NÃO COMMITAR)
+│   ├── /data                # ✅ Dados Mock (Dev)
+│   │   └── mock_auctions.json
+│   │
+│   ├── main.py              # ✅ Entrypoint da API FastAPI
+│   ├── requirements.txt     # ✅ Dependências Python
+│   ├── .env                 # ✅ Variáveis de ambiente (NÃO COMMITAR)
+│   └── .env.example         # Template de configuração
 │
 ├── /frontend                # Tudo relacionado a Next.js
-│   ├── /src
-│   │   ├── /app             # Páginas (Next.js App Router)
-│   │   ├── /components      # Componentes Reutilizáveis (Cards, Charts)
-│   │   ├── /lib             # Funções utilitárias (API fetch wrapper)
-│   │   └── /types           # Definições TypeScript
+│   ├── /app                 # ✅ Páginas (Next.js 16 App Router)
+│   │   ├── page.tsx         # Página principal com tabela de leilões
+│   │   ├── layout.tsx       # Layout global
+│   │   └── globals.css      # Estilos globais (Tailwind)
 │   │
-│   ├── tailwind.config.ts   # Configuração de Cores
-│   └── package.json         # Dependências JS
+│   ├── /types               # ✅ Definições TypeScript
+│   │   └── auction.ts       # Interface AuctionItem
+│   │
+│   ├── /public              # Arquivos estáticos
+│   ├── package.json         # ✅ Dependências JS
+│   └── tsconfig.json        # Configuração TypeScript
 │
 └── README.md
+
+📝 Nota: Pastas /core, /models, /schemas, /ml, /components e /lib serão criadas 
+conforme o projeto evolui para as próximas fases.
 ```
 
 ---
 
-## 6. Convenções e Regras de Desenvolvimento
+## 6. Status Atual da Implementação
+
+### ✅ Fase 1: Configuração de Ambiente - **COMPLETA**
+- [x] Backend FastAPI configurado e rodando
+- [x] Frontend Next.js 16 configurado e rodando
+- [x] Integração Backend ↔ Frontend funcionando
+- [x] CORS configurado
+- [x] Tailwind CSS v4 implementado com paleta de cores do projeto
+
+### 🔄 Fase 2: ETL e Coleta de Dados - **EM PROGRESSO**
+- [x] Script `collector.py` criado
+- [x] Autenticação com API da Blizzard implementada
+- [x] Dados mock para desenvolvimento (`mock_auctions.json`)
+- [ ] Agendamento automático (Cronjob)
+- [ ] Persistência em banco de dados
+
+### 📊 Endpoints da API Disponíveis
+
+**Base URL:** `http://localhost:8000`
+
+| Método | Endpoint | Descrição | Status |
+|--------|----------|-----------|--------|
+| `GET` | `/` | Health check da API | ✅ |
+| `GET` | `/api/auctions` | Lista todos os leilões | ✅ |
+| `GET` | `/api/auctions/stats` | Estatísticas do mercado | ✅ |
+
+### 🎨 Interface Implementada
+
+- **Página Principal:** Tabela interativa de leilões com:
+  - Nome do item (mock)
+  - Preço em Gold
+  - Quantidade disponível
+  - Tempo restante com badge colorido
+  - Contador de leilões rastreados
+  - Design dark mode com paleta "Cartel de Engenharia"
+
+### 🚀 Como Executar o Projeto
+
+#### Backend (FastAPI)
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+Acesse: `http://localhost:8000`
+
+#### Frontend (Next.js)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Acesse: `http://localhost:3000`
+
+---
+
+## 7. Convenções e Regras de Desenvolvimento
 
 ### Git & Versionamento
 * **Branches:**
@@ -123,11 +191,54 @@ O projeto utiliza um tema *Dark Mode* para alto contraste em visualização de d
 
 ---
 
-## 7. Roadmap Macro
+## 8. Roadmap Macro
 
-- [ ] **Fase 1:** Configuração de Ambiente e "Hello World" (Back e Front).
-- [ ] **Fase 2:** Script ETL funcional salvando dados reais da Blizzard.
+- [x] **Fase 1:** Configuração de Ambiente e "Hello World" (Back e Front). ✅ **COMPLETA**
+  - Backend FastAPI rodando em `localhost:8000`
+  - Frontend Next.js 16 rodando em `localhost:3000`
+  - Integração funcionando com dados mock
+  
+- [x] **Fase 2:** Script ETL funcional salvando dados reais da Blizzard. 🔄 **50% COMPLETA**
+  - Script de coleta criado e testado
+  - Autenticação OAuth2 implementada
+  - Falta: Persistência em banco de dados e agendamento
+  
 - [ ] **Fase 3:** Criação da API REST básica (Listar itens).
-- [ ] **Fase 4:** Implementação do Algoritmo de IA (Notebook -> Script).
+  - Endpoints básicos já criados (GET auctions, GET stats)
+  - Falta: Modelos ORM, schemas Pydantic, validações
+  
+- [ ] **Fase 4:** Implementação do Algoritmo de IA (Notebook → Script).
+  - Pasta `/ml` ainda não criada
+  - Modelo Prophet ou ARIMA a ser implementado
+  
 - [ ] **Fase 5:** Frontend: Construção do Dashboard e Gráficos.
+  - Interface básica implementada
+  - Falta: Componentes reutilizáveis, gráficos (Recharts), filtros
+  
 - [ ] **Fase 6:** Integração Final e Polimento.
+  - Deploy, otimizações, documentação final
+
+---
+
+## 9. Tecnologias Utilizadas (Versões Atuais)
+
+### Backend
+- **Python:** 3.10+
+- **FastAPI:** 0.128.0
+- **Uvicorn:** 0.40.0
+- **Pydantic:** 2.12.5
+- **Requests:** (para ETL)
+- **Python-dotenv:** (variáveis de ambiente)
+
+### Frontend
+- **Next.js:** 16.1.1
+- **React:** 19.2.3
+- **TypeScript:** 5.x
+- **Tailwind CSS:** 4.x
+- **ESLint:** 9.x
+
+### Próximas Adições
+- PostgreSQL / SQLAlchemy (Banco de Dados)
+- Facebook Prophet ou Scikit-learn (Machine Learning)
+- Recharts (Visualização de dados)
+- Lucide React (Ícones)
