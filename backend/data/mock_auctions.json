@@ -1,0 +1,32 @@
+[
+    {
+        "id": 1001,
+        "item": {
+            "id": 190321,
+            "id_mock": "draconita_selvagem"
+        },
+        "buyout": 450000,
+        "quantity": 200,
+        "time_left": "VERY_LONG"
+    },
+    {
+        "id": 1002,
+        "item": {
+            "id": 190321,
+            "id_mock": "draconita_selvagem"
+        },
+        "buyout": 445000,
+        "quantity": 50,
+        "time_left": "SHORT"
+    },
+    {
+        "id": 1003,
+        "item": {
+            "id": 190324,
+            "id_mock": "minerio_de_khaz"
+        },
+        "buyout": 21000,
+        "quantity": 12,
+        "time_left": "VERY_LONG"
+    }
+]
