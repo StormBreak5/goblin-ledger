@@ -1,65 +1,86 @@
-import Image from "next/image";
+'use client';
+
+import { AuctionItem } from "@/types/auction";
+import { useEffect, useState } from "react";
 
 export default function Home() {
+  const [auctions, setAuctions] = useState<AuctionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const response = await fetch('http://localhost:8000/api/auctions');
+        const data = await response.json();
+        setAuctions(data);
+      } catch (error) {
+        console.error('Erro ao buscar dados:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen p-8 max-w-5xl mx-auto">
+      <header className="mb-10 flex items-center justify-between">
+        <div>
+          <h1 className="text-4xl font-bold text-emerald-500 mb-2">
+            👺 Goblin Ledger
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-slate-400">
+            Monitoramento de Mercado de WoW (Modo Dev)
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+          <span className="text-amber-500 font-bold text-xl">
+            {auctions.length}
+          </span>
+          <span className="text-sm text-slate-400 ml-2">Leilões Rastreados</span>
         </div>
-      </main>
-    </div>
-  );
+      </header>
+
+      <section className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-xl">
+        {loading ? (
+          <div className="p-8 text-center text-slate-400 animate-pulse">
+            Carregando...
+          </div>
+        ) : (
+          <table className="w-full text-left">
+            <thead className="bg-slate-900 text-slate-400 uppercase text-xs font-semibold">
+              <tr>
+                <th className="py-2 px-4">Item (ID Mock)</th>
+                <th className="py-2 px-4">Preço (Gold)</th>
+                <th className="py-2 px-4">Quantidade</th>
+                <th className="py-2 px-4">Tempo Restante</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700">
+              {auctions.map((auction) => (
+                <tr key={auction.id} className="hover:bg-slate-700/50 transition-colors">
+                  <td className="p-4 font-medium text-slate-200">
+                    {auction.item.id_mock.replace(/_/g, " ").toUpperCase()}
+                    <span className="block text-xs text-slate-500">ID: {auction.item.id}</span>
+                  </td>
+                  <td className="p-4 text-emerald-400 font-mono">
+                    {(auction.buyout / 10000).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} g
+                  </td>
+                  <td className="p-4 text-slate-300">
+                    {auction.quantity} un
+                  </td>
+                  <td className="p4">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${auction.time_left === 'SHORT' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                      {auction.time_left}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </main>
+  )
 }
