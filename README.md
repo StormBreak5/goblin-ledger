@@ -29,7 +29,7 @@ O sistema coleta dados históricos da Casa de Leilões (Auction House), processa
 * **HTTP Client:** Requests (para consumir API da Blizzard)
 * **Variáveis de Ambiente:** Python-dotenv
 * **Banco de Dados:** *A implementar* (PostgreSQL + SQLAlchemy)
-* **Machine Learning:** *A implementar* (Facebook Prophet ou ARIMA)
+* **Machine Learning:** *A implementar*
 
 ### Frontend (Interface)
 * **Framework:** Next.js 16.1.1 (App Router)
