@@ -1,8 +1,14 @@
-from requests.api import request
+import sys 
 import os
 import requests
 import json
 import time
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.dirname(current_dir)
+sys.path.append(backend_dir)
+
+from database import MarketHistory
 from dotenv import load_dotenv
 
 #função para carregar as variáveis de ambiente
@@ -57,7 +63,37 @@ def get_auction_data(token):
         print("Erro ao baixar dados: ", {response.status_code})
         print(response.text)
         raise None
-        
+
+def save_to_postgres(auctions_data):
+    db = SessionLocal()
+    init_db()
+    
+    print(f"Iniciando salvamento de {len(auctions_data)} registros no PostgreSQL...")
+
+    batch = []
+    captured_at = datetime.utcnow()
+
+    for auction in auctions_data:
+        price = auction.get('buyout') or aucion.get('unit_price', 0)
+        if price > 0:
+            record = MarketHistory(
+                item_id=auction['item']['id'],
+                price=price,
+                quantity=auction['quantity'],
+                captured_at=captured_at
+            )
+            batch.append(record)
+
+    try:
+        db.bulk_save_objects(batch)
+        db.commit()
+        print(f"Dados salvos com sucesso!")
+    except Exception as e:
+        print(f"Erro ao salvar: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 if __name__ == '__main__':
     if not CLIENT_ID or not CLIENT_SECRET:
         print("ERRO: Variáveis de ambiente não encontradas. Verifique o arquivo .env")    
@@ -69,6 +105,7 @@ if __name__ == '__main__':
         auctions = get_auction_data(token)
         
         if auctions:
+            save_to_postgres(auctions)
             sample_file = "auction_sample.json"
             with open(sample_file, 'w', encoding='utf-8') as f:
                 json.dump(auctions[:5], f, indent=4)

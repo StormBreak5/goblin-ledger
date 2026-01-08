@@ -2,6 +2,17 @@
 
 import { AuctionItem } from "@/types/auction";
 import { useEffect, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Coins, TrendingUp } from "lucide-react";
 
 export default function Home() {
   const [auctions, setAuctions] = useState<AuctionItem[]>([]);
@@ -24,63 +35,108 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="min-h-screen p-8 max-w-5xl mx-auto">
-      <header className="mb-10 flex items-center justify-between">
+    <main className="min-h-screen p-8 max-w-7xl mx-auto">
+      <header className="mb-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-4xl font-bold text-emerald-500 mb-2">
+          <h1 className="text-4xl md:text-5xl font-bold text-emerald-500 mb-2 flex items-center gap-3">
             👺 Goblin Ledger
           </h1>
-          <p className="text-slate-400">
+          <p className="text-slate-400 text-lg">
             Monitoramento de Mercado de WoW (Modo Dev)
           </p>
         </div>
-        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
-          <span className="text-amber-500 font-bold text-xl">
-            {auctions.length}
-          </span>
-          <span className="text-sm text-slate-400 ml-2">Leilões Rastreados</span>
-        </div>
+
+        <Card className="bg-gradient-to-br from-amber-500/10 to-emerald-500/10 border-amber-500/20">
+          <CardHeader className="pb-3">
+            <CardDescription className="flex items-center gap-2 text-slate-300">
+              <TrendingUp className="h-4 w-4" />
+              Leilões Rastreados
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-bold text-amber-500">
+                {auctions.length}
+              </span>
+              <span className="text-sm text-slate-400">itens</span>
+            </div>
+          </CardContent>
+        </Card>
       </header>
 
-      <section className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-xl">
-        {loading ? (
-          <div className="p-8 text-center text-slate-400 animate-pulse">
-            Carregando...
-          </div>
-        ) : (
-          <table className="w-full text-left">
-            <thead className="bg-slate-900 text-slate-400 uppercase text-xs font-semibold">
-              <tr>
-                <th className="py-2 px-4">Item (ID Mock)</th>
-                <th className="py-2 px-4">Preço (Gold)</th>
-                <th className="py-2 px-4">Quantidade</th>
-                <th className="py-2 px-4">Tempo Restante</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700">
-              {auctions.map((auction) => (
-                <tr key={auction.id} className="hover:bg-slate-700/50 transition-colors">
-                  <td className="p-4 font-medium text-slate-200">
-                    {auction.item.id_mock.replace(/_/g, " ").toUpperCase()}
-                    <span className="block text-xs text-slate-500">ID: {auction.item.id}</span>
-                  </td>
-                  <td className="p-4 text-emerald-400 font-mono">
-                    {(auction.buyout / 10000).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} g
-                  </td>
-                  <td className="p-4 text-slate-300">
-                    {auction.quantity} un
-                  </td>
-                  <td className="p4">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${auction.time_left === 'SHORT' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                      {auction.time_left}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <Card className="shadow-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Coins className="h-5 w-5 text-emerald-500" />
+            Leilões Ativos
+          </CardTitle>
+          <CardDescription>
+            Visualize todos os leilões disponíveis no mercado
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-12 text-center">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+              <p className="mt-4 text-slate-400">Carregando leilões...</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[300px]">Item</TableHead>
+                    <TableHead>Preço</TableHead>
+                    <TableHead>Quantidade</TableHead>
+                    <TableHead>Tempo Restante</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {auctions.map((auction) => (
+                    <TableRow key={auction.id}>
+                      <TableCell className="font-medium">
+                        <div>
+                          <p className="font-semibold text-slate-100">
+                            {auction.item.id_mock.replace(/_/g, " ").toUpperCase()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            ID: {auction.item.id}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Coins className="h-4 w-4 text-amber-500" />
+                          <span className="font-mono font-semibold text-emerald-400">
+                            {(auction.buyout / 10000).toLocaleString('pt-BR', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2
+                            })}
+                          </span>
+                          <span className="text-xs text-slate-400">g</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="font-mono">
+                          {auction.quantity} un
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={auction.time_left === 'SHORT' ? 'destructive' : 'default'}
+                          className="font-semibold"
+                        >
+                          {auction.time_left}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </main>
   )
 }

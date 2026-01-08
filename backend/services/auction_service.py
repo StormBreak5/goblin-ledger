@@ -1,26 +1,29 @@
+from sqlalchemy.orm import Session
+from database import SessionLocal, MarketHistory
+from sqlalchemy import func
+
 import json
 import os
 
 class AuctionService:
-    def get_all_auctions(self):
-        
-        try:
-            file_path = os.path.join(os.getcwd(), 'data', 'mock_auctions.json')
-
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-            return data
-        except FileNotFoundError:
-            return []
+    def __init__(self):
+        self.db = SessionLocal()
+    
+    def get_all_auctions(self, limit: int = 100):
+        return self.db.query(MarketHistory).order_by(MarketHistory.captured_at.desc()).limit(limit).all()
         
     def get_stats(self):
-        data = self.get_all_auctions()
-        if not data:
-            return {"total_items": 0, "market_cap_gold": 0}
-
-        total_gold = sum(item['buyout'] for item in data) / 10000
-        return{
-            "total_items": len(data),
-            "market_cap_gold": total_gold
-        }
+        try:
+            total_items = self.db.query(MarketHistory).count()
+            avg_price = self.db.query(func.avg(MarketHistory.price)).scalar() or 0
+            
+            return {
+                "total_records": total_items,
+                "average_price_copper": round(avg_price, 2),
+                "message": "Dados vindos do PostgreSQL em tempo real"
+            }
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            self.db.close()
         

@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api import auctions
+from database import init_db
 
 app = FastAPI(title="Goblin Ledger API", version="0.2.0")
 
@@ -15,6 +16,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Evento de Startup: Inicializa o banco de dados ---
+@app.on_event("startup")
+def on_startup():
+    print("🔧 Inicializando banco de dados...")
+    init_db()
+    print("✅ Banco de dados inicializado!")
 
 # --- Inclui as rotas separadas ---
 app.include_router(auctions.router)
