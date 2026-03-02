@@ -1,0 +1,46 @@
+# Node / Next.js
+node_modules/
+.next/
+dist/
+build/
+*.log
+
+# Python / Backend
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+.venv.bak/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+*.sqlite3
+*.db
+
+# Local Env
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDEs e OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Root files
+/*.pdf

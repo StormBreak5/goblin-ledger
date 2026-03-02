@@ -31,7 +31,10 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] Does the design enforce strict **Type Safety & Validation**? (Principle I)
+- [ ] Is there a **Clear Separation of Concerns** between frontend and backend? (Principle II)
+- [ ] Are automated tests considered for critical paths? (**Test-Driven / High Confidence**, Principle III)
+- [ ] Does the design respect **Environment Consistency** and dependency management? (Principle IV)
 
 ## Project Structure
 

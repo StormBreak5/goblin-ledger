@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: goblinledger-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-goblin}
+      POSTGRES_PASSWORD: ${DB_PASS:-goblin_password}
+      POSTGRES_DB: ${DB_NAME:-goblinledger}
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-goblin} -d ${DB_NAME:-goblinledger}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: goblinledger-worker
+    restart: always
+    env_file:
+      - .env
+    environment:
+      # Sobrescreve DB_HOST para usar o hostname interno do docker network em vez de localhost
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
