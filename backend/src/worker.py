@@ -18,9 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Parseia IDs de itens separados por vírgula no ENV, joga o WoW Token de fallback
-ITEMS_TO_TRACK = os.getenv("ITEMS_TO_TRACK", "122284")
-ITEM_IDS = [int(x.strip()) for x in ITEMS_TO_TRACK.split(",") if x.strip().isdigit()]
+# ITEM_IDS agora são dinâmicos através da tabela TrackedItem
 
 def job_fetch_wow_token_price():
     client_id = os.getenv("BLIZZARD_CLIENT_ID")
@@ -36,15 +34,28 @@ def job_fetch_wow_token_price():
     repo = ItemPriceRepository(session)
 
     try:
-        # Recupera dado
-        # Edge Case 1 & 2: requests já vai levantar exception de fallback HTTP de downtime, que capturaos aqui
+        from src.models.tracked_item import TrackedItem
+        from src.scraper.sync_tracked_items import sync_items_from_blizzard
+        
+        # Auto-Bootstrap Logic
+        count = session.query(TrackedItem).count()
+        if count == 0:
+            logger.info("Banco TrackedItem vazio. Iniciando Auto-Bootstrap...")
+            sync_items_from_blizzard()
+            
+        # Puxa itens dinamicamente
+        active_items = session.query(TrackedItem.external_item_id).filter(
+            TrackedItem.game == 'wow',
+            TrackedItem.is_active == True
+        ).all()
+        
+        item_ids = [int(it[0]) for it in active_items]
+        
+        # Recupera dado do token oficial (o Worker no MVP roda baseado na blizzard)
         token_data = api_client.get_wow_token_price(region="us")
         
-        for item_id in ITEM_IDS:
-            # Atualmente a lógica da BlizzardApiClient.get_wow_token_price foca exclusivamente 
-            # no endpoint do token. Para extrapolar a outros item_ids, ela precisaria
-            # bater na API genérica de leilão ou commodities.
-            # Como a spec pede focar no WoW token, faremos o insert baseado no id extraído.
+        for item_id in item_ids:
+            # O comportamento anterior salvava token para todos.
             repo.save_price(item_id=item_id, region="us", token_response=token_data)
         
     except Exception as e:

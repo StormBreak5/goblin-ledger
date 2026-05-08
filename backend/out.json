@@ -1,0 +1,524 @@
+{
+  "page": 1,
+  "pageSize": 5,
+  "maxPageSize": 5,
+  "pageCount": 200,
+  "resultCountCapped": true,
+  "results": [
+    {
+      "key": {
+        "href": "https://us.api.blizzard.com/data/wow/item/55271?namespace=static-12.0.5_66741-us"
+      },
+      "data": {
+        "level": 36,
+        "required_level": 29,
+        "sell_price": 251487,
+        "item_subclass": {
+          "name": {
+            "it_IT": "Varie",
+            "ru_RU": "Разное",
+            "en_GB": "Miscellaneous",
+            "zh_TW": "雜項",
+            "ko_KR": "기타",
+            "en_US": "Miscellaneous",
+            "es_MX": "Miscelánea",
+            "pt_BR": "Diversos",
+            "es_ES": "Miscelánea",
+            "zh_CN": "其它",
+            "fr_FR": "Divers",
+            "de_DE": "Verschiedenes"
+          },
+          "id": 0
+        },
+        "is_equippable": true,
+        "purchase_quantity": 1,
+        "media": {
+          "id": 55271
+        },
+        "item_class": {
+          "name": {
+            "it_IT": "Armature",
+            "ru_RU": "Доспехи",
+            "en_GB": "Armor",
+            "zh_TW": "護甲",
+            "ko_KR": "방어구",
+            "en_US": "Armor",
+            "es_MX": "Armadura",
+            "pt_BR": "Armadura",
+            "es_ES": "Armadura",
+            "zh_CN": "护甲",
+            "fr_FR": "Armure",
+            "de_DE": "Rüstung"
+          },
+          "id": 4
+        },
+        "quality": {
+          "name": {
+            "it_IT": "Raro",
+            "ru_RU": "Редкое",
+            "en_GB": "Rare",
+            "zh_TW": "精良",
+            "ko_KR": "희귀",
+            "en_US": "Rare",
+            "es_MX": "Raro",
+            "pt_BR": "Raro",
+            "es_ES": "Raro",
+            "zh_CN": "精良",
+            "fr_FR": "Rare",
+            "de_DE": "Selten"
+          },
+          "type": "RARE"
+        },
+        "max_count": 0,
+        "is_stackable": false,
+        "name": {
+          "it_IT": "Amuleto di Argentovivo",
+          "ru_RU": "Ртутный амулет",
+          "en_GB": "Quicksilver Amulet",
+          "zh_TW": "水銀護符",
+          "ko_KR": "쾌활의 아뮬렛",
+          "en_US": "Quicksilver Amulet",
+          "es_MX": "Amuleto de mercurio",
+          "pt_BR": "Amuleto de Mercúrio",
+          "es_ES": "Amuleto de mercurio",
+          "zh_CN": "水银坠饰",
+          "fr_FR": "Amulette de vif-argent",
+          "de_DE": "Quecksilberamulett"
+        },
+        "purchase_price": 1257438,
+        "id": 55271,
+        "inventory_type": {
+          "name": {
+            "it_IT": "Collo",
+            "ru_RU": "Шея",
+            "en_GB": "Neck",
+            "zh_TW": "頸部",
+            "ko_KR": "목",
+            "en_US": "Neck",
+            "es_MX": "Cuello",
+            "pt_BR": "Pescoço",
+            "es_ES": "Cuello",
+            "zh_CN": "颈部",
+            "fr_FR": "Cou",
+            "de_DE": "Hals"
+          },
+          "type": "NECK"
+        }
+      }
+    },
+    {
+      "key": {
+        "href": "https://us.api.blizzard.com/data/wow/item/29588?namespace=static-12.0.5_66741-us"
+      },
+      "data": {
+        "level": 1,
+        "required_level": 10,
+        "sell_price": 0,
+        "item_subclass": {
+          "name": {
+            "it_IT": "Cianfrusaglie",
+            "ru_RU": "Хлам",
+            "en_GB": "Junk",
+            "zh_TW": "垃圾",
+            "ko_KR": "잡동사니",
+            "en_US": "Junk",
+            "es_MX": "Chatarra",
+            "pt_BR": "Sucata",
+            "es_ES": "Chatarra",
+            "zh_CN": "垃圾",
+            "fr_FR": "Camelote",
+            "de_DE": "Plunder"
+          },
+          "id": 0
+        },
+        "is_equippable": false,
+        "purchase_quantity": 1,
+        "media": {
+          "id": 29588
+        },
+        "item_class": {
+          "name": {
+            "it_IT": "Varie",
+            "ru_RU": "Разное",
+            "en_GB": "Miscellaneous",
+            "zh_TW": "雜項",
+            "ko_KR": "기타",
+            "en_US": "Miscellaneous",
+            "es_MX": "Miscelánea",
+            "pt_BR": "Diversos",
+            "es_ES": "Miscelánea",
+            "zh_CN": "杂项",
+            "fr_FR": "Divers",
+            "de_DE": "Verschiedenes"
+          },
+          "id": 15
+        },
+        "quality": {
+          "name": {
+            "it_IT": "Comune",
+            "ru_RU": "Обычное",
+            "en_GB": "Common",
+            "zh_TW": "普通",
+            "ko_KR": "일반",
+            "en_US": "Common",
+            "es_MX": "Común",
+            "pt_BR": "Comum",
+            "es_ES": "Común",
+            "zh_CN": "普通",
+            "fr_FR": "Commun",
+            "de_DE": "Gewöhnlich"
+          },
+          "type": "COMMON"
+        },
+        "max_count": 1,
+        "is_stackable": false,
+        "name": {
+          "it_IT": "Lettera della Legione Infuocata",
+          "ru_RU": "Послание Пылающего Легиона",
+          "en_GB": "Burning Legion Missive",
+          "zh_TW": "燃燒軍團公文",
+          "ko_KR": "불타는 군단 서신",
+          "en_US": "Burning Legion Missive",
+          "es_MX": "Misiva de la Legión Ardiente",
+          "pt_BR": "Missiva da Legião Ardente",
+          "es_ES": "Misiva de la Legión Ardiente",
+          "zh_CN": "燃烧军团信件",
+          "fr_FR": "Missive de la Légion ardente",
+          "de_DE": "Schriftwechsel der Brennenden Legion"
+        },
+        "purchase_price": 0,
+        "id": 29588,
+        "inventory_type": {
+          "name": {
+            "it_IT": "Non equipaggiabile",
+            "ru_RU": "Неэкипируемое",
+            "en_GB": "Non-equippable",
+            "zh_TW": "無法裝備",
+            "ko_KR": "착용 불가",
+            "en_US": "Non-equippable",
+            "es_MX": "No equipable",
+            "pt_BR": "Não equipável",
+            "es_ES": "No se puede equipar",
+            "zh_CN": "无法装备",
+            "fr_FR": "Objet hors équipement",
+            "de_DE": "Nicht anlegbar"
+          },
+          "type": "NON_EQUIP"
+        }
+      }
+    },
+    {
+      "key": {
+        "href": "https://us.api.blizzard.com/data/wow/item/28318?namespace=static-12.0.5_66741-us"
+      },
+      "data": {
+        "level": 32,
+        "required_level": 27,
+        "sell_price": 425296,
+        "item_subclass": {
+          "name": {
+            "it_IT": "Piastre",
+            "ru_RU": "Латы",
+            "en_GB": "Plate",
+            "zh_TW": "鎧甲",
+            "ko_KR": "판금",
+            "en_US": "Plate",
+            "es_MX": "Placas",
+            "pt_BR": "Placas",
+            "es_ES": "Placas",
+            "zh_CN": "板甲",
+            "fr_FR": "Plaques",
+            "de_DE": "Platte"
+          },
+          "id": 4
+        },
+        "is_equippable": true,
+        "purchase_quantity": 1,
+        "media": {
+          "id": 28318
+        },
+        "item_class": {
+          "name": {
+            "it_IT": "Armature",
+            "ru_RU": "Доспехи",
+            "en_GB": "Armor",
+            "zh_TW": "護甲",
+            "ko_KR": "방어구",
+            "en_US": "Armor",
+            "es_MX": "Armadura",
+            "pt_BR": "Armadura",
+            "es_ES": "Armadura",
+            "zh_CN": "护甲",
+            "fr_FR": "Armure",
+            "de_DE": "Rüstung"
+          },
+          "id": 4
+        },
+        "quality": {
+          "name": {
+            "it_IT": "Raro",
+            "ru_RU": "Редкое",
+            "en_GB": "Rare",
+            "zh_TW": "精良",
+            "ko_KR": "희귀",
+            "en_US": "Rare",
+            "es_MX": "Raro",
+            "pt_BR": "Raro",
+            "es_ES": "Raro",
+            "zh_CN": "精良",
+            "fr_FR": "Rare",
+            "de_DE": "Selten"
+          },
+          "type": "RARE"
+        },
+        "max_count": 0,
+        "is_stackable": false,
+        "appearances": [
+          {
+            "id": 7142
+          }
+        ],
+        "name": {
+          "it_IT": "Stivali Pesanti d'Ossidiana",
+          "ru_RU": "Обсидиановые тяжелоступы",
+          "en_GB": "Obsidian Clodstompers",
+          "zh_TW": "黑曜石無情踏靴",
+          "ko_KR": "흑요석 흙디딤장화",
+          "en_US": "Obsidian Clodstompers",
+          "es_MX": "Pisabarros de obsidiana",
+          "pt_BR": "Pisaterras Obsidianas",
+          "es_ES": "Pisabarros de obsidiana",
+          "zh_CN": "黑曜石践踏者",
+          "fr_FR": "Écrase-boue en obsidienne",
+          "de_DE": "Obsidianstampfer"
+        },
+        "purchase_price": 2126482,
+        "id": 28318,
+        "inventory_type": {
+          "name": {
+            "it_IT": "Piedi",
+            "ru_RU": "Ступни",
+            "en_GB": "Feet",
+            "zh_TW": "腳",
+            "ko_KR": "발",
+            "en_US": "Feet",
+            "es_MX": "Pies",
+            "pt_BR": "Pés",
+            "es_ES": "Pies",
+            "zh_CN": "脚部",
+            "fr_FR": "Pieds",
+            "de_DE": "Füße"
+          },
+          "type": "FEET"
+        }
+      }
+    },
+    {
+      "key": {
+        "href": "https://us.api.blizzard.com/data/wow/item/28099?namespace=static-12.0.5_66741-us"
+      },
+      "data": {
+        "level": 1,
+        "required_level": 0,
+        "sell_price": 0,
+        "item_subclass": {
+          "name": {
+            "it_IT": "Missione",
+            "ru_RU": "Задания",
+            "en_GB": "Quest",
+            "zh_TW": "任務",
+            "ko_KR": "퀘스트",
+            "en_US": "Quest",
+            "es_MX": "Misión",
+            "pt_BR": "Missão",
+            "es_ES": "Misión",
+            "zh_CN": "任务",
+            "fr_FR": "Quête",
+            "de_DE": "Quest"
+          },
+          "id": 0
+        },
+        "is_equippable": false,
+        "purchase_quantity": 1,
+        "media": {
+          "id": 28099
+        },
+        "item_class": {
+          "name": {
+            "it_IT": "Oggetti di missione",
+            "ru_RU": "Задание",
+            "en_GB": "Quest",
+            "zh_TW": "任務",
+            "ko_KR": "퀘스트",
+            "en_US": "Quest",
+            "es_MX": "Misión",
+            "pt_BR": "Missão",
+            "es_ES": "Misión",
+            "zh_CN": "任务",
+            "fr_FR": "Quête",
+            "de_DE": "Quest"
+          },
+          "id": 12
+        },
+        "quality": {
+          "name": {
+            "it_IT": "Comune",
+            "ru_RU": "Обычное",
+            "en_GB": "Common",
+            "zh_TW": "普通",
+            "ko_KR": "일반",
+            "en_US": "Common",
+            "es_MX": "Común",
+            "pt_BR": "Comum",
+            "es_ES": "Común",
+            "zh_CN": "普通",
+            "fr_FR": "Commun",
+            "de_DE": "Gewöhnlich"
+          },
+          "type": "COMMON"
+        },
+        "max_count": 1,
+        "is_stackable": false,
+        "name": {
+          "it_IT": "Ordini del Maestro Istruttore Zurok",
+          "ru_RU": "Распоряжения военного инструктора Зурока",
+          "en_GB": "Drillmaster Zurok's Orders",
+          "zh_TW": "訓練員蘇洛克的命令",
+          "ko_KR": "훈련교관 주록의 명령서",
+          "en_US": "Drillmaster Zurok's Orders",
+          "es_MX": "Órdenes de maestro de maniobras Zurok",
+          "pt_BR": "Ordens do Instrutor Militar Zurok",
+          "es_ES": "Órdenes de maestro de maniobras Zurok",
+          "zh_CN": "教官祖罗克的命令",
+          "fr_FR": "Ordres du maître de manœuvre Zurok",
+          "de_DE": "Drillmeister Zuroks Anweisungen"
+        },
+        "purchase_price": 0,
+        "id": 28099,
+        "inventory_type": {
+          "name": {
+            "it_IT": "Non equipaggiabile",
+            "ru_RU": "Неэкипируемое",
+            "en_GB": "Non-equippable",
+            "zh_TW": "無法裝備",
+            "ko_KR": "착용 불가",
+            "en_US": "Non-equippable",
+            "es_MX": "No equipable",
+            "pt_BR": "Não equipável",
+            "es_ES": "No se puede equipar",
+            "zh_CN": "无法装备",
+            "fr_FR": "Objet hors équipement",
+            "de_DE": "Nicht anlegbar"
+          },
+          "type": "NON_EQUIP"
+        }
+      }
+    },
+    {
+      "key": {
+        "href": "https://us.api.blizzard.com/data/wow/item/29496?namespace=static-12.0.5_66741-us"
+      },
+      "data": {
+        "level": 32,
+        "required_level": 27,
+        "sell_price": 1500,
+        "item_subclass": {
+          "name": {
+            "it_IT": "Cuoio",
+            "ru_RU": "Кожа",
+            "en_GB": "Leather",
+            "zh_TW": "皮甲",
+            "ko_KR": "가죽",
+            "en_US": "Leather",
+            "es_MX": "Cuero",
+            "pt_BR": "Couro",
+            "es_ES": "Cuero",
+            "zh_CN": "皮甲",
+            "fr_FR": "Cuir",
+            "de_DE": "Leder"
+          },
+          "id": 2
+        },
+        "is_equippable": true,
+        "purchase_quantity": 1,
+        "media": {
+          "id": 29496
+        },
+        "item_class": {
+          "name": {
+            "it_IT": "Armature",
+            "ru_RU": "Доспехи",
+            "en_GB": "Armor",
+            "zh_TW": "護甲",
+            "ko_KR": "방어구",
+            "en_US": "Armor",
+            "es_MX": "Armadura",
+            "pt_BR": "Armadura",
+            "es_ES": "Armadura",
+            "zh_CN": "护甲",
+            "fr_FR": "Armure",
+            "de_DE": "Rüstung"
+          },
+          "id": 4
+        },
+        "quality": {
+          "name": {
+            "it_IT": "Raro",
+            "ru_RU": "Редкое",
+            "en_GB": "Rare",
+            "zh_TW": "精良",
+            "ko_KR": "희귀",
+            "en_US": "Rare",
+            "es_MX": "Raro",
+            "pt_BR": "Raro",
+            "es_ES": "Raro",
+            "zh_CN": "精良",
+            "fr_FR": "Rare",
+            "de_DE": "Selten"
+          },
+          "type": "RARE"
+        },
+        "max_count": 0,
+        "is_stackable": false,
+        "appearances": [
+          {
+            "id": 2083
+          }
+        ],
+        "name": {
+          "it_IT": "Guanti di Mammuceronte Incantati",
+          "ru_RU": "Зачарованные перчатки из шкуры копытня",
+          "en_GB": "Enchanted Clefthoof Gloves",
+          "zh_TW": "附魔裂蹄手套",
+          "ko_KR": "마력 깃든 갈래발굽 장갑",
+          "en_US": "Enchanted Clefthoof Gloves",
+          "es_MX": "Guantes de uñagrieta encantados",
+          "pt_BR": "Luvas Encantadas de Fenoceronte",
+          "es_ES": "Guantes de uñagrieta encantados",
+          "zh_CN": "魔化裂蹄手套",
+          "fr_FR": "Gants enchantés en sabot-fourchu",
+          "de_DE": "Verzauberte Grollhufhandschuhe"
+        },
+        "purchase_price": 7500,
+        "id": 29496,
+        "inventory_type": {
+          "name": {
+            "it_IT": "Mani",
+            "ru_RU": "Кисти рук",
+            "en_GB": "Hands",
+            "zh_TW": "手",
+            "ko_KR": "손",
+            "en_US": "Hands",
+            "es_MX": "Manos",
+            "pt_BR": "Mãos",
+            "es_ES": "Manos",
+            "zh_CN": "手部",
+            "fr_FR": "Mains",
+            "de_DE": "Hände"
+          },
+          "type": "HAND"
+        }
+      }
+    }
+  ]
+}

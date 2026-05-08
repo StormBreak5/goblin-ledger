@@ -65,6 +65,17 @@ Para verificar se o Worker está capturando os preços da Ficha de WoW corretame
 docker-compose logs -f worker
 ```
 
+### 4. Executar o Coletor de Histórico (Backfill)
+
+Caso queira carregar dados históricos passados para treinamento de modelos, você pode executar o script de *backfill* manualmente.
+
+Entre no container do worker (ou rode localmente se tiver o Python configurado) e execute o script:
+
+```bash
+cd backend
+docker-compose exec worker python src/scraper/backfill.py --region US
+```
+
 ---
 
 ## 📖 Documentação Adicional
