@@ -42,8 +42,8 @@ def sync_items_from_blizzard():
         }]
         
         # Extrair todos os IDs válidos e em circulação no momento da Casa de Leilões
-        logger.info("Extraindo IDs do dump da Casa de Leilões...")
-        active_item_ids = api_client.fetch_active_auction_item_ids(region="us", connected_realm_id=11)
+        logger.info("Extraindo IDs do dump da Casa de Leilões do Azralon...")
+        active_item_ids = api_client.fetch_active_auction_item_ids(region="us", connected_realm_id=3209)
         
         for item_id in active_item_ids:
             items_to_upsert.append({
