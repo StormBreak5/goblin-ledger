@@ -1,8 +1,10 @@
 import os
 import time
+from datetime import datetime
 import logging
 from dotenv import load_dotenv
 import sys
+from apscheduler.schedulers.blocking import BlockingScheduler
 
 # Corrige imports quando rodando direto.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -63,22 +65,41 @@ def job_fetch_wow_token_price():
     finally:
         session.close()
 
+def job_run_backfill():
+    logger.info(">>> Iniciando rotina de backfill de históricos...")
+    from src.scraper.backfill import run_backfill, get_items_to_process
+    session = get_session()
+    try:
+        items = get_items_to_process(session)
+        if items:
+            run_backfill(session, items, "3209")
+        else:
+            logger.info("Nenhum item para backfill.")
+    except Exception as e:
+        logger.error(f"Erro no job de backfill: {e}")
+    finally:
+        session.close()
+
 if __name__ == "__main__":
     load_dotenv()
     
     logger.info("====================================")
-    logger.info("Iniciando Goblin Ledger Worker...")
+    logger.info("Iniciando Goblin Ledger Worker (APScheduler)...")
     logger.info("====================================")
 
     # Garante criacao inicial
     init_db()
 
-    # Tempo padrao de wait: 15 minutos em segundos (15 * 60 = 900)
-    poll_interval_seconds = int(os.getenv("POLL_INTERVAL_SECONDS", 900))
+    scheduler = BlockingScheduler()
 
-    while True:
-        logger.info(">>> Iniciando varredura...")
-        job_fetch_wow_token_price()
-        
-        logger.info(f"Dormindo por {poll_interval_seconds} segundos...")
-        time.sleep(poll_interval_seconds)
+    # Agenda a Ficha do WoW a cada 15 minutos (começando agora)
+    scheduler.add_job(job_fetch_wow_token_price, 'interval', minutes=15, id='token_job', next_run_time=datetime.now())
+    
+    # Agenda o Backfill a cada 6 horas (começando agora)
+    scheduler.add_job(job_run_backfill, 'interval', hours=6, id='backfill_job', next_run_time=datetime.now())
+    
+    logger.info("Scheduler rodando. Pressione Ctrl+C para sair.")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Worker encerrado.")

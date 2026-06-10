@@ -60,3 +60,30 @@ class BlizzardApiClient:
         
         logger.info(f"Total de {len(unique_item_ids)} itens ÚNICOS leiloáveis encontrados ativos no momento.")
         return unique_item_ids
+
+    def fetch_active_commodity_item_ids(self, region: str = "us") -> set:
+        """
+        Busca todos os leilões ativos de commodities da região inteira.
+        Esses itens não aparecem no endpoint de connected-realm.
+        """
+        token = self.auth_manager.get_token()
+        namespace = f"dynamic-{region}"
+        locale = "en_US" if region == "us" else "en_GB"
+        
+        url = (
+            f"https://{region}.api.blizzard.com/data/wow/auctions/commodities"
+            f"?namespace={namespace}&locale={locale}"
+        )
+        
+        logger.info(f"Buscando dump de commodities da região {region} para extração de IDs...")
+        headers = {"Authorization": f"Bearer {token}"}
+        
+        response = requests.get(url, headers=headers, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        
+        auctions = data.get("auctions", [])
+        unique_item_ids = {a.get("item", {}).get("id") for a in auctions if a.get("item", {}).get("id")}
+        
+        logger.info(f"Total de {len(unique_item_ids)} commodities ÚNICAS encontradas ativas no momento.")
+        return unique_item_ids

@@ -41,11 +41,19 @@ def sync_items_from_blizzard():
             "metadata_info": {"item_class": "Token", "expansion_id": None}
         }]
         
-        # Extrair todos os IDs válidos e em circulação no momento da Casa de Leilões
+        # Extrair todos os IDs válidos e em circulação no momento da Casa de Leilões (Realm)
         logger.info("Extraindo IDs do dump da Casa de Leilões do Azralon...")
-        active_item_ids = api_client.fetch_active_auction_item_ids(region="us", connected_realm_id=3209)
+        realm_item_ids = api_client.fetch_active_auction_item_ids(region="us", connected_realm_id=3209)
         
-        for item_id in active_item_ids:
+        # Extrair todos os IDs de commodities válidos globalmente
+        logger.info("Extraindo IDs do dump de commodities globais (US)...")
+        commodity_item_ids = api_client.fetch_active_commodity_item_ids(region="us")
+        
+        # Combinar todos
+        all_active_ids = realm_item_ids.union(commodity_item_ids)
+        logger.info(f"Total combinado de IDs a serem rastreados: {len(all_active_ids)}")
+        
+        for item_id in all_active_ids:
             items_to_upsert.append({
                 "game": "wow",
                 "external_item_id": str(item_id),

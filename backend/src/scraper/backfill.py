@@ -47,12 +47,16 @@ async def fetch_item_history(session: aiohttp.ClientSession, region_id: str, ite
     if last_etag:
         headers['If-None-Match'] = last_etag
         
-    # Try local realm first, if 404, fallback to regional commodities
-    urls_to_try = [
-        f'https://undermine.exchange/data/{region_id}/{bucket_id}/{item_id}.bin',
-    ]
-    if region_id != US_COMMODITY_CONNECTED_ID:
-        urls_to_try.append(f'https://undermine.exchange/data/{US_COMMODITY_CONNECTED_ID}/{bucket_id}/{item_id}.bin')
+    # Special route for WoW Token
+    if str(item_id) == "122284":
+        urls_to_try = ['https://undermine.exchange/data/global/token-us.bin']
+    else:
+        # Try local realm first, if 404, fallback to regional commodities
+        urls_to_try = [
+            f'https://undermine.exchange/data/{region_id}/{bucket_id}/{item_id}.bin',
+        ]
+        if region_id != US_COMMODITY_CONNECTED_ID:
+            urls_to_try.append(f'https://undermine.exchange/data/{US_COMMODITY_CONNECTED_ID}/{bucket_id}/{item_id}.bin')
     
     for url in urls_to_try:
         try:
