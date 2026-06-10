@@ -15,7 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog, ExecutionStatus
 from src.scraper.parser import decompress_and_parse
-from src.models.tracked_item import TrackedItem
+from src.models.item import Item
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +24,16 @@ MAX_CONCURRENT_REQUESTS = 5
 REQUEST_DELAY_SECONDS = 0.5
 US_COMMODITY_CONNECTED_ID = "32512"  # Undermine Exchange ID for US regional commodities
 
-def get_items_to_process(session: Session) -> List[TrackedItem]:
+def get_items_to_process(session: Session) -> List[Item]:
     """
     Retrieves the list of active tracked items from the database.
     """
-    return session.query(TrackedItem).filter(
-        TrackedItem.game == 'wow',
-        TrackedItem.is_active == True
+    return session.query(Item).filter(
+        Item.game == 'wow',
+        Item.is_active == True
     ).all()
 
-async def fetch_item_history(session: aiohttp.ClientSession, region_id: str, item: TrackedItem, last_etag: str = None) -> Tuple[int, Any, str, str]:
+async def fetch_item_history(session: aiohttp.ClientSession, region_id: str, item: Item, last_etag: str = None) -> Tuple[int, Any, str, str]:
     """Fetch item history, returning (status_code, parsed_data, new_etag, error_msg)"""
     
     item_id = int(item.external_item_id)
@@ -81,7 +81,7 @@ async def fetch_item_history(session: aiohttp.ClientSession, region_id: str, ite
     return 404, None, last_etag, "HTTP 404"
 
 
-async def worker(item: TrackedItem, region_id: str, semaphore: asyncio.Semaphore, session: aiohttp.ClientSession, results: list):
+async def worker(item: Item, region_id: str, semaphore: asyncio.Semaphore, session: aiohttp.ClientSession, results: list):
     """Worker task to process a single item."""
     async with semaphore:
         last_etag = item.metadata_info.get('last_etag') if item.metadata_info else None
@@ -106,7 +106,7 @@ async def worker(item: TrackedItem, region_id: str, semaphore: asyncio.Semaphore
             
         await asyncio.sleep(REQUEST_DELAY_SECONDS)
 
-async def run_backfill_async(items: List[TrackedItem], region_id: str) -> list:
+async def run_backfill_async(items: List[Item], region_id: str) -> list:
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
     results = []
     
@@ -136,15 +136,19 @@ def save_results(db_session: Session, results: list, region_id: str, log: Scrape
             points = parsed.get('snapshots', []) + parsed.get('daily', [])
             
             for p in points:
-                # Convert timestamp from ms to datetime
-                timestamp = datetime.fromtimestamp(p['snapshot'] / 1000.0, tz=timezone.utc).replace(tzinfo=None)
-                values_to_insert.append({
-                    "item_id": int(item.external_item_id),
-                    "region": region_id,
-                    "timestamp": timestamp,
-                    "price": p['price'],
-                    "quantity": p['quantity']
-                })
+                try:
+                    # Convert timestamp from ms to datetime
+                    timestamp = datetime.fromtimestamp(p['snapshot'] / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+                    values_to_insert.append({
+                        "item_id": int(item.external_item_id),
+                        "region": region_id,
+                        "timestamp": timestamp,
+                        "price": p['price'],
+                        "quantity": p['quantity']
+                    })
+                except (ValueError, OverflowError, OSError) as e:
+                    logger.warning(f"Invalid timestamp {p['snapshot']} for item {item.external_item_id}: {e}")
+                    continue
                 
             # Update item's ETag
             new_meta = dict(item.metadata_info) if item.metadata_info else {}
@@ -164,7 +168,7 @@ def save_results(db_session: Session, results: list, region_id: str, log: Scrape
     # Execute batch update of ETags
     if items_to_update:
         logger.info(f"Batch updating {len(items_to_update)} item ETags...")
-        db_session.execute(update(TrackedItem), items_to_update)
+        db_session.execute(update(Item), items_to_update)
         
     db_session.commit()
     
@@ -176,7 +180,7 @@ def save_results(db_session: Session, results: list, region_id: str, log: Scrape
     
     logger.info(f"Backfill finished. Processed {items_processed} items. Inserted {total_inserted} new price points.")
 
-def run_backfill(session: Session, items: List[TrackedItem], region: str):
+def run_backfill(session: Session, items: List[Item], region: str):
     log = ScraperExecutionLog(
         execution_start=datetime.utcnow(),
         status=ExecutionStatus.RUNNING,
@@ -202,7 +206,9 @@ def run_backfill(session: Session, items: List[TrackedItem], region: str):
         sys.exit(1)
         
     except Exception as e:
-        logger.error(f"Backfill failed: {e}")
+        import traceback
+        traceback_str = traceback.format_exc()
+        logger.error(f"Backfill failed: {e}\n{traceback_str}")
         log.status = ExecutionStatus.FAILED
         log.error_message = str(e)
         log.execution_end = datetime.utcnow()

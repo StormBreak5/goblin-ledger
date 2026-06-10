@@ -12,6 +12,21 @@ def get_db():
     finally:
         db.close()
 
+@router.get("/items/search")
+def search_items(
+    q: str = Query(..., min_length=2, description="Termo para buscar o nome do item"),
+    limit: int = Query(10, description="Quantidade máxima de itens retornados"),
+    db: Session = Depends(get_db)
+):
+    """
+    Busca itens ativos pelo nome usando Autocomplete.
+    """
+    try:
+        service = ItemService(db)
+        return service.search_items(query=q, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/items/{item_id}/history")
 def get_item_history(
     item_id: int, 
@@ -25,5 +40,20 @@ def get_item_history(
         service = ItemService(db)
         history = service.get_item_history(item_id=item_id, window=window)
         return history
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/items/{item_id}/current-auctions")
+def get_current_auctions(
+    item_id: int, 
+    db: Session = Depends(get_db)
+):
+    """
+    Recupera os leilões atuais de um item específico na Casa de Leilões em tempo real.
+    """
+    try:
+        service = ItemService(db)
+        auctions = service.get_current_auctions(item_id=item_id)
+        return auctions
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

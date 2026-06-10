@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ITEM_IDS agora são dinâmicos através da tabela TrackedItem
+# ITEM_IDS agora são dinâmicos através da tabela Item
 
 def job_fetch_wow_token_price():
     client_id = os.getenv("BLIZZARD_CLIENT_ID")
@@ -34,19 +34,19 @@ def job_fetch_wow_token_price():
     repo = ItemPriceRepository(session)
 
     try:
-        from src.models.tracked_item import TrackedItem
-        from src.scraper.sync_tracked_items import sync_items_from_blizzard
+        from src.models.item import Item
+        from src.scraper.sync_items import sync_items_from_blizzard
         
         # Auto-Bootstrap Logic
-        count = session.query(TrackedItem).count()
+        count = session.query(Item).count()
         if count == 0:
-            logger.info("Banco TrackedItem vazio. Iniciando Auto-Bootstrap...")
+            logger.info("Banco Item vazio. Iniciando Auto-Bootstrap...")
             sync_items_from_blizzard()
             
         # Puxa itens dinamicamente
-        active_items = session.query(TrackedItem.external_item_id).filter(
-            TrackedItem.game == 'wow',
-            TrackedItem.is_active == True
+        active_items = session.query(Item.external_item_id).filter(
+            Item.game == 'wow',
+            Item.is_active == True
         ).all()
         
         item_ids = [int(it[0]) for it in active_items]

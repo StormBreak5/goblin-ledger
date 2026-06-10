@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.repositories.database import init_db, get_session
 from src.services.api_client import BlizzardApiClient
-from src.models.tracked_item import TrackedItem
+from src.models.item import Item
 from sqlalchemy.dialects.postgresql import insert
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ WOW_TOKEN_ID = 122284
 def sync_items_from_blizzard():
     """
     Sincroniza os itens leiloáveis ativos do momento lendo o dump da AH da Blizzard
-    e armazena no TrackedItem para serem rastreados.
+    e armazena no Item para serem rastreados.
     """
     logger.info("Iniciando sincronização de itens da Blizzard...")
     client_id = os.getenv("BLIZZARD_CLIENT_ID")
@@ -58,7 +58,7 @@ def sync_items_from_blizzard():
             chunk_size = 2000
             for i in range(0, len(items_to_upsert), chunk_size):
                 chunk = items_to_upsert[i:i+chunk_size]
-                stmt = insert(TrackedItem).values(chunk)
+                stmt = insert(Item).values(chunk)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=['game', 'external_item_id'],
                     set_={
@@ -70,6 +70,10 @@ def sync_items_from_blizzard():
                 
             session.commit()
             logger.info(f"Sincronização concluída! Total na base inserido/atualizado: {len(items_to_upsert)}")
+            
+            # Populate item details (name and icon) asynchronously
+            from src.scraper.populate_item_details import populate_details
+            populate_details()
         else:
             logger.warning("Nenhum item foi recebido para upsert.")
             

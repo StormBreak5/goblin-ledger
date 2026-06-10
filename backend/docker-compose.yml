@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASS:-goblin_password}
       POSTGRES_DB: ${DB_NAME:-goblinledger}
     ports:
-      - "5434:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
