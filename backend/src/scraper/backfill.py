@@ -151,6 +151,13 @@ class MonitorDaFonte:
             self.motivo = FALHA_FONTE
 
 
+def arquivo_sem_dados(dados: Dict[str, Any]) -> bool:
+    """CU10-C1 passo 3: o arquivo decodificado não traz nenhum ponto com preço ou quantidade (o stub de 45 bytes que a
+    Undermine publica no reino para um item que só existe como commodity)."""
+    pontos = list(dados.get('snapshots', [])) + list(dados.get('daily', []))
+    return not any(p['price'] > 0 or p['quantity'] > 0 for p in pontos)
+
+
 async def fetch_item_history(
     session: aiohttp.ClientSession,
     region_id: str,
@@ -186,6 +193,11 @@ async def fetch_item_history(
                         parsed_data = decompress_and_parse(data)
                     except Exception as e:  # CU10-C1-FE3: o arquivo não segue mais o formato conhecido
                         return STATUS_FORMATO_INVALIDO, None, last_etag, f"Arquivo ilegível ({url}): {e!r}", None
+                    if arquivo_sem_dados(parsed_data):
+                        # O arquivo do reino de um item de commodity existe (200), mas é um stub sem nenhum preço:
+                        # o histórico está no arquivo das commodities da região, que só seria tentado num 404.
+                        logger.debug(f"Item {target.item_id}: arquivo de {source} sem dados; tentando a próxima origem")
+                        continue
                     return 200, parsed_data, new_etag, None, source
 
                 if response.status == 429:

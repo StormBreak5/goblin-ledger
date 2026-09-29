@@ -348,3 +348,67 @@ def test_cu10_c1_os_pontos_da_blizzard_nao_escondem_o_historico_ainda_nao_import
     resumo = _importar(db_session, [item], incremental=True)
 
     assert resumo.registros_importados == 10
+
+
+# ---------------------------------------------------------------------- arquivo stub do reino (item de commodity)
+
+
+def _arquivo_stub() -> bytes:
+    """O que a Undermine publica no reino para um item que só existe como commodity: 1 dia e 2 snapshots sem preço nem quantidade."""
+    return arquivo_bin(snapshots=[(1_766_620_560, 0, 0), (1_766_627_760, 0, 0)], diarios=[(20_447, 0, 0)])
+
+
+def test_cu10_c1_passo3_arquivo_do_reino_sem_dados_cai_para_o_das_commodities():
+    """O reino responde 200 com um stub (não 404): o histórico verdadeiro está no arquivo das commodities."""
+    conteudo = arquivo_bin(snapshots=[(1_790_000_000, 25, 3)], diarios=[(20_000, 20, 8)])
+    http = _SessaoHttpFalsa([], [_RespostaFalsa(200, _arquivo_stub()), _RespostaFalsa(200, conteudo)])
+
+    status, dados, etag, erro, origem = asyncio.run(
+        backfill.fetch_item_history(http, REGIAO, backfill.BackfillTarget(pk=None, item_id=159874))
+    )
+
+    assert (status, origem) == (200, REGIAO_DAS_COMMODITIES)
+    assert len(dados["daily"]) == 1 and dados["daily"][0]["price"] == 2000  # os dados são os das commodities, e não o stub
+
+
+def test_cu10_c1_passo3_arquivo_do_reino_com_dados_nao_consulta_as_commodities():
+    conteudo = arquivo_bin(snapshots=[], diarios=[(20_000, 20, 8)])
+    http = _SessaoHttpFalsa([], [_RespostaFalsa(200, conteudo)])  # uma segunda requisição estouraria a lista de respostas
+
+    status, dados, etag, erro, origem = asyncio.run(
+        backfill.fetch_item_history(http, REGIAO, backfill.BackfillTarget(pk=None, item_id=15259))
+    )
+
+    assert (status, origem) == (200, REGIAO)
+
+
+def test_cu10_c1_passo3_stub_no_reino_e_nas_commodities_e_item_sem_dados():
+    http = _SessaoHttpFalsa([], [_RespostaFalsa(200, _arquivo_stub()), _RespostaFalsa(404)])
+
+    status, dados, etag, erro, origem = asyncio.run(
+        backfill.fetch_item_history(http, REGIAO, backfill.BackfillTarget(pk=None, item_id=9703))
+    )
+
+    assert (status, dados) == (404, None)  # nenhuma origem tem dados: o item é contado como "sem arquivo na fonte"
+
+
+def test_cu10_c1_arquivo_sem_dados_reconhece_o_stub_e_so_ele():
+    assert backfill.arquivo_sem_dados(dados_decodificados([], []))
+    assert backfill.arquivo_sem_dados({"snapshots": [{"price": 0, "quantity": 0}], "daily": [{"price": 0, "quantity": 0}]})
+    assert not backfill.arquivo_sem_dados({"snapshots": [], "daily": [{"price": 0, "quantity": 4}]})  # dia sem preço mas com quantidade
+    assert not backfill.arquivo_sem_dados({"snapshots": [{"price": 100, "quantity": 0}], "daily": []})
+
+
+def test_cu10_c1_etag_sem_origem_registrada_nao_e_reaproveitado_na_recuperacao(db_session, add_item, fonte_falsa):
+    """Um ETag guardado antes de `source_region` existir pode ser o do stub do reino: a recuperação não o usa."""
+    legado, atual = add_item(9811, "Legado"), add_item(9812, "Atual")
+    legado.metadata_info = {"source": "ah_dump", "last_etag": '"694ca329-2d"'}
+    atual.metadata_info = {"last_etag": '"6abc0233-1413"', "source_region": REGIAO}
+    db_session.commit()
+    for item_id in (9811, 9812):
+        fonte_falsa.com_dias(item_id, dias(2))
+
+    _importar(db_session, [legado, atual], incremental=True)
+
+    etags = {alvo.item_id: alvo.last_etag for alvo in fonte_falsa.chamadas}
+    assert etags == {9811: None, 9812: '"6abc0233-1413"'}

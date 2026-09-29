@@ -268,7 +268,9 @@ class ImportacaoHistoricoService:
 
         def metadados(item: Item) -> dict:
             dados = dict(item.metadata_info or {})
-            if not incremental:
+            # Um ETag sem a origem que o serviu (guardado antes de `source_region` existir) pode ser o de um arquivo stub
+            # do reino: com ele a fonte responderia 304 e a commodity nunca seria consultada.
+            if not incremental or "source_region" not in dados:
                 dados.pop("last_etag", None)
             return dados
 
