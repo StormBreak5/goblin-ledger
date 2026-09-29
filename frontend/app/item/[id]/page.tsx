@@ -10,6 +10,7 @@ interface HistoricalDataPoint {
   timestamp: string;
   price: number;
   quantity: number;
+  granularity?: "DIARIA" | "HORARIA";
 }
 
 export default function ItemDetailsPage() {

@@ -1,7 +1,7 @@
 import math
 import re
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.scraper.models import HistoricalItemPrice
 from src.models.item import Item
 from src.models.api_models import ItemDetail, ItemSearchResponse, ItemSummary
@@ -68,9 +68,13 @@ class ItemService:
         formatted_results = []
         for r in results:
             formatted_results.append({
-                "timestamp": r.timestamp.isoformat(),
+                # O banco guarda UTC sem fuso. Sem o "+00:00" o navegador leria o horário como local (3 h de erro em
+                # GMT-3); com ele o JavaScript converte para o fuso de quem está vendo.
+                "timestamp": r.timestamp.replace(tzinfo=timezone.utc).isoformat(),
                 "price": r.price,
-                "quantity": r.quantity
+                "quantity": r.quantity,
+                # RN16: "DIARIA" é o dia inteiro em UTC (00:00 UTC); "HORARIA" é um instante.
+                "granularity": r.granularidade,
             })
             
         return formatted_results

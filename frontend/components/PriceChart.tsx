@@ -16,9 +16,10 @@ import {
 } from "recharts";
 
 interface HistoricalDataPoint {
-  timestamp: string;
+  timestamp: string; // instante em UTC, com o fuso explícito (+00:00)
   price: number;
   quantity: number;
+  granularity?: "DIARIA" | "HORARIA"; // RN16
 }
 
 interface PriceChartProps {
@@ -29,12 +30,18 @@ export default function PriceChart({ data }: PriceChartProps) {
   const formattedData = useMemo(() => {
     return data.map((d) => {
       const date = new Date(d.timestamp);
+      // Um ponto diário é o dia inteiro em UTC (00:00 UTC): convertido para GMT-3 apareceria no dia anterior, às 21:00.
+      // Ele mostra a data em UTC e "dia inteiro"; o ponto horário é um instante e aparece no fuso local (GMT-3).
+      const diario = d.granularity === "DIARIA";
+      const zona: Intl.DateTimeFormatOptions = diario ? { timeZone: "UTC" } : {};
       return {
         ...d,
         goldPrice: d.price / 10000,
-        displayDate: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-        displayDateFull: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-        displayTime: date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        displayDate: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...zona }),
+        displayDateFull: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', ...zona }),
+        displayTime: diario
+          ? "dia inteiro"
+          : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }),
       };
     });
   }, [data]);
