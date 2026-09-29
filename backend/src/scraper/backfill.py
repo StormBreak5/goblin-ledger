@@ -35,6 +35,10 @@ INSERT_PAGE_SIZE = 10_000  # linhas por INSERT
 # CU10-C1 passo 8: só chegam ao banco os pontos mais novos que o último já gravado do item. A margem cobre
 # o agregado diário do dia corrente, que só é finalizado (com data 00:00) depois de já existirem snapshots do dia.
 INCREMENTAL_LOOKBACK = timedelta(days=2)
+# CU10-C1 passo 7: pontos com data fora deste intervalo são registros inconsistentes e são descartados
+# (o limite inferior é anterior ao lançamento do jogo; a tolerância no futuro cobre diferenças de relógio).
+MIN_VALID_TIMESTAMP = datetime(2004, 1, 1)
+FUTURE_TOLERANCE = timedelta(days=1)
 
 INSERT_SQL = (
     f"INSERT INTO {HistoricalItemPrice.__tablename__} (item_id, region, timestamp, price, quantity) VALUES %s "
@@ -191,12 +195,15 @@ class ChunkWriter:
         self.last_seen = last_seen
         self.items_processed = 0
         self.records_inserted = 0
+        self.records_discarded = 0
         self.write_seconds = 0.0
 
     def __call__(self, results: list) -> None:
         started = time.monotonic()
         rows: List[tuple] = []
         items_to_update = []
+        discarded = 0
+        latest_valid = datetime.now(timezone.utc).replace(tzinfo=None) + FUTURE_TOLERANCE
 
         for r in results:
             target: BackfillTarget = r['target']
@@ -212,8 +219,13 @@ class ChunkWriter:
                     try:
                         # Convert timestamp from ms to datetime
                         timestamp = datetime.fromtimestamp(p['snapshot'] / 1000.0, tz=timezone.utc).replace(tzinfo=None)
-                    except (ValueError, OverflowError, OSError) as e:
-                        logger.warning(f"Invalid timestamp {p['snapshot']} for item {target.item_id}: {e}")
+                    except (ValueError, OverflowError, OSError):
+                        discarded += 1
+                        continue
+                    # CU10-C1 passo 7: no Linux uma data absurda converte sem erro e não pode chegar ao banco
+                    # (nem virar o "último ponto" do item, que alimenta o filtro incremental).
+                    if not MIN_VALID_TIMESTAMP <= timestamp <= latest_valid:
+                        discarded += 1
                         continue
                     if cutoff is not None and timestamp <= cutoff:
                         continue
@@ -229,6 +241,9 @@ class ChunkWriter:
         if items_to_update:
             self.db_session.execute(update(Item), items_to_update)
 
+        self.records_discarded += discarded
+        if discarded:
+            logger.warning(f"Chunk had {discarded} price points with an invalid date; discarded (CU10-C1 step 7).")
         self.write_seconds += time.monotonic() - started
         logger.info(f"Chunk saved: {len(results)} items, {len(rows)} price points sent ({self.records_inserted} inserted so far).")
 
@@ -291,7 +306,7 @@ def run_backfill(session: Session, items: List[Item], region: str):
         session.commit()
 
         logger.info(
-            f"Backfill finished. Processed {writer.items_processed} items. Inserted {writer.records_inserted} new price points. "
+            f"Backfill finished. Processed {writer.items_processed} items. Inserted {writer.records_inserted} new price points, discarded {writer.records_discarded} invalid ones. "
             f"Timings: download+decode={download_seconds:.1f}s, write={writer.write_seconds:.1f}s, total={time.monotonic() - started:.1f}s."
         )
 

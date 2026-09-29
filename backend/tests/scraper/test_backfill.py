@@ -5,6 +5,7 @@ estratégia de gravação do backfill (lotes, incremental, origem do item e atom
 Rodam contra um PostgreSQL temporário (ver tests/conftest.py), porque a gravação usa `ON CONFLICT`.
 O download é substituído por uma fonte falsa: nenhum teste acessa a Undermine Exchange.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -151,3 +152,35 @@ def test_cu10_c1_fe2_falha_de_banco_desfaz_importacao_sem_registros_parciais(db_
     log = db_session.query(ScraperExecutionLog).one()
     assert log.status == ExecutionStatus.FAILED
     assert "connection lost" in log.error_message
+
+
+def test_cu10_c1_fluxo_principal_descarta_registros_com_data_invalida(db_session, add_item, mocker, caplog):
+    """CU10-C1 passo 7: datas inválidas não chegam ao banco nem contaminam o filtro incremental."""
+    item = add_item(9401, "Silk Cloth")
+    mocker.patch.object(backfill, "REQUEST_DELAY_SECONDS", 0)
+    agora = datetime.now(timezone.utc)
+    invalidos_em_ms = [
+        107365857060000,  # ano 5372 (tempo em segundos lido como minutos): no Linux converte sem erro, no Windows dá OSError
+        int((agora + timedelta(days=30)).timestamp() * 1000),  # no futuro
+        int(datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp() * 1000),  # antes do lançamento do jogo
+    ]
+    series = {"dias": _days(3)}
+
+    async def fonte_com_lixo(http_session, region_id, target):
+        dados = _parsed(series["dias"])
+        dados["snapshots"] = [{"snapshot": ms, "price": 1, "quantity": 1} for ms in invalidos_em_ms]
+        return 200, dados, f'"etag-{len(series["dias"])}"', None, REGION
+
+    mocker.patch.object(backfill, "fetch_item_history", fonte_com_lixo)
+
+    with caplog.at_level(logging.WARNING, logger="src.scraper.backfill"):
+        backfill.run_backfill(db_session, [item], REGION)
+
+    datas = [linha.timestamp for linha in db_session.query(HistoricalItemPrice).order_by(HistoricalItemPrice.timestamp)]
+    assert datas == _days(3)
+    assert "3 price points with an invalid date" in caplog.text
+
+    # A fonte ganha um dia real: entra normalmente, o que não aconteceria se uma data absurda fosse o "último ponto".
+    series["dias"] = _days(4)
+    backfill.run_backfill(db_session, [item], REGION)
+    assert _total_de_linhas(db_session) == 4
