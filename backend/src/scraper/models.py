@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Column, DateTime, Enum, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, Enum, Integer, String, Text, UniqueConstraint
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import declarative_base
 from src.repositories.database import Base
@@ -20,6 +20,10 @@ class HistoricalItemPrice(Base):
     timestamp = Column(DateTime, index=True, nullable=False)
     price = Column(BigInteger, nullable=False)
     quantity = Column(Integer, nullable=True)
+    # CU09: 'UNDERMINE' (backfill dos .bin, diário) ou 'BLIZZARD' (ciclo horário; price = valor de mercado, RN06).
+    origem = Column(String(10), nullable=False, default="UNDERMINE", server_default="UNDERMINE")
+    # CU09-C2 passo 4 (RN12): volume do ciclo marcado como anômalo (injeção artificial de itens por bots).
+    anomalia = Column(Boolean, nullable=False, default=False, server_default="false")
 
     __table_args__ = (
         UniqueConstraint('item_id', 'region', 'timestamp', name='uq_item_region_timestamp'),

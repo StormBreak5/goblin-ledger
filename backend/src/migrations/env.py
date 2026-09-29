@@ -7,6 +7,7 @@ from src.repositories.database import Base, get_database_url
 # Importa os modelos para que suas tabelas existam em Base.metadata (usado pelo --autogenerate e pelo teste de deriva).
 from src.models.item import Item  # noqa: F401
 from src.models.item_price import ItemPrice  # noqa: F401
+from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino  # noqa: F401
 from src.models.usuario import Sessao, TentativaLogin, TokenRecuperacao, Usuario  # noqa: F401
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog  # noqa: F401
 
