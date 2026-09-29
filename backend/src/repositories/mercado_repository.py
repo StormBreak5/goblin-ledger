@@ -230,6 +230,18 @@ class MercadoRepository:
             {"desatualizado": True, "ultima_falha_em": quando}
         )
 
+    def mercado_do_item(self, item_id: int) -> Optional[int]:
+        """CU04-C1 passo 4: id do reino (mercado) do ponto mais recente da Blizzard para o item, ou None se ele nunca foi
+        coletado pelo ciclo do CU09 (commodities ficam em 32512, o "reino" das commodities da região)."""
+        regiao = (
+            self.session.query(HistoricalItemPrice.region)
+            .filter(HistoricalItemPrice.item_id == item_id, HistoricalItemPrice.origem == "BLIZZARD")
+            .order_by(HistoricalItemPrice.timestamp.desc())
+            .limit(1)
+            .scalar()
+        )
+        return int(regiao) if regiao is not None and regiao.isdigit() else None
+
     def estados(self) -> list[EstadoMercado]:
         return self.session.query(EstadoMercado).order_by(EstadoMercado.mercado).all()
 

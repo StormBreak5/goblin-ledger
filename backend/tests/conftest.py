@@ -19,6 +19,7 @@ from src.controllers import item_controller
 from src.models.cobertura import AptidaoTreinamento
 from src.models.evento import EventoJogo, ExtracaoEvento
 from src.models.item import Item
+from src.models.item_price import ItemPrice
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
 from src.models.usuario import TentativaLogin, Usuario
 from src.repositories.database import run_migrations
@@ -146,6 +147,7 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session.query(EstadoMercado).delete()
     session.query(CicloIngestao).delete()
     session.query(Reino).delete()
+    session.query(ItemPrice).delete()
     session.query(EventoJogo).delete()
     session.query(ExtracaoEvento).delete()
     session.query(AptidaoTreinamento).delete()

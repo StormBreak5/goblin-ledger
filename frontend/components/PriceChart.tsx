@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import type { PontoDoHistorico } from "@/lib/historicoDoItem";
 import {
   LineChart,
   Line,
@@ -15,21 +16,16 @@ import {
   Legend
 } from "recharts";
 
-interface HistoricalDataPoint {
-  timestamp: string; // instante em UTC, com o fuso explícito (+00:00)
-  price: number;
-  quantity: number | null; // a Ficha do WoW não tem volume
-  granularity?: "DIARIA" | "HORARIA"; // RN16
-}
-
 const UM_DIA_MS = 86_400_000;
 const UM_HORA_MS = 3_600_000;
 
 interface PriceChartProps {
-  data: HistoricalDataPoint[];
+  data: PontoDoHistorico[];
+  /** CU04-C1-FA2: texto exibido no lugar do gráfico quando não há pontos (vem do backend). */
+  mensagemVazia?: string;
 }
 
-export default function PriceChart({ data }: PriceChartProps) {
+export default function PriceChart({ data, mensagemVazia = "Ainda não há dados históricos coletados suficientes para este item" }: PriceChartProps) {
   const formattedData = useMemo(() => {
     return data.map((d) => {
       const date = new Date(d.timestamp);
@@ -115,7 +111,7 @@ export default function PriceChart({ data }: PriceChartProps) {
   if (!data || data.length === 0) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-[var(--color-surface-translucent)] rounded-xl border border-[var(--color-border)]">
-        <p className="text-[var(--color-text-secondary)]">Ainda não há dados históricos coletados suficientes para este item.</p>
+        <p className="text-[var(--color-text-secondary)]">{mensagemVazia}</p>
       </div>
     );
   }

@@ -2,16 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import AvisosDoHistorico from "@/components/AvisosDoHistorico";
 import Header from "@/components/Header";
+import PrecoAtualDoItem from "@/components/PrecoAtualDoItem";
 import PriceChart from "@/components/PriceChart";
 import { fetchItem, type ItemDetail } from "@/lib/itemSearch";
+import { useHistoricoDoItem, usePrecoAtual } from "@/lib/useHistoricoDoItem";
 
-interface HistoricalDataPoint {
-  timestamp: string;
-  price: number;
-  quantity: number | null;
-  granularity?: "DIARIA" | "HORARIA";
-}
+const JANELAS = [
+  { value: "14D", label: "14 Dias" },
+  { value: "30D", label: "1 Mês" },
+  { value: "90D", label: "3 Meses" },
+  { value: "365D", label: "1 Ano" },
+  { value: "ALL", label: "Tudo" },
+];
 
 export default function ItemDetailsPage() {
   const params = useParams();
@@ -39,61 +43,16 @@ export default function ItemDetailsPage() {
     return () => controller.abort();
   }, [id, router]);
 
-  const [data, setData] = useState<HistoricalDataPoint[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [windowPeriod, setWindowPeriod] = useState("14D");
-  const [currentAuctions, setCurrentAuctions] = useState<{min_price: number, total_quantity: number | null} | null>(null);
-  const [loadingCurrent, setLoadingCurrent] = useState(false);
-
-  useEffect(() => {
-    // Busca dados reais da API do Backend Python (FastAPI que será configurado na porta 8000)
-    const fetchHistory = async () => {
-      try {
-        setLoading(true);
-        // Exemplo: o backend local rodará na porta 8000
-        const response = await fetch(`http://127.0.0.1:8000/api/items/${id}/history?window=${windowPeriod}`);
-        
-        if (!response.ok) {
-          throw new Error("Falha ao carregar histórico do item.");
-        }
-        
-        const historyData = await response.json();
-        setData(historyData);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const fetchCurrentAuctions = async () => {
-      try {
-        setLoadingCurrent(true);
-        const response = await fetch(`http://127.0.0.1:8000/api/items/${id}/current-auctions`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.min_price > 0 || (data.total_quantity ?? 0) > 0) {
-            setCurrentAuctions(data);
-          }
-        }
-      } catch (err) {
-        console.error("Erro ao buscar leilões atuais", err);
-      } finally {
-        setLoadingCurrent(false);
-      }
-    };
-
-    if (id) {
-      fetchHistory();
-      fetchCurrentAuctions();
-    }
-  }, [id, windowPeriod]);
+  // CU04: a série, os avisos (Dados Desatualizados / sem histórico) e o preço atual vêm do backend.
+  const [janela, setJanela] = useState("14D");
+  const { dados, carregando, erro } = useHistoricoDoItem(id, janela);
+  const { preco, carregando: carregandoPreco } = usePrecoAtual(id);
+  const semHistorico = dados?.avisos.find((aviso) => aviso.codigo === "SEM_HISTORICO");
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] flex flex-col">
       <Header />
-      
+
       <main className="flex-1 container mx-auto px-4 py-8 max-w-5xl">
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -110,38 +69,21 @@ export default function ItemDetailsPage() {
             </div>
           </div>
 
-          <div className="text-right">
-            {loadingCurrent ? (
-              <p className="text-[var(--color-text-secondary)] text-sm animate-pulse">Consultando Casa de Leilões...</p>
-            ) : currentAuctions ? (
-              <>
-                {currentAuctions.total_quantity !== null && (
-                  <p className="text-[var(--color-text-secondary)] font-medium mb-1">
-                    {currentAuctions.total_quantity.toLocaleString('pt-BR')} leilões ativos
-                  </p>
-                )}
-                <p className="text-2xl font-bold text-[var(--color-cta)]">
-                  {(currentAuctions.min_price / 10000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ouro
-                </p>
-              </>
-            ) : null}
-          </div>
+          {carregandoPreco ? (
+            <p className="text-[var(--color-text-secondary)] text-sm animate-pulse">Consultando Casa de Leilões...</p>
+          ) : preco ? (
+            <PrecoAtualDoItem preco={preco} />
+          ) : null}
         </div>
 
         <div className="flex justify-end gap-2 mb-4">
-          {[
-            { value: '14D', label: '14 Dias' },
-            { value: '30D', label: '1 Mês' },
-            { value: '90D', label: '3 Meses' },
-            { value: '365D', label: '1 Ano' },
-            { value: 'ALL', label: 'Tudo' }
-          ].map(w => (
+          {JANELAS.map((w) => (
             <button
               key={w.value}
-              onClick={() => setWindowPeriod(w.value)}
+              onClick={() => setJanela(w.value)}
               className={`px-3 py-1 rounded text-sm transition-colors ${
-                windowPeriod === w.value 
-                  ? 'bg-[var(--color-cta)] text-[#161124] font-bold' 
+                janela === w.value
+                  ? 'bg-[var(--color-cta)] text-[#161124] font-bold'
                   : 'bg-[var(--color-surface-solid)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] border border-[var(--color-border)]'
               }`}
             >
@@ -150,22 +92,22 @@ export default function ItemDetailsPage() {
           ))}
         </div>
 
+        {dados && <AvisosDoHistorico avisos={dados.avisos} />}
+
         <div className="h-[500px] w-full">
-          {loading ? (
+          {carregando ? (
             <div className="w-full h-full flex items-center justify-center bg-[var(--color-surface-translucent)] rounded-xl border border-[var(--color-border)]">
               <div className="animate-pulse flex flex-col items-center">
                 <div className="h-8 w-8 rounded-full border-4 border-[var(--color-cta)] border-t-transparent animate-spin mb-4"></div>
                 <p className="text-[var(--color-text-secondary)]">Carregando dados da Auction House...</p>
               </div>
             </div>
-          ) : error ? (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--color-surface-translucent)] rounded-xl border border-[var(--color-negative)]/50 p-6 text-center">
-              <p className="text-[var(--color-negative)] font-medium mb-2">Erro de Conexão</p>
-              <p className="text-[var(--color-text-secondary)] text-sm">{error}</p>
-              <p className="text-[var(--color-text-secondary)] text-xs mt-4">Verifique se o servidor do Backend (FastAPI) está rodando na porta 8000.</p>
+          ) : erro ? (
+            <div role="alert" className="w-full h-full flex flex-col items-center justify-center bg-[var(--color-surface-translucent)] rounded-xl border border-[var(--color-negative)]/50 p-6 text-center">
+              <p className="text-[var(--color-negative)] font-medium">{erro}</p>
             </div>
           ) : (
-            <PriceChart data={data} />
+            <PriceChart data={dados?.pontos ?? []} mensagemVazia={semHistorico?.texto} />
           )}
         </div>
       </main>

@@ -1,11 +1,14 @@
 import logging
-from typing import Iterator
+from datetime import datetime
+from typing import Callable, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from src.models.api_models import ItemDetail, ItemSearchResponse
+from src.controllers.deps import get_relogio
+from src.models.api_models import HistoricoDoItemResponse, ItemDetail, ItemSearchResponse
 from src.repositories.database import get_session
+from src.services import mensagens
 from src.services.item_service import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -20,13 +23,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["items"])
 
-def get_db():
-    db = get_session()
-    try:
-        yield db
-    finally:
-        db.close()
-
 def get_item_service() -> Iterator[ItemService]:
     """CU03-C1-FE1 / CU03-C2-FE1: falha ao obter a sessão do banco também resulta na mensagem do cenário."""
     try:
@@ -36,6 +32,18 @@ def get_item_service() -> Iterator[ItemService]:
         raise HTTPException(status_code=503, detail=MSG_FALHA_NA_BUSCA) from e
     try:
         yield ItemService(db)
+    finally:
+        db.close()
+
+def get_servico_do_historico(relogio: Callable[[], datetime] = Depends(get_relogio)) -> Iterator[ItemService]:
+    """CU04-C1-FE1: falha ao obter a sessão do banco também resulta na mensagem do cenário."""
+    try:
+        db = get_session()
+    except SQLAlchemyError as e:
+        logger.exception("CU04: não foi possível obter a sessão do banco de dados")
+        raise HTTPException(status_code=503, detail=mensagens.FALHA_NO_HISTORICO) from e
+    try:
+        yield ItemService(db, relogio)
     finally:
         db.close()
 
@@ -77,33 +85,32 @@ def get_item(
         logger.exception("CU03: falha ao consultar o item %s no banco de dados", item_id)
         raise HTTPException(status_code=503, detail=MSG_FALHA_NA_BUSCA) from e
 
-@router.get("/items/{item_id}/history")
+@router.get("/items/{item_id}/history", response_model=HistoricoDoItemResponse)
 def get_item_history(
     item_id: int,
-    window: str = Query("14D", description="Janela de tempo para o histórico (ex: 7D, 14D)"),
-    db: Session = Depends(get_db)
+    window: str = Query("14D", description="Janela de tempo: 14D, 30D, 90D, 365D ou ALL"),
+    service: ItemService = Depends(get_servico_do_historico),
 ):
     """
-    Recupera o histórico de preços e volumes de um item específico na Casa de Leilões.
+    CU04-C1 / C2: série de preços e volume do item na janela pedida, com a situação dos dados (avisos com o texto do
+    cenário). Falha de banco resulta em 503 com a mensagem do CU04-C1-FE1; o detalhe técnico só vai para o log.
     """
     try:
-        service = ItemService(db)
-        history = service.get_item_history(item_id=item_id, window=window)
-        return history
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return service.get_item_history(item_id=item_id, window=window)
+    except SQLAlchemyError as e:
+        logger.exception("CU04: falha ao consultar o histórico do item %s no banco de dados", item_id)
+        raise HTTPException(status_code=503, detail=mensagens.FALHA_NO_HISTORICO) from e
 
 @router.get("/items/{item_id}/current-auctions")
 def get_current_auctions(
     item_id: int,
-    db: Session = Depends(get_db)
+    service: ItemService = Depends(get_servico_do_historico),
 ):
     """
-    Recupera os leilões atuais de um item específico na Casa de Leilões em tempo real.
+    Recupera os leilões atuais do item (último ciclo de ingestão): menor preço, quantidade e valor de mercado (RN06).
     """
     try:
-        service = ItemService(db)
-        auctions = service.get_current_auctions(item_id=item_id)
-        return auctions
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return service.get_current_auctions(item_id=item_id)
+    except SQLAlchemyError as e:
+        logger.exception("CU04: falha ao consultar os leilões atuais do item %s no banco de dados", item_id)
+        raise HTTPException(status_code=503, detail=mensagens.FALHA_NO_HISTORICO) from e

@@ -110,3 +110,18 @@ def ingestao(db_session, cliente_blizzard, relogio):
     from src.services.ingestao_service import IngestaoService
 
     return IngestaoService(db_session, cliente_blizzard, relogio)
+
+
+@pytest.fixture
+def historico_client(db_session: Session, relogio: RelogioFalso):
+    """TestClient das rotas do item (CU04) sobre o PostgreSQL de teste, com o relógio falso (2026-09-28 12:00 UTC)."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from src.controllers import item_controller
+    from src.services.item_service import ItemService
+
+    app = FastAPI()
+    app.include_router(item_controller.router, prefix="/api")
+    app.dependency_overrides[item_controller.get_servico_do_historico] = lambda: ItemService(db_session, relogio)
+    return TestClient(app, raise_server_exceptions=False)

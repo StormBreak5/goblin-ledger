@@ -36,6 +36,29 @@ class ItemSearchResponse(BaseModel):
         description="Mensagem do cenário quando nenhum item é localizado (CU03-C1-FA2 ou CU03-C2-FA1).",
     )
 
+class PontoDoHistorico(BaseModel):
+    """CU04-C1 passo 2: um ponto da série de preços e volume do item."""
+    timestamp: datetime = Field(description="Instante em UTC, com o fuso explícito.")
+    price: int = Field(description="Preço em Cobre (RN01); a conversão para Ouro/Prata/Cobre é só da exibição.")
+    quantity: Optional[int] = Field(default=None, description="Volume; nulo quando a fonte não o informa (CU04-C3-FA1).")
+    granularity: Literal["DIARIA", "HORARIA"] = Field(description="RN16: dia inteiro em UTC (00:00 UTC) ou um instante.")
+
+
+class AvisoDoHistorico(BaseModel):
+    """Aviso do CU04 com o texto exato do cenário: o cliente só o apresenta."""
+    codigo: Literal["SEM_HISTORICO", "DADOS_DESATUALIZADOS", "DADOS_LIMITADOS"]
+    texto: str
+
+
+class HistoricoDoItemResponse(BaseModel):
+    """CU04-C1: série do item na janela pedida e a situação dos dados (frescor, RN09 / RN14)."""
+    janela: str = Field(description="Janela aplicada: 14D, 30D, 90D, 365D ou ALL.")
+    pontos: list[PontoDoHistorico]
+    desatualizado: bool = Field(description="RN09 / RN14: o mercado do item está sinalizado ou passou do limiar.")
+    ultima_atualizacao_em: Optional[datetime] = Field(default=None, description="Último ciclo de ingestão do mercado do item.")
+    avisos: list[AvisoDoHistorico]
+
+
 class ItemDetail(BaseModel):
     """CU03-C3 passo 3: dados do item selecionado, usados pela tela de detalhes."""
     id: int

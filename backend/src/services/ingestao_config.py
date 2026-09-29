@@ -42,6 +42,10 @@ ANOMALIA_VOLUME_MINIMO = _int_do_ambiente("INGESTAO_ANOMALIA_VOLUME_MINIMO", 100
 ANOMALIA_MINIMO_DE_PONTOS = 24
 ANOMALIA_JANELA = timedelta(days=7)
 
+# CU04-C1-FA1 (RN09): idade do último ciclo de ingestão do mercado do item a partir da qual os dados são "Desatualizados". O
+# documento não define o limiar (sugeria 2 h); o autor adotou 24 h.
+LIMIAR_DE_DADOS_DESATUALIZADOS = timedelta(hours=_int_do_ambiente("DADOS_DESATUALIZADOS_HORAS", 24))
+
 # CU09-C1-FE1: retentativas (só erro de rede e 5xx) com espera crescente, dentro do mesmo ciclo.
 ESPERAS_ENTRE_TENTATIVAS = (5, 15, 45)
 

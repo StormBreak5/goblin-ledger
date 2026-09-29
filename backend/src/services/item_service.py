@@ -1,15 +1,23 @@
 import math
 import re
-from typing import Optional
+from typing import Callable, Optional
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from src.scraper.models import HistoricalItemPrice
 from src.models.item import Item
-from src.models.api_models import ItemDetail, ItemSearchResponse, ItemSummary
+from src.models.api_models import (
+    AvisoDoHistorico,
+    HistoricoDoItemResponse,
+    ItemDetail,
+    ItemSearchResponse,
+    ItemSummary,
+    PontoDoHistorico,
+)
 from src.repositories.item_repository import ItemRepository
 from src.repositories.item_price_repository import ItemPriceRepository
 from src.models.item_price import REGIAO_DA_FICHA, WOW_TOKEN_ID
 from src.repositories.mercado_repository import MercadoRepository
+from src.services import ingestao_config, mensagens, security
 from src.services.valor_de_mercado import primeiro_quartil_ponderado
 
 # CU03: parâmetros da busca (RF02 - Termo de Busca: texto de até 100 caracteres).
@@ -32,72 +40,92 @@ class InvalidSearchTermError(ValueError):
     """CU03-C1-FA1: termo de busca com menos de três caracteres."""
 
 
+def _interpretar_janela(window: str) -> tuple[str, Optional[int]]:
+    """CU04-C2 passo 2: "14D", "30D", "90D", "365D" ou "ALL" (sem limite). Valor ilegível volta ao padrão de 14 dias."""
+    valor = (window or "").strip().upper()
+    if valor == "ALL":
+        return "ALL", None
+    if valor.endswith("D") and valor[:-1].isdigit() and int(valor[:-1]) > 0:
+        return valor, int(valor[:-1])
+    return "14D", 14
+
+
 class ItemNotFoundError(LookupError):
     """CU03-C3-FE1: item não localizado no banco de dados."""
 
 
 class ItemService:
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, relogio: Callable[[], datetime] = security.agora):
         self.session = session
+        self.relogio = relogio
         self.repository = ItemRepository(session)
 
-    def get_item_history(self, item_id: int, region: str = "US", window: str = "14D"):
+    def get_item_history(self, item_id: int, region: str = "US", window: str = "14D") -> HistoricoDoItemResponse:
         """
-        Busca o histórico de preços e volumes de um item específico na janela de tempo especificada.
+        CU04-C1 passos 2 a 4: a série de preços e volume do item na janela pedida, com a situação dos dados. O banco guarda
+        UTC sem fuso: o instante sai com o fuso explícito, para o navegador converter para o de quem está vendo.
         """
-        # Parse window
-        days = 14
-        if window == 'ALL':
-            days = None
-        elif window.endswith('D'):
-            try:
-                days = int(window[:-1])
-            except ValueError:
-                pass
-        
-        if item_id == WOW_TOKEN_ID:
-            return self._get_token_history(days)
+        janela, dias = _interpretar_janela(window)
+        agora = self.relogio()
+        pontos = self._pontos_do_item(item_id, agora - timedelta(days=dias) if dias is not None else None)
+        desatualizado, ultima_atualizacao = self._frescor(item_id, agora)
 
-        query = self.session.query(HistoricalItemPrice).filter(
-            HistoricalItemPrice.item_id == item_id
+        avisos: list[AvisoDoHistorico] = []
+        if not pontos:
+            avisos.append(AvisoDoHistorico(codigo="SEM_HISTORICO", texto=mensagens.SEM_HISTORICO))  # C1-FA2
+        elif desatualizado:
+            avisos.append(AvisoDoHistorico(codigo="DADOS_DESATUALIZADOS", texto=mensagens.DADOS_DESATUALIZADOS))  # C1-FA1
+        return HistoricoDoItemResponse(
+            janela=janela, pontos=pontos, desatualizado=desatualizado,
+            ultima_atualizacao_em=ultima_atualizacao, avisos=avisos,
         )
-        
-        if days is not None:
-            # O backend trata tudo em UTC
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
-            query = query.filter(HistoricalItemPrice.timestamp >= cutoff_date)
-            
-        query = query.order_by(HistoricalItemPrice.timestamp.asc())
-        
-        results = query.all()
-        
-        formatted_results = []
-        for r in results:
-            formatted_results.append({
-                # O banco guarda UTC sem fuso. Sem o "+00:00" o navegador leria o horário como local (3 h de erro em
-                # GMT-3); com ele o JavaScript converte para o fuso de quem está vendo.
-                "timestamp": r.timestamp.replace(tzinfo=timezone.utc).isoformat(),
-                "price": r.price,
-                "quantity": r.quantity,
-                # RN16: "DIARIA" é o dia inteiro em UTC (00:00 UTC); "HORARIA" é um instante.
-                "granularity": r.granularidade,
-            })
-            
-        return formatted_results
 
-    def _get_token_history(self, days: Optional[int]) -> list[dict]:
-        """A Ficha do WoW tem série própria (item_prices, coletada a cada 15 min), sem leilões nem volume. O preço vai em
-        cobre (RN01) e o instante em UTC com o fuso explícito, como no histórico dos demais itens."""
-        desde = datetime.now(timezone.utc) - timedelta(days=days) if days is not None else None
+    def _pontos_do_item(self, item_id: int, desde: Optional[datetime]) -> list[PontoDoHistorico]:
+        if item_id == WOW_TOKEN_ID:
+            return self._pontos_da_ficha(desde)
+        query = self.session.query(HistoricalItemPrice).filter(HistoricalItemPrice.item_id == item_id)
+        if desde is not None:
+            query = query.filter(HistoricalItemPrice.timestamp >= desde.replace(tzinfo=None))  # a coluna guarda UTC sem fuso
         return [
-            {
-                "timestamp": preco.created_at.astimezone(timezone.utc).isoformat(),
-                "price": preco.price_copper,
-                "quantity": None,
-                "granularity": "HORARIA",  # é um instante (a cada 15 min), e não um dia inteiro
-            }
+            PontoDoHistorico(
+                timestamp=ponto.timestamp.replace(tzinfo=timezone.utc), price=ponto.price,
+                quantity=ponto.quantity, granularity=ponto.granularidade,  # RN16
+            )
+            for ponto in query.order_by(HistoricalItemPrice.timestamp.asc())
+        ]
+
+    def _pontos_da_ficha(self, desde: Optional[datetime]) -> list[PontoDoHistorico]:
+        """A Ficha do WoW tem série própria (item_prices, a cada 20 min), sem leilões nem volume. O preço vai em Cobre (RN01)."""
+        return [
+            PontoDoHistorico(
+                timestamp=preco.created_at.astimezone(timezone.utc), price=preco.price_copper, quantity=None,
+                granularity="HORARIA",  # é um instante, e não um dia inteiro
+            )
             for preco in ItemPriceRepository(self.session).history(WOW_TOKEN_ID, REGIAO_DA_FICHA, desde)
         ]
+
+    def _frescor(self, item_id: int, agora: datetime) -> tuple[bool, Optional[datetime]]:
+        """
+        CU04-C1 passo 4 (RN09 / RN14): compara o momento com o último ciclo de ingestão do mercado do item. Fica
+        "desatualizado" se o mercado está sinalizado por falha (RN14) ou se o ciclo passou do limiar. A Ficha do WoW usa a
+        idade do último preço; um item que o ciclo da Blizzard nunca coletou usa o ciclo mais recente de qualquer mercado.
+        """
+        limiar = ingestao_config.LIMIAR_DE_DADOS_DESATUALIZADOS
+        if item_id == WOW_TOKEN_ID:
+            ultimo = ItemPriceRepository(self.session).latest(WOW_TOKEN_ID, REGIAO_DA_FICHA)
+            ultima = ultimo.created_at if ultimo is not None else None
+            return ultima is None or agora - ultima > limiar, ultima
+
+        repositorio = MercadoRepository(self.session)
+        estados = repositorio.estados()
+        id_reino = repositorio.mercado_do_item(item_id)
+        estado = next((e for e in estados if e.id_reino == id_reino), None) if id_reino is not None else None
+        if estado is not None:
+            ultima = estado.ultima_atualizacao_em
+            return estado.desatualizado or ultima is None or agora - ultima > limiar, ultima
+        ultimas = [e.ultima_atualizacao_em for e in estados if e.ultima_atualizacao_em is not None]
+        ultima = max(ultimas) if ultimas else None
+        return ultima is None or agora - ultima > limiar, ultima
 
     def search_items(self, query: str, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> ItemSearchResponse:
         """CU03-C1 / CU03-C2 (RF02): busca itens por nome ou por identificador numérico, com paginação.
