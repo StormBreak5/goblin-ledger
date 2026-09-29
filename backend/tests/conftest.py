@@ -1,18 +1,24 @@
 import os
 import uuid
+from contextlib import contextmanager
 from typing import Callable, Iterator, Optional
+
+# Antes de qualquer import do código: hash barato e segredo fixo só nos testes.
+os.environ.setdefault("BCRYPT_ROUNDS", "4")
+os.environ.setdefault("JWT_SECRET", "segredo-somente-para-testes-com-mais-de-32-bytes")
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Engine, URL, make_url
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.controllers import item_controller
 from src.models.item import Item
-from src.repositories.database import Base, ensure_unaccent_extension
+from src.models.usuario import TentativaLogin, Usuario
+from src.repositories.database import run_migrations
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
 
 # Padrões públicos do docker-compose/.env.example (banco em localhost:5435). Sobrescreva com TEST_DATABASE_URL.
@@ -35,13 +41,35 @@ def make_client() -> Callable[[Optional[Callable]], TestClient]:
     return _make
 
 
-@pytest.fixture(scope="session")
-def pg_engine() -> Iterator[Engine]:
+@pytest.fixture
+def make_auth_client() -> Callable[..., TestClient]:
     """
-    Engine de um banco PostgreSQL temporário e exclusivo dos testes (`unaccent`, JSONB, UUID e ON CONFLICT exigem
-    PostgreSQL). O banco real do projeto nunca é lido nem alterado: cria-se outro banco, descartado ao final.
+    TestClient das rotas de usuário e autenticação (CU01/CU02) com as dependências substituídas:
+    `abridor` (como a sessão do banco é aberta), `relogio` e `email_service`.
     """
-    server_url = make_url(os.getenv("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL))
+    def _make(abridor: Callable, relogio: Optional[Callable] = None, email_service=None) -> TestClient:
+        from src.controllers import auth_controller, deps, usuario_controller
+
+        app = FastAPI()
+        app.include_router(usuario_controller.router, prefix="/api")
+        app.include_router(auth_controller.router, prefix="/api")
+        app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor
+        if relogio is not None:
+            app.dependency_overrides[deps.get_relogio] = lambda: relogio
+        if email_service is not None:
+            app.dependency_overrides[deps.get_email_service] = lambda: email_service
+        return TestClient(app, raise_server_exceptions=False)
+
+    return _make
+
+
+@contextmanager
+def banco_temporario() -> Iterator[Engine]:
+    """
+    Cria um banco PostgreSQL vazio e exclusivo do teste (`unaccent`, JSONB, UUID e ON CONFLICT exigem PostgreSQL)
+    e o descarta ao final. O banco real do projeto nunca é lido nem alterado.
+    """
+    server_url: URL = make_url(os.getenv("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL))
     admin_engine = create_engine(server_url, isolation_level="AUTOCOMMIT", connect_args={"connect_timeout": 3})
     test_db_name = f"goblinledger_test_{uuid.uuid4().hex[:8]}"
 
@@ -58,14 +86,27 @@ def pg_engine() -> Iterator[Engine]:
 
     engine = create_engine(server_url.set(database=test_db_name))
     try:
-        ensure_unaccent_extension(engine)
-        Base.metadata.create_all(engine)
         yield engine
     finally:
         engine.dispose()
         with admin_engine.connect() as connection:
             connection.execute(text(f'DROP DATABASE IF EXISTS "{test_db_name}" WITH (FORCE)'))
         admin_engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def pg_engine() -> Iterator[Engine]:
+    """Banco temporário com o esquema criado pelas migrações, como em produção."""
+    with banco_temporario() as engine:
+        run_migrations(engine)
+        yield engine
+
+
+@pytest.fixture
+def banco_vazio() -> Iterator[Engine]:
+    """Banco temporário sem nenhuma tabela, para testar as próprias migrações."""
+    with banco_temporario() as engine:
+        yield engine
 
 
 @pytest.fixture
@@ -76,6 +117,8 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session.query(HistoricalItemPrice).delete()
     session.query(ScraperExecutionLog).delete()
     session.query(Item).delete()
+    session.query(TentativaLogin).delete()
+    session.query(Usuario).delete()  # sessões e tokens saem por ON DELETE CASCADE
     session.commit()
     session.close()
 
