@@ -1,0 +1,83 @@
+{
+ "/data/wow/mythic-keystone/season/index": {
+  "seasons": [
+   {
+    "id": 1
+   },
+   {
+    "id": 15
+   },
+   {
+    "id": 17
+   },
+   {
+    "id": 18
+   }
+  ],
+  "current_season": {
+   "id": 18
+  }
+ },
+ "/data/wow/pvp-season/index": {
+  "seasons": [
+   {
+    "id": 22
+   },
+   {
+    "id": 40
+   },
+   {
+    "id": 41
+   },
+   {
+    "id": 42
+   }
+  ],
+  "current_season": {
+   "id": 42
+  }
+ },
+ "/data/wow/mythic-keystone/season/1": {
+  "id": 1,
+  "start_timestamp": 1535500800000,
+  "end_timestamp": 1548169200000,
+  "season_name": null
+ },
+ "/data/wow/mythic-keystone/season/15": {
+  "id": 15,
+  "start_timestamp": 1754406000000,
+  "end_timestamp": 1773759600000,
+  "season_name": "Mythic+ Dungeons (The War Within Season 3)"
+ },
+ "/data/wow/mythic-keystone/season/17": {
+  "id": 17,
+  "start_timestamp": 1773759600000,
+  "end_timestamp": 1786460400000,
+  "season_name": "Mythic+ Dungeons (Midnight Season 1)"
+ },
+ "/data/wow/mythic-keystone/season/18": {
+  "id": 18,
+  "start_timestamp": 1786460400000,
+  "season_name": "Mythic+ Dungeons (Midnight Season 2)"
+ },
+ "/data/wow/pvp-season/40": {
+  "id": 40,
+  "season_start_timestamp": 1755010800000,
+  "season_end_timestamp": 1768888800000,
+  "season_name": null
+ },
+ "/data/wow/pvp-season/41": {
+  "id": 41,
+  "season_start_timestamp": 1773759600000,
+  "season_end_timestamp": 1786424400000,
+  "season_name": "Player vs. Player (Midnight Season 1)"
+ },
+ "/data/wow/pvp-season/42": {
+  "id": 42,
+  "season_start_timestamp": 1787065200000,
+  "season_name": "Player vs. Player (Midnight Season 2)"
+ },
+ "/data/wow/pvp-season/22": {
+  "__erro__": 403
+ }
+}

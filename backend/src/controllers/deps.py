@@ -66,6 +66,13 @@ def get_preenchedor_de_itens() -> Callable[[], None]:
     return preencher_itens_novos
 
 
+def get_baixador_de_pagina() -> Callable[[str], str]:
+    """CU10-C2: como as páginas de referência dos eventos são lidas (substituído pelos testes)."""
+    from src.services.eventos.pagina import baixar_pagina
+
+    return baixar_pagina
+
+
 def exigir_admin(db: Session, token: Optional[str], relogio: Callable[[], datetime]) -> Usuario:
     """CU09-C4 (pré-condição): o usuário da sessão deve ter o papel de Admin (CU01). Sessão inválida: 401;
     usuário comum: AcessoNegadoError (403)."""

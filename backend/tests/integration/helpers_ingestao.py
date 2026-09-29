@@ -35,6 +35,7 @@ class ClienteBlizzardFalso:
         self.last_modified: Optional[datetime] = None  # None: o snapshot é do "agora" do relógio falso
         self.erro: Optional[Exception] = None
         self.chamadas: list[str] = []
+        self.respostas_json: dict = {}  # CU10-C2: caminho -> JSON (temporadas de Mythic+ e de PvP)
 
     def _responder(self, chave: str, payload) -> PayloadDeLeiloes:
         self.chamadas.append(chave)
@@ -44,6 +45,14 @@ class ClienteBlizzardFalso:
 
     def fetch_connected_realm_auctions(self, regiao: str, id_reino: int) -> PayloadDeLeiloes:
         return self._responder(f"auctions:{regiao.lower()}:{id_reino}", self.payload_do_reino)
+
+    def fetch_json(self, regiao: str, caminho: str, timeout: int = 30):
+        from helpers_eventos import responder_json
+
+        self.chamadas.append(f"json:{caminho}")
+        if self.erro is not None:
+            raise self.erro
+        return copy.deepcopy(responder_json(self.respostas_json, caminho))
 
     def fetch_commodity_auctions(self, regiao: str) -> PayloadDeLeiloes:
         return self._responder(f"commodities:{regiao.lower()}", self.payload_das_commodities)

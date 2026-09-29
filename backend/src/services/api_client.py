@@ -164,6 +164,17 @@ class BlizzardApiClient:
             last_modified = None
         return PayloadDeLeiloes(payload=payload, last_modified=last_modified)
 
+    def fetch_json(self, regiao: str, caminho: str, timeout: int = 30) -> Any:
+        """CU10-C2: consulta de dados dinâmicos do jogo (namespace `dynamic-{região}`), como as temporadas de Mythic+ e
+        de PvP. Falha de rede, tempo limite e 5xx são tentadas de novo; 4xx (inclusive 403) levanta ApiIndisponivelError."""
+        host, locale = self._host_e_locale(regiao)
+        url = f"https://{host}.api.blizzard.com{caminho}?namespace=dynamic-{host}&locale={locale}"
+        resposta = self._obter_com_retentativas(url, timeout)
+        try:
+            return resposta.json()
+        except ValueError as e:
+            raise PayloadForaDoFormatoError(f"Resposta que não é JSON: {e}") from e
+
     def fetch_connected_realm_auctions(self, regiao: str, id_reino: int) -> PayloadDeLeiloes:
         """CU09-C1 passo 5: snapshot completo dos leilões do reino conectado (uma única resposta, sem paginação)."""
         host, locale = self._host_e_locale(regiao)

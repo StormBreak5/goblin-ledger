@@ -24,7 +24,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 TIPOS = "'EXPANSAO', 'PATCH', 'TEMPORADA', 'EVENTO_SAZONAL', 'RECORRENTE', 'OUTRO'"
 REGIOES = "'US', 'EU', 'GLOBAL'"
-ORIGENS = "'WIKIPEDIA', 'WARCRAFT_WIKI', 'API_BLIZZARD', 'CATALOGO', 'REGRA', 'MANUAL'"
+ORIGENS = "'WIKIPEDIA', 'WARCRAFT_WIKI', 'API_BLIZZARD', 'REGRA', 'MANUAL'"
 
 
 def upgrade() -> None:

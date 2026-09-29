@@ -51,7 +51,7 @@ EVENTOS_NAO_EXTRAIDOS = "Não foi possível extrair os eventos da página inform
 # O documento não define os textos abaixo.
 FONTE_DE_EVENTOS_INVALIDA = "Informe uma fonte de eventos válida"
 FALHA_NO_REGISTRO_DE_EVENTOS = "Não foi possível registrar os eventos no momento. Tente novamente mais tarde"
-EVENTO_CADASTRADO = "Evento cadastrado com sucesso"
+EXTRACAO_RECENTE = "Esta fonte foi lida há pouco. Aguarde alguns minutos antes de extrair novamente"
 
 # CU10-C3 – Validar cobertura histórica dos itens
 FALHA_NA_VALIDACAO_DA_COBERTURA = "Não foi possível concluir a validação no momento. Tente novamente mais tarde"  # FE1

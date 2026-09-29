@@ -42,3 +42,79 @@ export const consultarImportacao = (token: string, id: number): Promise<ApiResul
 
 export const listarImportacoes = (token: string): Promise<ApiResult<ResumoImportacao[]>> =>
   request<ResumoImportacao[]>("/admin/history-import", { token, fallbackMessage: MSG_FALHA_NA_IMPORTACAO });
+
+// ---------------------------------------------------------------- CU10-C2 – eventos de atualização do jogo
+
+export const MSG_FALHA_NO_REGISTRO_DE_EVENTOS = "Não foi possível registrar os eventos no momento. Tente novamente mais tarde";
+
+export type FonteDeEventos = "EXPANSOES" | "PATCHES" | "SAZONAIS" | "TEMPORADAS" | "RECORRENTES";
+export type TipoDeEvento = "EXPANSAO" | "PATCH" | "TEMPORADA" | "EVENTO_SAZONAL" | "RECORRENTE" | "OUTRO";
+
+export const FONTES_DE_EVENTOS: { valor: FonteDeEventos; rotulo: string; pagina: boolean }[] = [
+  { valor: "EXPANSOES", rotulo: "Expansões (Wikipedia)", pagina: true },
+  { valor: "PATCHES", rotulo: "Patches e pré-patches (Warcraft Wiki)", pagina: true },
+  { valor: "TEMPORADAS", rotulo: "Temporadas de Mythic+ e PvP (API da Blizzard)", pagina: false },
+  { valor: "SAZONAIS", rotulo: "Eventos sazonais (Warcraft Wiki)", pagina: true },
+  { valor: "RECORRENTES", rotulo: "Recorrentes: reinício semanal, Feira de Negrilua e Posto de Troca", pagina: false },
+];
+
+export const TIPOS_DE_EVENTO: { valor: TipoDeEvento; rotulo: string }[] = [
+  { valor: "EXPANSAO", rotulo: "Expansão" },
+  { valor: "PATCH", rotulo: "Patch" },
+  { valor: "TEMPORADA", rotulo: "Temporada" },
+  { valor: "EVENTO_SAZONAL", rotulo: "Evento sazonal" },
+  { valor: "RECORRENTE", rotulo: "Recorrente" },
+  { valor: "OUTRO", rotulo: "Outro" },
+];
+
+export interface EventoJogo {
+  id_evento: number;
+  tipo: TipoDeEvento;
+  nome: string;
+  versao: string | null;
+  data_inicio: string; // DD/MM/AAAA
+  data_fim: string | null;
+  regiao: string;
+  origem: string;
+  fonte: string | null;
+}
+
+export interface ResumoExtracao {
+  fonte: string;
+  eventos_encontrados: number;
+  eventos_registrados: number;
+  eventos_ignorados: number;
+  eventos: EventoJogo[];
+}
+
+export interface ListaDeEventos {
+  total: number;
+  eventos: EventoJogo[];
+}
+
+/** CU10-C2 passos 1 e 2: extrai os eventos da fonte (e do endereço, nas páginas de referência) e registra os novos. */
+export const extrairEventos = (token: string, fonte: FonteDeEventos, url: string): Promise<ApiResult<ResumoExtracao>> =>
+  request<ResumoExtracao>("/admin/events/extract", {
+    method: "POST",
+    body: url.trim() === "" ? { fonte } : { fonte, url: url.trim() },
+    token,
+    fallbackMessage: MSG_FALHA_NO_REGISTRO_DE_EVENTOS,
+  });
+
+/** CU10-C2-FA2: cadastro manual (a data em DD/MM/AAAA). Os campos inválidos voltam em `fields`. */
+export const cadastrarEvento = (
+  token: string,
+  dados: { nome: string; versao: string; tipo: string; data_inicio: string; data_fim: string; regiao: string },
+): Promise<ApiResult<ResumoExtracao>> =>
+  request<ResumoExtracao>("/admin/events", {
+    method: "POST",
+    body: { ...dados, versao: dados.versao.trim() === "" ? null : dados.versao, data_fim: dados.data_fim.trim() === "" ? null : dados.data_fim },
+    token,
+    fallbackMessage: MSG_FALHA_NO_REGISTRO_DE_EVENTOS,
+  });
+
+export const listarEventos = (token: string, tipo: string, deslocamento: number): Promise<ApiResult<ListaDeEventos>> =>
+  request<ListaDeEventos>(
+    `/admin/events?limite=100&deslocamento=${deslocamento}${tipo ? `&tipo=${encodeURIComponent(tipo)}` : ""}`,
+    { token, fallbackMessage: MSG_FALHA_NO_REGISTRO_DE_EVENTOS },
+  );

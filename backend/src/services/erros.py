@@ -109,6 +109,12 @@ class FonteDeEventosInvalidaError(ErroDeNegocio):
     mensagem_padrao = mensagens.FONTE_DE_EVENTOS_INVALIDA
 
 
+class ExtracaoRecenteError(ErroDeNegocio):
+    """CU10-C2: a mesma página não é lida de novo em poucos minutos (cuidado com a fonte; o documento não define)."""
+    status_code = 429
+    mensagem_padrao = mensagens.EXTRACAO_RECENTE
+
+
 class EventosNaoExtraidosError(ErroDeNegocio):
     """CU10-C2-FE1: a estrutura da página não foi reconhecida (ou a fonte está fora do ar)."""
     status_code = 502

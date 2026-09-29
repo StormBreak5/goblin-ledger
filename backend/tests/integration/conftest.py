@@ -90,9 +90,18 @@ def cliente_blizzard(relogio):
 
 
 @pytest.fixture
-def admin_client(make_auth_client, db_session, relogio, email_falso, cliente_blizzard):
-    """TestClient com as rotas de mercado (CU09-C4), usando a API da Blizzard falsa."""
-    return make_auth_client(abridor_de_sessao_para(db_session), relogio, email_falso, cliente_blizzard)
+def paginas():
+    """Páginas de referência dos eventos (CU10-C2) falsas, com trechos reais das páginas da Wikipedia e da Warcraft Wiki."""
+    from helpers_eventos import PaginasFalsas
+
+    return PaginasFalsas()
+
+
+@pytest.fixture
+def admin_client(make_auth_client, db_session, relogio, email_falso, cliente_blizzard, paginas):
+    """TestClient com as rotas do Admin (CU09-C4 e CU10), usando a API da Blizzard e as páginas de referência falsas."""
+    cliente_blizzard.respostas_json = __import__("helpers_eventos").respostas_das_temporadas()
+    return make_auth_client(abridor_de_sessao_para(db_session), relogio, email_falso, cliente_blizzard, paginas)
 
 
 @pytest.fixture
