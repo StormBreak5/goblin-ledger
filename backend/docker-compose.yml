@@ -28,8 +28,10 @@ services:
     env_file:
       - .env
     environment:
-      # Sobrescreve DB_HOST para usar o hostname interno do docker network em vez de localhost
+      # Sobrescreve DB_HOST/DB_PORT para usar o hostname e a porta internos do docker network:
+      # o .env traz a porta publicada no host (5435), mas dentro da rede o Postgres escuta em 5432.
       DB_HOST: db
+      DB_PORT: 5432
     depends_on:
       db:
         condition: service_healthy
