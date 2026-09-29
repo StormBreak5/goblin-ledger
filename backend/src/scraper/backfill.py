@@ -19,9 +19,9 @@ from src.models.item import Item
 
 logger = logging.getLogger(__name__)
 
-# Constants
-MAX_CONCURRENT_REQUESTS = 5
-REQUEST_DELAY_SECONDS = 0.5
+# Configuration variables (can be overridden by args)
+MAX_CONCURRENT_REQUESTS = 50
+REQUEST_DELAY_SECONDS = 0.05
 US_COMMODITY_CONNECTED_ID = "32512"  # Undermine Exchange ID for US regional commodities
 
 def get_items_to_process(session: Session) -> List[Item]:
@@ -223,6 +223,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Run historical price backfill using aiohttp.")
     parser.add_argument("--connected-id", type=str, default="3209", help="Connected Realm ID (default: 3209 = Azralon). Commodities fallback to 32512 automatically.")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of items to backfill (useful for quick presentations)")
     args = parser.parse_args()
     
     from src.repositories.database import init_db, get_session
@@ -233,6 +234,10 @@ if __name__ == "__main__":
     
     session = get_session()
     items = get_items_to_process(session)
+    
+    if args.limit:
+        items = items[:args.limit]
+        logger.info(f"Limiting backfill to {args.limit} items due to --limit argument")
     
     logger.info(f"Starting async backfill for {len(items)} items on Connected ID {args.connected_id}")
     
