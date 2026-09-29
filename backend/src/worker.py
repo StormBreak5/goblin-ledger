@@ -67,17 +67,14 @@ def job_preencher_itens_novos():
     populate_details()
 
 def job_run_backfill():
-    """Recupera o histórico pelos .bin da Undermine Exchange. Só é chamado pela regra de recuperação (mais de 48 h
-    sem nenhuma coleta), não mais de hora em hora."""
+    """CU10-C1: recupera o histórico pelos .bin da Undermine Exchange (importação incremental dos itens ativos de cada
+    reino monitorado). Só é chamado pela regra de recuperação (mais de 48 h sem nenhuma coleta), não mais de hora em
+    hora."""
     logger.info(">>> Iniciando rotina de backfill de históricos...")
-    from src.scraper.backfill import run_backfill, get_items_to_process
+    from src.services.importacao_historico import ImportacaoHistoricoService
     session = get_session()
     try:
-        items = get_items_to_process(session)
-        if items:
-            run_backfill(session, items, "3209")
-        else:
-            logger.info("Nenhum item para backfill.")
+        ImportacaoHistoricoService(session).recuperar()
     except Exception as e:
         logger.error(f"Erro no job de backfill: {e}")
     finally:

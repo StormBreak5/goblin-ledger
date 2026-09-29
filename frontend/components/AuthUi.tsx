@@ -9,12 +9,12 @@ import Header from "@/components/Header";
 const inputBase =
   "block w-full rounded-md border bg-[#1A1525] px-3 py-2 text-[var(--color-text-main)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-cta)] disabled:opacity-60";
 
-export function AuthPage({ titulo, children }: { titulo: string; children: ReactNode }) {
+export function AuthPage({ titulo, children, larga = false }: { titulo: string; children: ReactNode; larga?: boolean }) {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-background)]">
       <Header />
       <main className="flex flex-1 items-start justify-center px-4 py-12">
-        <div className="w-full max-w-md rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-solid)] p-8 shadow-xl">
+        <div className={`w-full ${larga ? "max-w-4xl" : "max-w-md"} rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-solid)] p-8 shadow-xl`}>
           <h1 className="mb-6 text-2xl font-bold text-[var(--color-text-title)]">{titulo}</h1>
           {children}
         </div>

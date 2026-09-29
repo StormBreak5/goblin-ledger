@@ -16,6 +16,8 @@ from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.controllers import item_controller
+from src.models.cobertura import AptidaoTreinamento
+from src.models.evento import EventoJogo, ExtracaoEvento
 from src.models.item import Item
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
 from src.models.usuario import TentativaLogin, Usuario
@@ -45,17 +47,26 @@ def make_client() -> Callable[[Optional[Callable]], TestClient]:
 @pytest.fixture
 def make_auth_client() -> Callable[..., TestClient]:
     """
-    TestClient das rotas de usuário, autenticação e mercado (CU01/CU02/CU09) com as dependências substituídas:
+    TestClient das rotas de usuário, autenticação, mercado e importação de histórico (CU01/CU02/CU09/CU10) com as
+    dependências substituídas:
     `abridor` (como a sessão do banco é aberta), `relogio`, `email_service` e `cliente_blizzard`.
     """
     def _make(abridor: Callable, relogio: Optional[Callable] = None, email_service=None, cliente_blizzard=None) -> TestClient:
-        from src.controllers import auth_controller, deps, mercado_controller, usuario_controller
+        from src.controllers import (
+            admin_historico_controller,
+            auth_controller,
+            deps,
+            mercado_controller,
+            usuario_controller,
+        )
 
         app = FastAPI()
         app.include_router(usuario_controller.router, prefix="/api")
         app.include_router(auth_controller.router, prefix="/api")
         app.include_router(mercado_controller.router, prefix="/api")
+        app.include_router(admin_historico_controller.router, prefix="/api")
         app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor
+        app.dependency_overrides[deps.get_preenchedor_de_itens] = lambda: (lambda: None)  # nunca chama a Blizzard
         if relogio is not None:
             app.dependency_overrides[deps.get_relogio] = lambda: relogio
         if email_service is not None:
@@ -127,8 +138,22 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session.query(EstadoMercado).delete()
     session.query(CicloIngestao).delete()
     session.query(Reino).delete()
+    session.query(EventoJogo).delete()
+    session.query(ExtracaoEvento).delete()
+    session.query(AptidaoTreinamento).delete()
     session.commit()
     session.close()
+
+
+@pytest.fixture
+def fonte_falsa(mocker):
+    """Undermine Exchange falsa (CU10-C1): substitui o download dos arquivos de cada item."""
+    from helpers_historico import FonteFalsa
+    from src.scraper import backfill
+
+    fonte = FonteFalsa()
+    mocker.patch.object(backfill, "fetch_item_history", fonte.buscar)
+    return fonte
 
 
 @pytest.fixture

@@ -86,5 +86,34 @@ class RegiaoInvalidaError(ErroDeNegocio):
     mensagem_padrao = mensagens.REGIAO_INVALIDA
 
 
+class RegiaoOuItemInvalidoError(ErroDeNegocio):
+    """CU10-C1-FA1: região fora de US/EU ou identificador de item inválido."""
+    status_code = 422
+    mensagem_padrao = mensagens.REGIAO_OU_ITEM_INVALIDO
+
+
+class ImportacaoEmAndamentoError(ErroDeNegocio):
+    """CU10-C1: só uma importação de histórico roda por vez (o documento não define este texto)."""
+    status_code = 409
+    mensagem_padrao = mensagens.IMPORTACAO_EM_ANDAMENTO
+
+
+class ImportacaoNaoEncontradaError(ErroDeNegocio):
+    status_code = 404
+    mensagem_padrao = mensagens.IMPORTACAO_NAO_ENCONTRADA
+
+
+class FonteDeEventosInvalidaError(ErroDeNegocio):
+    """CU10-C2 passo 1: a fonte escolhida não existe ou a URL informada não é a da fonte."""
+    status_code = 422
+    mensagem_padrao = mensagens.FONTE_DE_EVENTOS_INVALIDA
+
+
+class EventosNaoExtraidosError(ErroDeNegocio):
+    """CU10-C2-FE1: a estrutura da página não foi reconhecida (ou a fonte está fora do ar)."""
+    status_code = 502
+    mensagem_padrao = mensagens.EVENTOS_NAO_EXTRAIDOS
+
+
 class EmailIndisponivelError(Exception):
     """CU02-C2-FE1: o serviço de envio de e-mail não respondeu."""

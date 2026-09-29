@@ -17,7 +17,7 @@ from src.models.mercado import (
     Leilao,
     Reino,
 )
-from src.scraper.models import ExecutionStatus, HistoricalItemPrice, ScraperExecutionLog
+from src.scraper.models import DISPARO_RECUPERACAO, ExecutionStatus, HistoricalItemPrice, ScraperExecutionLog
 from src.services.ingestao_config import Mercado
 from src.services.sanitizacao import LeilaoPadronizado
 
@@ -43,6 +43,12 @@ def _com_fuso_utc(momento: Optional[datetime]) -> Optional[datetime]:
     if momento is None:
         return None
     return momento if momento.tzinfo else momento.replace(tzinfo=timezone.utc)
+
+
+def _e_da_recuperacao():
+    """Só a recuperação automática (e os registros anteriores ao CU10) conta como "backfill" da regra de 48 h: a
+    importação do Admin pode cobrir só alguns itens e não recompõe o histórico como um todo."""
+    return ScraperExecutionLog.triggered_by.is_(None) | (ScraperExecutionLog.triggered_by == DISPARO_RECUPERACAO)
 
 
 class MercadoRepository:
@@ -110,7 +116,7 @@ class MercadoRepository:
         )
         backfill = _com_fuso_utc(
             self.session.query(func.max(ScraperExecutionLog.execution_end))
-            .filter(ScraperExecutionLog.status == ExecutionStatus.SUCCESS)
+            .filter(ScraperExecutionLog.status == ExecutionStatus.SUCCESS, _e_da_recuperacao())
             .scalar()
         )  # o backfill grava UTC sem fuso
         momentos = [momento for momento in (ciclo, backfill) if momento is not None]
@@ -119,7 +125,9 @@ class MercadoRepository:
     def ultimo_backfill_iniciado(self) -> Optional[datetime]:
         """Início da última tentativa de backfill, qualquer que tenha sido o resultado (evita repetir a recuperação
         em sequência quando ela falha)."""
-        return _com_fuso_utc(self.session.query(func.max(ScraperExecutionLog.execution_start)).scalar())
+        return _com_fuso_utc(
+            self.session.query(func.max(ScraperExecutionLog.execution_start)).filter(_e_da_recuperacao()).scalar()
+        )
 
     # ------------------------------------------------------------------ consolidação (CU09-C3)
 

@@ -7,6 +7,7 @@ from src.controllers.item_controller import router as item_router
 from src.controllers.usuario_controller import router as usuario_router
 from src.controllers.auth_controller import router as auth_router
 from src.controllers.mercado_controller import router as mercado_router
+from src.controllers.admin_historico_controller import router as historico_router
 
 # Load environment variables
 load_dotenv()
@@ -33,6 +34,7 @@ app.include_router(item_router, prefix="/api")
 app.include_router(usuario_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(mercado_router, prefix="/api")
+app.include_router(historico_router, prefix="/api")
 
 @app.get("/")
 def read_root():

@@ -37,5 +37,26 @@ REGIAO_INVALIDA = "Informe uma região válida (US ou EU) com mercados monitorad
 FALHA_NA_INGESTAO_MANUAL = "Não foi possível executar a ingestão no momento. Tente novamente mais tarde"
 FALHA_NO_ESTADO_DO_MERCADO = "Não foi possível consultar o estado do mercado no momento. Tente novamente mais tarde"
 
+# CU10-C1 – Importar histórico de preços
+REGIAO_OU_ITEM_INVALIDO = "Região ou item inválido. Verifique os dados informados"  # CU10-C1-FA1 (texto das Observações)
+FONTE_DE_DADOS_INDISPONIVEL = "Não foi possível obter os dados da fonte informada. Tente novamente mais tarde"  # FE1
+FALHA_NA_IMPORTACAO = "Não foi possível concluir a importação no momento. Tente novamente mais tarde"  # CU10-C1-FE2
+FORMATO_DA_FONTE_ALTERADO = "Não foi possível interpretar os dados da fonte. Verifique se houve alteração no formato"  # FE3
+# O documento não define os textos abaixo.
+IMPORTACAO_EM_ANDAMENTO = "Já existe uma importação em andamento"
+IMPORTACAO_NAO_ENCONTRADA = "Importação não encontrada"
+
+# CU10-C2 – Registrar eventos de atualização do jogo
+EVENTOS_NAO_EXTRAIDOS = "Não foi possível extrair os eventos da página informada. Verifique a fonte ou cadastre o evento manualmente"  # FE1
+# O documento não define os textos abaixo.
+FONTE_DE_EVENTOS_INVALIDA = "Informe uma fonte de eventos válida"
+FALHA_NO_REGISTRO_DE_EVENTOS = "Não foi possível registrar os eventos no momento. Tente novamente mais tarde"
+EVENTO_CADASTRADO = "Evento cadastrado com sucesso"
+
+# CU10-C3 – Validar cobertura histórica dos itens
+FALHA_NA_VALIDACAO_DA_COBERTURA = "Não foi possível concluir a validação no momento. Tente novamente mais tarde"  # FE1
+APTO_AO_TREINAMENTO = "Apto ao treinamento"  # CU10-C3 passo 5
+INAPTO_AO_TREINAMENTO = "Inapto ao treinamento"  # CU10-C3-FA1
+
 # CU02-C4 – Encerrar sessão
 SESSAO_EXPIRADA = "Sua sessão expirou. Faça login novamente"  # CU02-C4-FA1

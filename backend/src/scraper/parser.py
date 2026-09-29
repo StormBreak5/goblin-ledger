@@ -33,8 +33,9 @@ def parse_item_state(data: bytes) -> dict:
     elif p == 4:
         h = False
     
-    # Time multipliers
-    n_mult = 60000     # Minutes to milliseconds
+    # Time multipliers. CU10-C1 (RN16): os snapshots trazem o tempo em SEGUNDOS Unix (lidos como minutos eles caíam no
+    # ano 5372 e o histórico horário era todo descartado); os agregados diários trazem o número de dias desde 1970.
+    n_mult = 1000      # Seconds to milliseconds
     a_mult = 86400000  # Days to milliseconds
 
     snapshot = read_u32() * n_mult

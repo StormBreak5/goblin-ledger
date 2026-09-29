@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AdminNav from "@/components/AdminNav";
 import { Aviso, AuthPage, BotaoPrimario, Campo, CampoRegiao } from "@/components/AuthUi";
 import { clearToken, useAuthReady, useAuthToken } from "@/lib/auth";
 import { carregarPerfil, type Perfil } from "@/lib/authApi";
@@ -95,6 +96,7 @@ export default function IngestaoManualPage() {
 
   return (
     <AuthPage titulo="Ingestão de mercado">
+      <AdminNav atual="/admin/ingestao" />
       <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
         Coleta, sanitiza e consolida os leilões da Blizzard. O intervalo mínimo entre coletas de um mesmo endpoint é de 60 minutos.
       </p>

@@ -54,6 +54,18 @@ def get_fabrica_de_cliente_blizzard() -> Callable[[], BlizzardApiClient]:
     return criar_cliente_blizzard
 
 
+def preencher_itens_novos() -> None:
+    """CU10-C1-FA2: completa o nome e o ícone dos itens cadastrados pela importação (a mesma rotina da sincronização
+    diária). Só é chamada depois de a importação ter terminado."""
+    from src.scraper.populate_item_details import populate_details
+
+    populate_details()
+
+
+def get_preenchedor_de_itens() -> Callable[[], None]:
+    return preencher_itens_novos
+
+
 def exigir_admin(db: Session, token: Optional[str], relogio: Callable[[], datetime]) -> Usuario:
     """CU09-C4 (pré-condição): o usuário da sessão deve ter o papel de Admin (CU01). Sessão inválida: 401;
     usuário comum: AcessoNegadoError (403)."""

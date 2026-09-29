@@ -43,7 +43,7 @@ export type ApiResult<T> = { ok: true; data: T } | ApiFailure;
 
 interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
-  body?: Record<string, string | number>;
+  body?: Record<string, unknown>;
   token?: string | null;
   fallbackMessage: string;
 }
