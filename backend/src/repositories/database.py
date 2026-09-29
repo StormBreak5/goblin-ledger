@@ -11,14 +11,15 @@ Base = declarative_base()
 MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations")
 
 def get_database_url() -> str:
-    """Monta a URL de conexão baseada nas variáveis de ambiente."""
+    """Monta a URL de conexão baseada nas variáveis de ambiente. O driver é explícito (psycopg2): o código usa recursos
+    dele (execute_values, psycopg2.Error) e, no SQLAlchemy 2.1, "postgresql://" passou a significar o psycopg 3."""
     user = os.getenv("DB_USER", "goblin")
     password = os.getenv("DB_PASS", "goblin_password")
     host = os.getenv("DB_HOST", "localhost")
     port = os.getenv("DB_PORT", "5432")
     db_name = os.getenv("DB_NAME", "goblinledger")
 
-    return f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
 
 def run_migrations(engine) -> None:
     """

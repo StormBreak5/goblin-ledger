@@ -25,7 +25,7 @@ from src.repositories.database import run_migrations
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
 
 # Padrões públicos do docker-compose/.env.example (banco em localhost:5435). Sobrescreva com TEST_DATABASE_URL.
-DEFAULT_TEST_DATABASE_URL = "postgresql://goblin:goblin_password@localhost:5435/goblinledger"
+DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg2://goblin:goblin_password@localhost:5435/goblinledger"
 
 
 @pytest.fixture
