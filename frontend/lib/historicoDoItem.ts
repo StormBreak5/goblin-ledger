@@ -22,6 +22,7 @@ export interface AvisoDoHistorico {
 export interface HistoricoDoItem {
   janela: string;
   pontos: PontoDoHistorico[];
+  dados_limitados: boolean; // C2-FA1: o histórico não cobre a janela pedida
   desatualizado: boolean;
   ultima_atualizacao_em: string | null;
   avisos: AvisoDoHistorico[];

@@ -54,6 +54,7 @@ class HistoricoDoItemResponse(BaseModel):
     """CU04-C1: série do item na janela pedida e a situação dos dados (frescor, RN09 / RN14)."""
     janela: str = Field(description="Janela aplicada: 14D, 30D, 90D, 365D ou ALL.")
     pontos: list[PontoDoHistorico]
+    dados_limitados: bool = Field(description="CU04-C2-FA1: o histórico do item não cobre a janela pedida (nunca em ALL).")
     desatualizado: bool = Field(description="RN09 / RN14: o mercado do item está sinalizado ou passou do limiar.")
     ultima_atualizacao_em: Optional[datetime] = Field(default=None, description="Último ciclo de ingestão do mercado do item.")
     avisos: list[AvisoDoHistorico]

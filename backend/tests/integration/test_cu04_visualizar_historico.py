@@ -34,6 +34,11 @@ def _ponto(item_id: int, momento: datetime, price: int = 12_490, quantity: int =
     )
 
 
+def _ancora(item_id: int, agora: datetime) -> HistoricalItemPrice:
+    """Um ponto antigo (fora da janela de 14 dias): a série do item passa a cobrir a janela e o C2-FA1 não interfere."""
+    return _ponto(item_id, agora - timedelta(days=60), 9_000, 1, origem="UNDERMINE", granularidade="DIARIA")
+
+
 def _mercado(db, id_reino: int, ultima_atualizacao: datetime, desatualizado: bool = False, regiao: str = "US") -> None:
     db.add(Reino(id_reino=id_reino, nome=f"reino {id_reino}", regiao=regiao))
     db.flush()
@@ -61,6 +66,7 @@ def test_cu04_c1_fluxo_principal_devolve_a_serie_e_o_valor_de_mercado_rn06(histo
     _mercado(db_session, 3209, agora - timedelta(minutes=30))
     dia = (agora - timedelta(days=2)).replace(hour=0, minute=0, second=0)
     db_session.add_all([
+        _ancora(1001, agora),
         _ponto(1001, dia, 10_000, 5, origem="UNDERMINE", granularidade="DIARIA"),
         _ponto(1001, agora - timedelta(hours=3), 12_000, 7),
         _ponto(1001, agora - timedelta(hours=1), 12_490, 9),
@@ -102,7 +108,7 @@ def test_cu04_c1_o_historico_devolve_o_instante_em_utc_com_o_fuso_explicito(hist
 def test_cu04_c1_fa1_dados_desatualizados_pelo_limiar_de_24_horas(historico_client, db_session, relogio, idade, desatualizado):
     agora = relogio()
     _mercado(db_session, 3209, agora - idade)
-    db_session.add(_ponto(1003, agora - idade))
+    db_session.add_all([_ancora(1003, agora), _ponto(1003, agora - idade)])
     db_session.commit()
 
     historico = _historico(historico_client, 1003)
@@ -116,7 +122,7 @@ def test_cu04_c1_fa1_dados_desatualizados_pelo_limiar_de_24_horas(historico_clie
 def test_cu04_c1_fa1_mercado_sinalizado_por_falha_rn14(historico_client, db_session, relogio):
     agora = relogio()
     _mercado(db_session, 3209, agora - timedelta(minutes=10), desatualizado=True)  # o último ciclo falhou (CU09-FE1)
-    db_session.add(_ponto(1004, agora - timedelta(minutes=10)))
+    db_session.add_all([_ancora(1004, agora), _ponto(1004, agora - timedelta(minutes=10))])
     db_session.commit()
 
     historico = _historico(historico_client, 1004)
@@ -270,3 +276,96 @@ def test_cu04_c1_os_demais_itens_continuam_lendo_o_historico_de_leiloes(historic
 
     assert (ponto["price"], ponto["quantity"]) == (12_490, 8)
     assert atual == {"min_price": 0, "total_quantity": 0, "market_value": None}  # sem leilões no último ciclo
+
+
+# ---------------------------------------------------------------------- C2: alterar a janela de tempo do gráfico
+
+DADOS_LIMITADOS = "Dados limitados. Exibindo todo o histórico disponível para o período selecionado."
+
+
+def test_cu04_c2_fluxo_principal_recorta_a_serie_pela_janela(historico_client, db_session, relogio):
+    agora = relogio()
+    for dias in (2, 10, 40, 200, 400):
+        db_session.add(_ponto(2001, agora - timedelta(days=dias), price=dias, origem="UNDERMINE", granularidade="DIARIA"))
+    db_session.commit()
+
+    def dias_da_janela(janela: str) -> list[int]:
+        return [ponto["price"] for ponto in _historico(historico_client, 2001, janela)["pontos"]]
+
+    assert dias_da_janela("14D") == [10, 2]  # passo 2: recorta a série; do mais antigo para o mais novo
+    assert dias_da_janela("30D") == [10, 2]
+    assert dias_da_janela("90D") == [40, 10, 2]
+    assert dias_da_janela("365D") == [200, 40, 10, 2]
+    assert dias_da_janela("ALL") == [400, 200, 40, 10, 2]
+    assert _historico(historico_client, 2001, "90D")["janela"] == "90D"
+
+
+@pytest.mark.parametrize("pedida, aplicada", [("30d", "30D"), (" all ", "ALL"), ("xyz", "14D"), ("0D", "14D"), ("-5D", "14D"), ("", "14D"), ("D", "14D")])
+def test_cu04_c2_janela_ilegivel_volta_ao_padrao_de_14_dias(historico_client, db_session, relogio, pedida, aplicada):
+    db_session.add(_ponto(2002, relogio() - timedelta(days=1)))
+    db_session.commit()
+
+    assert _historico(historico_client, 2002, pedida)["janela"] == aplicada
+
+
+@pytest.mark.parametrize(
+    "janela, primeiro_ponto_ha, limitado",
+    [
+        ("30D", timedelta(days=10), True),  # o histórico só começa há 10 dias
+        ("14D", timedelta(days=10), True),  # a janela de 14 dias também começa antes do primeiro ponto
+        ("ALL", timedelta(days=10), False),  # ALL nunca é "limitado": mostra tudo o que existe
+        ("30D", timedelta(days=45), False),  # a série cobre a janela inteira
+        ("30D", timedelta(days=29, hours=1), False),  # dentro da tolerância de 1 dia (ponto diário das 00:00 UTC)
+        ("30D", timedelta(days=28, hours=23), True),  # além da tolerância
+    ],
+)
+def test_cu04_c2_fa1_dados_limitados_quando_o_historico_nao_cobre_a_janela(
+    historico_client, db_session, relogio, janela, primeiro_ponto_ha, limitado
+):
+    agora = relogio()
+    db_session.add_all([_ponto(2003, agora - primeiro_ponto_ha), _ponto(2003, agora - timedelta(hours=1))])
+    db_session.commit()
+
+    historico = _historico(historico_client, 2003, janela)
+
+    esperado = [{"codigo": "DADOS_LIMITADOS", "texto": DADOS_LIMITADOS}] if limitado else []
+    assert historico["dados_limitados"] is limitado
+    assert [aviso for aviso in historico["avisos"] if aviso["codigo"] == "DADOS_LIMITADOS"] == esperado  # 1.3
+    assert len(historico["pontos"]) >= 1  # 1.2: todo o histórico disponível é devolvido
+
+
+def test_cu04_c2_fa1_os_avisos_de_limite_e_de_frescor_convivem(historico_client, db_session, relogio):
+    agora = relogio()
+    _mercado(db_session, 3209, agora - timedelta(hours=30))
+    db_session.add(_ponto(2004, agora - timedelta(days=3)))
+    db_session.commit()
+
+    historico = _historico(historico_client, 2004, "90D")
+
+    assert [aviso["codigo"] for aviso in historico["avisos"]] == ["DADOS_LIMITADOS", "DADOS_DESATUALIZADOS"]
+
+
+def test_cu04_c2_fa1_ficha_do_wow_tambem_avisa_quando_a_serie_e_curta(historico_client, db_session, relogio):
+    agora = relogio()
+    db_session.add_all([
+        ItemPrice(item_id=122284, region="us", price_copper=2_700_000_000, created_at=agora - timedelta(days=20)),
+        ItemPrice(item_id=122284, region="us", price_copper=2_800_000_000, created_at=agora - timedelta(days=3)),
+        ItemPrice(item_id=122284, region="us", price_copper=2_868_980_000, created_at=agora - timedelta(minutes=20)),
+    ])
+    db_session.commit()
+
+    assert _historico(historico_client, 122284, "30D")["dados_limitados"] is True  # a série só começa há 20 dias
+    assert _historico(historico_client, 122284, "14D")["dados_limitados"] is False  # e cobre a janela de 14 dias
+    assert _historico(historico_client, 122284, "ALL")["dados_limitados"] is False
+
+
+def test_cu04_c2_a_janela_sem_pontos_de_um_item_com_historico_antigo_usa_o_texto_do_fa2(historico_client, db_session, relogio):
+    """O item existe, mas parou de ser negociado: nenhum ponto na janela de 14 dias; o cenário sem histórico vale."""
+    db_session.add(_ponto(2005, relogio() - timedelta(days=100), origem="UNDERMINE", granularidade="DIARIA"))
+    db_session.commit()
+
+    curta = _historico(historico_client, 2005, "14D")
+    tudo = _historico(historico_client, 2005, "ALL")
+
+    assert (curta["pontos"], curta["avisos"]) == ([], [{"codigo": "SEM_HISTORICO", "texto": FA2}])
+    assert len(tudo["pontos"]) == 1

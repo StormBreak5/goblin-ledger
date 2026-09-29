@@ -61,6 +61,7 @@ INAPTO_AO_TREINAMENTO = "Inapto ao treinamento"  # CU10-C3-FA1
 # CU04 – Visualizar Histórico
 SEM_HISTORICO = "Ainda não há dados históricos coletados suficientes para este item"  # CU04-C1-FA2
 DADOS_DESATUALIZADOS = "Dados Desatualizados"  # CU04-C1-FA1 (RN09 / RN14)
+DADOS_LIMITADOS = "Dados limitados. Exibindo todo o histórico disponível para o período selecionado."  # CU04-C2-FA1
 FALHA_NO_HISTORICO = "Não foi possível carregar o histórico de mercado no momento. Tente novamente mais tarde"  # CU04-C1-FE1
 
 # CU02-C4 – Encerrar sessão

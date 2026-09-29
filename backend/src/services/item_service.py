@@ -1,6 +1,7 @@
 import math
 import re
 from typing import Callable, Optional
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from src.scraper.models import HistoricalItemPrice
@@ -25,6 +26,10 @@ SEARCH_MIN_LENGTH = 3
 SEARCH_MAX_LENGTH = 100
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 50
+
+# CU04-C2-FA1: o primeiro ponto da série pode cair até 1 dia depois do início da janela sem que o histórico seja "limitado"
+# (o ponto diário é o de 00:00 UTC, e o da Blizzard depende do horário do ciclo).
+TOLERANCIA_DA_JANELA = timedelta(days=1)
 
 # CU03: mensagens exibidas ao usuário, exatamente como nos cenários do documento.
 MSG_TERMO_INSUFICIENTE = "Digite ao menos três caracteres para pesquisar"  # C1-FA1
@@ -67,18 +72,30 @@ class ItemService:
         """
         janela, dias = _interpretar_janela(window)
         agora = self.relogio()
-        pontos = self._pontos_do_item(item_id, agora - timedelta(days=dias) if dias is not None else None)
+        inicio_da_janela = agora - timedelta(days=dias) if dias is not None else None
+        pontos = self._pontos_do_item(item_id, inicio_da_janela)
         desatualizado, ultima_atualizacao = self._frescor(item_id, agora)
+        limitado = bool(pontos) and inicio_da_janela is not None and self._primeiro_ponto(item_id) > inicio_da_janela + TOLERANCIA_DA_JANELA
 
         avisos: list[AvisoDoHistorico] = []
         if not pontos:
             avisos.append(AvisoDoHistorico(codigo="SEM_HISTORICO", texto=mensagens.SEM_HISTORICO))  # C1-FA2
-        elif desatualizado:
-            avisos.append(AvisoDoHistorico(codigo="DADOS_DESATUALIZADOS", texto=mensagens.DADOS_DESATUALIZADOS))  # C1-FA1
+        else:
+            if limitado:
+                avisos.append(AvisoDoHistorico(codigo="DADOS_LIMITADOS", texto=mensagens.DADOS_LIMITADOS))  # C2-FA1
+            if desatualizado:
+                avisos.append(AvisoDoHistorico(codigo="DADOS_DESATUALIZADOS", texto=mensagens.DADOS_DESATUALIZADOS))  # C1-FA1
         return HistoricoDoItemResponse(
-            janela=janela, pontos=pontos, desatualizado=desatualizado,
+            janela=janela, pontos=pontos, dados_limitados=limitado, desatualizado=desatualizado,
             ultima_atualizacao_em=ultima_atualizacao, avisos=avisos,
         )
+
+    def _primeiro_ponto(self, item_id: int) -> datetime:
+        """CU04-C2 passo 3: o instante (UTC) do ponto mais antigo da série inteira do item, para saber se a janela é coberta."""
+        if item_id == WOW_TOKEN_ID:
+            return ItemPriceRepository(self.session).primeiro(WOW_TOKEN_ID, REGIAO_DA_FICHA).created_at.astimezone(timezone.utc)
+        primeiro = self.session.query(func.min(HistoricalItemPrice.timestamp)).filter(HistoricalItemPrice.item_id == item_id).scalar()
+        return primeiro.replace(tzinfo=timezone.utc)
 
     def _pontos_do_item(self, item_id: int, desde: Optional[datetime]) -> list[PontoDoHistorico]:
         if item_id == WOW_TOKEN_ID:

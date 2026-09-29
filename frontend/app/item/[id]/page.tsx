@@ -6,6 +6,7 @@ import AvisosDoHistorico from "@/components/AvisosDoHistorico";
 import Header from "@/components/Header";
 import PrecoAtualDoItem from "@/components/PrecoAtualDoItem";
 import PriceChart from "@/components/PriceChart";
+import Toast from "@/components/Toast";
 import { fetchItem, type ItemDetail } from "@/lib/itemSearch";
 import { useHistoricoDoItem, usePrecoAtual } from "@/lib/useHistoricoDoItem";
 
@@ -43,9 +44,8 @@ export default function ItemDetailsPage() {
     return () => controller.abort();
   }, [id, router]);
 
-  // CU04: a série, os avisos (Dados Desatualizados / sem histórico) e o preço atual vêm do backend.
-  const [janela, setJanela] = useState("14D");
-  const { dados, carregando, erro } = useHistoricoDoItem(id, janela);
+  // CU04: a série, os avisos (Dados Desatualizados / Dados limitados / sem histórico) e o preço atual vêm do backend.
+  const { dados, janela, pendente, carregando, erro, toast, mudarJanela, fecharToast } = useHistoricoDoItem(id);
   const { preco, carregando: carregandoPreco } = usePrecoAtual(id);
   const semHistorico = dados?.avisos.find((aviso) => aviso.codigo === "SEM_HISTORICO");
 
@@ -80,9 +80,10 @@ export default function ItemDetailsPage() {
           {JANELAS.map((w) => (
             <button
               key={w.value}
-              onClick={() => setJanela(w.value)}
+              onClick={() => mudarJanela(w.value)}
+              aria-pressed={(pendente ?? janela) === w.value}
               className={`px-3 py-1 rounded text-sm transition-colors ${
-                janela === w.value
+                (pendente ?? janela) === w.value
                   ? 'bg-[var(--color-cta)] text-[#161124] font-bold'
                   : 'bg-[var(--color-surface-solid)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] border border-[var(--color-border)]'
               }`}
@@ -94,8 +95,8 @@ export default function ItemDetailsPage() {
 
         {dados && <AvisosDoHistorico avisos={dados.avisos} />}
 
-        <div className="h-[500px] w-full">
-          {carregando ? (
+        <div className={`h-[500px] w-full transition-opacity ${carregando && dados ? "opacity-60" : ""}`}>
+          {carregando && !dados ? (
             <div className="w-full h-full flex items-center justify-center bg-[var(--color-surface-translucent)] rounded-xl border border-[var(--color-border)]">
               <div className="animate-pulse flex flex-col items-center">
                 <div className="h-8 w-8 rounded-full border-4 border-[var(--color-cta)] border-t-transparent animate-spin mb-4"></div>
@@ -111,6 +112,7 @@ export default function ItemDetailsPage() {
           )}
         </div>
       </main>
+      {toast && <Toast texto={toast} onFechar={fecharToast} />}
     </div>
   );
 }

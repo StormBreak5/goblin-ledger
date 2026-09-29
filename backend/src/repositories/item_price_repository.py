@@ -67,6 +67,15 @@ class ItemPriceRepository:
             query = query.filter(ItemPrice.created_at >= since)
         return query.order_by(ItemPrice.created_at.asc()).all()
 
+    def primeiro(self, item_id: int, region: str) -> Optional[ItemPrice]:
+        """O preço mais antigo do item (Ficha do WoW), ou None se ainda não houve coleta."""
+        return (
+            self.session.query(ItemPrice)
+            .filter(ItemPrice.item_id == item_id, ItemPrice.region == region)
+            .order_by(ItemPrice.created_at.asc())
+            .first()
+        )
+
     def latest(self, item_id: int, region: str) -> Optional[ItemPrice]:
         """O preço mais recente do item (Ficha do WoW), ou None se ainda não houve coleta."""
         return (
