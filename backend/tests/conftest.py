@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.controllers import item_controller
 from src.models.item import Item
+from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
 from src.models.usuario import TentativaLogin, Usuario
 from src.repositories.database import run_migrations
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
@@ -44,20 +45,23 @@ def make_client() -> Callable[[Optional[Callable]], TestClient]:
 @pytest.fixture
 def make_auth_client() -> Callable[..., TestClient]:
     """
-    TestClient das rotas de usuário e autenticação (CU01/CU02) com as dependências substituídas:
-    `abridor` (como a sessão do banco é aberta), `relogio` e `email_service`.
+    TestClient das rotas de usuário, autenticação e mercado (CU01/CU02/CU09) com as dependências substituídas:
+    `abridor` (como a sessão do banco é aberta), `relogio`, `email_service` e `cliente_blizzard`.
     """
-    def _make(abridor: Callable, relogio: Optional[Callable] = None, email_service=None) -> TestClient:
-        from src.controllers import auth_controller, deps, usuario_controller
+    def _make(abridor: Callable, relogio: Optional[Callable] = None, email_service=None, cliente_blizzard=None) -> TestClient:
+        from src.controllers import auth_controller, deps, mercado_controller, usuario_controller
 
         app = FastAPI()
         app.include_router(usuario_controller.router, prefix="/api")
         app.include_router(auth_controller.router, prefix="/api")
+        app.include_router(mercado_controller.router, prefix="/api")
         app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor
         if relogio is not None:
             app.dependency_overrides[deps.get_relogio] = lambda: relogio
         if email_service is not None:
             app.dependency_overrides[deps.get_email_service] = lambda: email_service
+        if cliente_blizzard is not None:
+            app.dependency_overrides[deps.get_fabrica_de_cliente_blizzard] = lambda: (lambda: cliente_blizzard)
         return TestClient(app, raise_server_exceptions=False)
 
     return _make
@@ -119,6 +123,10 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session.query(Item).delete()
     session.query(TentativaLogin).delete()
     session.query(Usuario).delete()  # sessões e tokens saem por ON DELETE CASCADE
+    session.query(Leilao).delete()
+    session.query(EstadoMercado).delete()
+    session.query(CicloIngestao).delete()
+    session.query(Reino).delete()
     session.commit()
     session.close()
 

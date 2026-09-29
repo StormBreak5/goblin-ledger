@@ -80,3 +80,24 @@ def abridor_de_sessao_para(session: Session) -> Callable:
 def auth_client(make_auth_client, db_session: Session, relogio: RelogioFalso, email_falso: EmailFalso):
     """TestClient dos CU01/CU02 sobre o PostgreSQL de teste, com relógio e e-mail falsos."""
     return make_auth_client(abridor_de_sessao_para(db_session), relogio, email_falso)
+
+
+@pytest.fixture
+def cliente_blizzard(relogio):
+    from helpers_ingestao import ClienteBlizzardFalso
+
+    return ClienteBlizzardFalso(relogio)
+
+
+@pytest.fixture
+def admin_client(make_auth_client, db_session, relogio, email_falso, cliente_blizzard):
+    """TestClient com as rotas de mercado (CU09-C4), usando a API da Blizzard falsa."""
+    return make_auth_client(abridor_de_sessao_para(db_session), relogio, email_falso, cliente_blizzard)
+
+
+@pytest.fixture
+def ingestao(db_session, cliente_blizzard, relogio):
+    """IngestaoService (CU09) sobre o PostgreSQL de teste, com a API da Blizzard e o relógio falsos."""
+    from src.services.ingestao_service import IngestaoService
+
+    return IngestaoService(db_session, cliente_blizzard, relogio)

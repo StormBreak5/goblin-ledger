@@ -31,5 +31,11 @@ LINK_INVALIDO = "Link de recuperação inválido ou expirado. Solicite uma nova 
 SENHA_REDEFINIDA = "Senha redefinida com sucesso"
 FALHA_NA_REDEFINICAO = "Não foi possível redefinir a senha no momento. Tente novamente mais tarde"  # CU02-C3-FE1
 
+# CU09-C4 – Executar ingestão manual (o documento não define os textos abaixo)
+ACESSO_RESTRITO_AO_ADMIN = "Acesso restrito ao administrador"
+REGIAO_INVALIDA = "Informe uma região válida (US ou EU) com mercados monitorados"
+FALHA_NA_INGESTAO_MANUAL = "Não foi possível executar a ingestão no momento. Tente novamente mais tarde"
+FALHA_NO_ESTADO_DO_MERCADO = "Não foi possível consultar o estado do mercado no momento. Tente novamente mais tarde"
+
 # CU02-C4 – Encerrar sessão
 SESSAO_EXPIRADA = "Sua sessão expirou. Faça login novamente"  # CU02-C4-FA1

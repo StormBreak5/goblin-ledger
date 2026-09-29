@@ -2,12 +2,12 @@ import math
 import re
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-import requests
 from src.scraper.models import HistoricalItemPrice
 from src.models.item import Item
 from src.models.api_models import ItemDetail, ItemSearchResponse, ItemSummary
 from src.repositories.item_repository import ItemRepository
-from src.scraper.parser import decompress_and_parse
+from src.repositories.mercado_repository import MercadoRepository
+from src.services.valor_de_mercado import primeiro_quartil_ponderado
 
 # CU03: parâmetros da busca (RF02 - Termo de Busca: texto de até 100 caracteres).
 SEARCH_MIN_LENGTH = 3
@@ -147,38 +147,15 @@ class ItemService:
 
     def get_current_auctions(self, item_id: int, region: str = "3209"):
         """
-        Busca os leilões atuais do item em tempo real via The Undermine Exchange.
+        CU09 (observações): os leilões atuais do item vêm do banco próprio, alimentado pelo ciclo de ingestão da
+        Blizzard, e não mais da Undermine Exchange. Considera os leilões do último ciclo de cada mercado; o valor
+        de mercado é o primeiro quartil dos preços (RN06). `region` é mantido por compatibilidade e não é usado.
         """
-        bucket_id = int(item_id) & 255
-        urls_to_try = [f"https://undermine.exchange/data/{region}/{bucket_id}/{item_id}.bin"]
-        if region != "32512":
-            urls_to_try.append(f"https://undermine.exchange/data/32512/{bucket_id}/{item_id}.bin")
-            
-        headers = {
-            'User-Agent': 'GoblinLedger/1.0 (Live Fetch)',
-            'Accept': '*/*'
+        ofertas = MercadoRepository(self.session).leiloes_do_ultimo_ciclo(int(item_id))
+        if not ofertas:
+            return {"min_price": 0, "total_quantity": 0, "market_value": None}
+        return {
+            "min_price": min(preco for preco, _ in ofertas),
+            "total_quantity": sum(quantidade for _, quantidade in ofertas),
+            "market_value": primeiro_quartil_ponderado(ofertas),
         }
-        
-        for url in urls_to_try:
-            try:
-                response = requests.get(url, headers=headers, timeout=5)
-                if response.status_code == 404:
-                    continue
-                response.raise_for_status()
-                parsed_data = decompress_and_parse(response.content)
-                
-                auctions = parsed_data.get('auctions', [])
-                if not auctions:
-                    return {"min_price": 0, "total_quantity": 0}
-                    
-                min_price = min(auc['price'] for auc in auctions)
-                total_quantity = sum(auc['quantity'] for auc in auctions)
-                
-                return {
-                    "min_price": min_price,
-                    "total_quantity": total_quantity
-                }
-            except Exception as e:
-                pass
-                
-        return {"min_price": 0, "total_quantity": 0}

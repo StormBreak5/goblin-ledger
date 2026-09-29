@@ -1,13 +1,38 @@
 import requests
 import logging
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from email.utils import parsedate_to_datetime
+from typing import Any, Callable, Optional
+
+from src.services import ingestao_config
 from src.services.auth import AuthTokenManager
+from src.services.sanitizacao import PayloadForaDoFormatoError
 from src.models.api_models import WoWTokenResponse
 
 logger = logging.getLogger(__name__)
 
+TIMEOUT_LEILOES_SEGUNDOS = 60
+TIMEOUT_COMMODITIES_SEGUNDOS = 180
+ESPERA_MAXIMA_RETRY_AFTER = 60
+
+
+class ApiIndisponivelError(Exception):
+    """CU09-C1-FE1: a API não respondeu (5xx, tempo limite ou falha de rede) mesmo após as retentativas."""
+
+
+@dataclass
+class PayloadDeLeiloes:
+    """Payload bruto de um endpoint da Casa de Leilões e o momento do snapshot (cabeçalho Last-Modified)."""
+    payload: Any
+    last_modified: Optional[datetime]
+
+
 class BlizzardApiClient:
-    def __init__(self, client_id: str, client_secret: str):
+    def __init__(self, client_id: str, client_secret: str, dormir: Callable[[float], None] = time.sleep):
         self.auth_manager = AuthTokenManager(client_id, client_secret)
+        self._dormir = dormir
 
     def get_wow_token_price(self, region: str = "us") -> WoWTokenResponse:
         """
@@ -87,3 +112,69 @@ class BlizzardApiClient:
         
         logger.info(f"Total de {len(unique_item_ids)} commodities ÚNICAS encontradas ativas no momento.")
         return unique_item_ids
+
+    # ------------------------------------------------------------------ CU09-C1: leilões
+
+    @staticmethod
+    def _host_e_locale(regiao: str) -> tuple[str, str]:
+        regiao = regiao.lower()
+        return regiao, "en_US" if regiao == "us" else "en_GB"
+
+    def _obter_com_retentativas(self, url: str, timeout: int) -> requests.Response:
+        """
+        CU09-C1 passos 3 a 5 e FE1: obtém o token e faz a requisição. Falha de rede, tempo limite, 5xx e 429 são
+        tentadas de novo com espera crescente (5, 15 e 45 s; no 429 vale o Retry-After, até 60 s). Se persistir,
+        levanta ApiIndisponivelError. Outros erros 4xx não melhoram tentando de novo e falham na hora.
+        """
+        esperas = ingestao_config.ESPERAS_ENTRE_TENTATIVAS
+        ultimo_erro = "sem resposta"
+        for tentativa in range(len(esperas) + 1):
+            espera_extra = 0.0
+            try:
+                token = self.auth_manager.get_token()
+                resposta = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=timeout)
+                if resposta.status_code == 429:
+                    espera_extra = min(float(resposta.headers.get("Retry-After", 0) or 0), ESPERA_MAXIMA_RETRY_AFTER)
+                    ultimo_erro = "HTTP 429 (limite de requisições)"
+                elif resposta.status_code >= 500:
+                    ultimo_erro = f"HTTP {resposta.status_code}"
+                elif resposta.status_code >= 400:
+                    raise ApiIndisponivelError(f"HTTP {resposta.status_code} em {url}")
+                else:
+                    return resposta
+            except requests.RequestException as e:
+                ultimo_erro = f"{type(e).__name__}: {e}"
+
+            if tentativa < len(esperas):
+                espera = max(esperas[tentativa], espera_extra)
+                logger.warning("CU09-C1-FE1: falha (%s); nova tentativa em %ss.", ultimo_erro, espera)
+                self._dormir(espera)
+        raise ApiIndisponivelError(f"A API não respondeu após {len(esperas) + 1} tentativas: {ultimo_erro}")
+
+    def _coletar(self, url: str, timeout: int) -> PayloadDeLeiloes:
+        resposta = self._obter_com_retentativas(url, timeout)
+        try:
+            payload = resposta.json()
+        except ValueError as e:
+            raise PayloadForaDoFormatoError(f"Resposta que não é JSON: {e}") from e
+        cabecalho = resposta.headers.get("Last-Modified")
+        try:
+            last_modified = parsedate_to_datetime(cabecalho) if cabecalho else None
+        except (TypeError, ValueError):
+            last_modified = None
+        return PayloadDeLeiloes(payload=payload, last_modified=last_modified)
+
+    def fetch_connected_realm_auctions(self, regiao: str, id_reino: int) -> PayloadDeLeiloes:
+        """CU09-C1 passo 5: snapshot completo dos leilões do reino conectado (uma única resposta, sem paginação)."""
+        host, locale = self._host_e_locale(regiao)
+        url = (
+            f"https://{host}.api.blizzard.com/data/wow/connected-realm/{id_reino}/auctions"
+            f"?namespace=dynamic-{host}&locale={locale}"
+        )
+        return self._coletar(url, TIMEOUT_LEILOES_SEGUNDOS)
+
+    def fetch_commodity_auctions(self, regiao: str) -> PayloadDeLeiloes:
+        """CU09-C1 passo 5: snapshot completo das commodities da região (globais, fora dos reinos)."""
+        host, locale = self._host_e_locale(regiao)
+        url = f"https://{host}.api.blizzard.com/data/wow/auctions/commodities?namespace=dynamic-{host}&locale={locale}"
+        return self._coletar(url, TIMEOUT_COMMODITIES_SEGUNDOS)

@@ -74,5 +74,17 @@ class LinkInvalidoError(ErroDeNegocio):
     mensagem_padrao = mensagens.LINK_INVALIDO
 
 
+class AcessoNegadoError(ErroDeNegocio):
+    """CU09-C4 (pré-condição): as funções administrativas exigem o papel de Admin."""
+    status_code = 403
+    mensagem_padrao = mensagens.ACESSO_RESTRITO_AO_ADMIN
+
+
+class RegiaoInvalidaError(ErroDeNegocio):
+    """CU09-C4 passo 1 (RN11): região fora de US/EU, ou sem mercado monitorado."""
+    status_code = 422
+    mensagem_padrao = mensagens.REGIAO_INVALIDA
+
+
 class EmailIndisponivelError(Exception):
     """CU02-C2-FE1: o serviço de envio de e-mail não respondeu."""
