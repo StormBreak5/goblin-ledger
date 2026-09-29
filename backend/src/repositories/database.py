@@ -1,6 +1,7 @@
 import os
 import logging
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,20 @@ def get_database_url() -> str:
     
     return f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
 
+def ensure_unaccent_extension(engine) -> None:
+    """
+    CU03-C1 passo 2: a busca de itens desconsidera acentuação com a extensão `unaccent` do PostgreSQL.
+    Idempotente. Será movida para a migração inicial do Alembic quando ele for introduzido.
+    """
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+    except ProgrammingError:
+        logger.error(
+            "Não foi possível criar a extensão 'unaccent' (permissão insuficiente?). "
+            "A busca de itens (CU03) ficará indisponível até que um superusuário execute: CREATE EXTENSION unaccent;"
+        )
+
 def init_db():
     """
     Inicializa a engine, cria as tabelas caso não existam (Migration simplificada pura)
@@ -33,6 +48,8 @@ def init_db():
         from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
         from src.models.item import Item
         
+        ensure_unaccent_extension(engine)
+
         # Cria as tabelas configuradas se elas não existirem no target DB
         Base.metadata.create_all(engine)
         logger.info("Tabelas do banco de dados verificadas/criadas com sucesso.")
