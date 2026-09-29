@@ -6,6 +6,8 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import inspect, text
 
+from src.models.cobertura import AptidaoTreinamento  # noqa: F401
+from src.models.evento import EventoJogo, ExtracaoEvento  # noqa: F401
 from src.models.item import Item
 from src.models.item_price import ItemPrice
 from src.models.usuario import Sessao, TentativaLogin, TokenRecuperacao, Usuario
@@ -17,6 +19,7 @@ TODAS_AS_TABELAS = {
     "items", "item_prices", "historical_item_prices", "scraper_execution_logs",
     "usuario", "sessao", "token_recuperacao", "tentativa_login",
     "reino", "leilao", "ciclo_ingestao", "estado_mercado",
+    "evento_jogo", "extracao_evento", "aptidao_treinamento",
 }
 
 
@@ -30,8 +33,17 @@ def test_esquema_das_migracoes_corresponde_aos_modelos(pg_engine):
 def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     Base.metadata.create_all(banco_vazio, tables=TABELAS_ANTIGAS)  # como o banco criado antes do Alembic
     with banco_vazio.begin() as conexao:
-        # O banco antigo não tem as colunas acrescentadas pela migração 0003.
-        conexao.execute(text("ALTER TABLE historical_item_prices DROP COLUMN origem, DROP COLUMN anomalia"))
+        # O banco antigo não tem as colunas acrescentadas pelas migrações 0003 e 0004.
+        conexao.execute(
+            text("ALTER TABLE historical_item_prices DROP COLUMN origem, DROP COLUMN anomalia, DROP COLUMN granularidade")
+        )
+        conexao.execute(
+            text(
+                "ALTER TABLE scraper_execution_logs DROP COLUMN triggered_by, DROP COLUMN region, "
+                "DROP COLUMN items_requested, DROP COLUMN items_created, DROP COLUMN items_without_data, DROP COLUMN items_failed, "
+                "DROP COLUMN records_discarded, DROP COLUMN records_duplicated, DROP COLUMN failure_stage"
+            )
+        )
         conexao.execute(text("INSERT INTO historical_item_prices (item_id, region, timestamp, price) VALUES (1, '3209', now(), 5)"))
 
     run_migrations(banco_vazio)
@@ -40,9 +52,11 @@ def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     with banco_vazio.connect() as conexao:
         assert set(inspect(conexao).get_table_names()) - {"alembic_version"} == TODAS_AS_TABELAS
         assert conexao.execute(text("SELECT count(*) FROM historical_item_prices")).scalar() == 1  # dados preservados
-        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0003"
+        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0004"
         # linhas antigas ganham os valores padrão das colunas novas, sem reescrever a tabela
-        assert conexao.execute(text("SELECT origem, anomalia FROM historical_item_prices")).one() == ("UNDERMINE", False)
+        assert conexao.execute(text("SELECT origem, anomalia, granularidade FROM historical_item_prices")).one() == (
+            "UNDERMINE", False, "DIARIA",
+        )
         assert conexao.execute(text("SELECT count(*) FROM pg_extension WHERE extname = 'unaccent'")).scalar() == 1
 
 
@@ -61,3 +75,25 @@ def test_migracao_2_remove_dados_do_usuario_em_cascata_rn20(pg_engine, db_sessio
 
     assert db_session.query(Sessao).count() == 0
     assert db_session.query(TokenRecuperacao).count() == 0
+
+
+def test_cu10_migracao_4_marca_os_pontos_da_blizzard_como_horarios_rn16(banco_vazio):
+    """A coluna `granularidade` (RN16) nasce `DIARIA` para o histórico da Undermine e `HORARIA` para o ciclo da Blizzard."""
+    from alembic import command
+    from alembic.config import Config
+    from src.repositories.database import MIGRATIONS_DIR
+
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_DIR)
+    with banco_vazio.begin() as conexao:
+        config.attributes["connection"] = conexao
+        command.upgrade(config, "0003")
+        conexao.execute(text(
+            "INSERT INTO historical_item_prices (item_id, region, timestamp, price, origem) VALUES "
+            "(1, '3209', '2026-09-01 00:00', 5, 'UNDERMINE'), (1, '3209', '2026-09-28 12:00', 6, 'BLIZZARD')"
+        ))
+        command.upgrade(config, "0004")
+
+    with banco_vazio.connect() as conexao:
+        linhas = conexao.execute(text("SELECT origem, granularidade FROM historical_item_prices ORDER BY timestamp")).all()
+    assert [tuple(linha) for linha in linhas] == [("UNDERMINE", "DIARIA"), ("BLIZZARD", "HORARIA")]

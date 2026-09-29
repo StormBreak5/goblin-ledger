@@ -5,6 +5,8 @@ from sqlalchemy import create_engine, pool, text
 
 from src.repositories.database import Base, get_database_url
 # Importa os modelos para que suas tabelas existam em Base.metadata (usado pelo --autogenerate e pelo teste de deriva).
+from src.models.cobertura import AptidaoTreinamento  # noqa: F401
+from src.models.evento import EventoJogo, ExtracaoEvento  # noqa: F401
 from src.models.item import Item  # noqa: F401
 from src.models.item_price import ItemPrice  # noqa: F401
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino  # noqa: F401
