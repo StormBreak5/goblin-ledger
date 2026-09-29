@@ -55,6 +55,7 @@ def make_auth_client() -> Callable[..., TestClient]:
         abridor: Callable, relogio: Optional[Callable] = None, email_service=None, cliente_blizzard=None, baixar_pagina=None
     ) -> TestClient:
         from src.controllers import (
+            admin_cobertura_controller,
             admin_eventos_controller,
             admin_historico_controller,
             auth_controller,
@@ -69,6 +70,7 @@ def make_auth_client() -> Callable[..., TestClient]:
         app.include_router(mercado_controller.router, prefix="/api")
         app.include_router(admin_historico_controller.router, prefix="/api")
         app.include_router(admin_eventos_controller.router, prefix="/api")
+        app.include_router(admin_cobertura_controller.router, prefix="/api")
         app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor
         app.dependency_overrides[deps.get_preenchedor_de_itens] = lambda: (lambda: None)  # nunca chama a Blizzard
         if relogio is not None:

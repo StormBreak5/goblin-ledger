@@ -118,3 +118,44 @@ export const listarEventos = (token: string, tipo: string, deslocamento: number)
     `/admin/events?limite=100&deslocamento=${deslocamento}${tipo ? `&tipo=${encodeURIComponent(tipo)}` : ""}`,
     { token, fallbackMessage: MSG_FALHA_NO_REGISTRO_DE_EVENTOS },
   );
+
+// ---------------------------------------------------------------- CU10-C3 – cobertura histórica dos itens
+
+export const MSG_FALHA_NA_VALIDACAO_DA_COBERTURA = "Não foi possível concluir a validação no momento. Tente novamente mais tarde"; // CU10-C3-FE1
+
+export interface ItemCobertura {
+  item_id: number;
+  nome: string | null;
+  situacao: string; // "Apto ao treinamento" ou "Inapto ao treinamento"
+  apto: boolean;
+  periodo_continuo_dias: number;
+  inicio_periodo: string | null; // AAAA-MM-DD
+  fim_periodo: string | null;
+  dias_com_dados: number;
+}
+
+export interface ResumoCobertura {
+  validado_em: string | null;
+  total: number;
+  aptos: number;
+  inaptos: number;
+  itens: ItemCobertura[];
+  pagina: number;
+  tamanho_da_pagina: number;
+}
+
+export type FiltroDeSituacao = "" | "APTO" | "INAPTO";
+
+/** CU10-C3 passo 1: o Admin solicita a validação; devolve a relação de aptos e inaptos com o período contínuo de cada item. */
+export const validarCobertura = (token: string): Promise<ApiResult<ResumoCobertura>> =>
+  request<ResumoCobertura>("/admin/history-coverage?tamanho=50", {
+    method: "POST",
+    token,
+    fallbackMessage: MSG_FALHA_NA_VALIDACAO_DA_COBERTURA,
+  });
+
+export const consultarCobertura = (token: string, situacao: FiltroDeSituacao, pagina: number): Promise<ApiResult<ResumoCobertura>> =>
+  request<ResumoCobertura>(`/admin/history-coverage?tamanho=50&pagina=${pagina}${situacao ? `&situacao=${situacao}` : ""}`, {
+    token,
+    fallbackMessage: MSG_FALHA_NA_VALIDACAO_DA_COBERTURA,
+  });

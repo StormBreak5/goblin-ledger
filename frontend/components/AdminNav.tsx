@@ -4,6 +4,7 @@ const paginas = [
   { href: "/admin/ingestao", rotulo: "Ingestão de mercado" },
   { href: "/admin/historico", rotulo: "Histórico de preços" },
   { href: "/admin/eventos", rotulo: "Eventos do jogo" },
+  { href: "/admin/cobertura", rotulo: "Cobertura histórica" },
 ];
 
 /** Atalhos entre as telas do Admin (CU09-C4 e CU10). */
