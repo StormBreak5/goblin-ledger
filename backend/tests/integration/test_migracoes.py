@@ -33,7 +33,8 @@ def test_esquema_das_migracoes_corresponde_aos_modelos(pg_engine):
 def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     Base.metadata.create_all(banco_vazio, tables=TABELAS_ANTIGAS)  # como o banco criado antes do Alembic
     with banco_vazio.begin() as conexao:
-        # O banco antigo não tem as colunas acrescentadas pelas migrações 0003 e 0004.
+        # O banco antigo não tem a chave única de item_prices (0006) nem as colunas acrescentadas pelas migrações 0003 e 0004.
+        conexao.execute(text("ALTER TABLE item_prices DROP CONSTRAINT uq_item_prices_item_region_created"))
         conexao.execute(
             text("ALTER TABLE historical_item_prices DROP COLUMN origem, DROP COLUMN anomalia, DROP COLUMN granularidade")
         )
@@ -52,7 +53,7 @@ def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     with banco_vazio.connect() as conexao:
         assert set(inspect(conexao).get_table_names()) - {"alembic_version"} == TODAS_AS_TABELAS
         assert conexao.execute(text("SELECT count(*) FROM historical_item_prices")).scalar() == 1  # dados preservados
-        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0005"
+        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0006"
         # linhas antigas ganham os valores padrão das colunas novas, sem reescrever a tabela
         assert conexao.execute(text("SELECT origem, anomalia, granularidade FROM historical_item_prices")).one() == (
             "UNDERMINE", False, "DIARIA",
@@ -128,3 +129,37 @@ def test_cu10_migracao_5_corrige_a_granularidade_dos_pontos_do_ciclo_horario_rn1
         ("BLIZZARD", "3209", "HORARIA"), ("BLIZZARD", "32512", "HORARIA"),
         ("UNDERMINE", "3209", "DIARIA"), ("UNDERMINE", "3209", "HORARIA"),
     ]
+
+
+def test_migracao_6_remove_leituras_repetidas_da_ficha_e_impede_novas(banco_vazio):
+    """A Ficha passa a ter um preço por instante: repetidos anteriores ficam com um só (o de menor id) e o banco recusa novos."""
+    import pytest
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy.exc import IntegrityError
+    from src.repositories.database import MIGRATIONS_DIR
+
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_DIR)
+    with banco_vazio.begin() as conexao:
+        config.attributes["connection"] = conexao
+        command.upgrade(config, "0005")
+        conexao.execute(text(
+            "INSERT INTO item_prices (id, item_id, price_copper, region, created_at) VALUES "
+            "('00000000-0000-0000-0000-000000000001', 122284, 100, 'us', '2026-09-29 22:03:07+00'), "
+            "('00000000-0000-0000-0000-000000000002', 122284, 100, 'us', '2026-09-29 22:03:07+00'), "  # a mesma leitura
+            "('00000000-0000-0000-0000-000000000003', 122284, 200, 'us', '2026-09-29 22:23:07+00'), "
+            "('00000000-0000-0000-0000-000000000004', 122284, 100, 'eu', '2026-09-29 22:03:07+00')"  # outra região
+        ))
+        command.upgrade(config, "0006")
+
+    with banco_vazio.connect() as conexao:
+        ids = [linha[0] for linha in conexao.execute(text("SELECT id::text FROM item_prices ORDER BY id"))]
+    assert ids == [f"00000000-0000-0000-0000-00000000000{n}" for n in (1, 3, 4)]
+
+    with pytest.raises(IntegrityError):
+        with banco_vazio.begin() as conexao:
+            conexao.execute(text(
+                "INSERT INTO item_prices (id, item_id, price_copper, region, created_at) VALUES "
+                "(gen_random_uuid(), 122284, 300, 'us', '2026-09-29 22:23:07+00')"
+            ))

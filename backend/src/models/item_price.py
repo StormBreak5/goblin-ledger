@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, BigInteger, DateTime, Index
+from sqlalchemy import Column, Integer, String, BigInteger, DateTime, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from src.repositories.database import Base
 
@@ -22,6 +22,8 @@ class ItemPrice(Base):
     # Definindo composite index explicitamente para perfomance no timeseries
     __table_args__ = (
         Index('idx_item_region_created_at', 'item_id', 'region', 'created_at'),
+        # O instante do ponto é o do preço (a Blizzard só o atualiza a cada 20 min): a mesma leitura não se repete.
+        UniqueConstraint('item_id', 'region', 'created_at', name='uq_item_prices_item_region_created'),
     )
 
     def __repr__(self):

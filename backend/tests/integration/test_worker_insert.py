@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from unittest.mock import patch
 from src.repositories.item_price_repository import ItemPriceRepository
@@ -26,3 +28,5 @@ def test_repository_insert(mock_session):
     assert added_obj.price_copper == 3140000000
     assert added_obj.item_id == 122284
     assert added_obj.region == "us"
+    # O instante do ponto é o do preço na Blizzard, e não o da coleta.
+    assert added_obj.created_at == datetime.fromtimestamp(1690000000, tz=timezone.utc)
