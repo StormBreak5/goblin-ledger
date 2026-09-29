@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
-
 from src.repositories.database import init_db
 from src.controllers.item_controller import router as item_router
 
