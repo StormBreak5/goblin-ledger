@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Aviso, AuthPage, BotaoPrimario, Campo, CampoRegiao } from "@/components/AuthUi";
 import { clearToken, useAuthReady, useAuthToken } from "@/lib/auth";
@@ -147,6 +148,14 @@ export default function PerfilPage() {
         <Campo id="confirmacao_nova_senha" rotulo="Confirmação da nova senha" type="password" value={confirmacao} onChange={setConfirmacao} invalido={invalido("confirmacao_nova_senha")} autoComplete="new-password" maxLength={255} />
         <BotaoPrimario carregando={enviando}>Salvar alterações</BotaoPrimario>
       </form>
+
+      {perfil.role === "admin" && (
+        <p className="mt-6 text-center">
+          <Link href="/admin/ingestao" className="text-sm text-[var(--color-cta)] hover:underline">
+            Ingestão de mercado (Admin)
+          </Link>
+        </p>
+      )}
 
       <hr className="my-8 border-[var(--color-border)]" />
       <button

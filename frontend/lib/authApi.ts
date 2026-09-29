@@ -43,7 +43,7 @@ export type ApiResult<T> = { ok: true; data: T } | ApiFailure;
 
 interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE";
-  body?: Record<string, string>;
+  body?: Record<string, string | number>;
   token?: string | null;
   fallbackMessage: string;
 }
@@ -62,7 +62,7 @@ function parseDetail(payload: unknown, fallbackMessage: string): { message: stri
   return { message: fallbackMessage, fields: [] };
 }
 
-async function request<T>(path: string, { method = "GET", body, token, fallbackMessage }: RequestOptions): Promise<ApiResult<T>> {
+export async function request<T>(path: string, { method = "GET", body, token, fallbackMessage }: RequestOptions): Promise<ApiResult<T>> {
   try {
     const headers: Record<string, string> = {};
     if (body) headers["Content-Type"] = "application/json";
