@@ -4,6 +4,12 @@ from sqlalchemy import Column, Integer, String, BigInteger, DateTime, Index
 from sqlalchemy.dialects.postgresql import UUID
 from src.repositories.database import Base
 
+# A Ficha do WoW não tem leilões: o preço vem da API dedicada (a cada 15 min, `job_fetch_wow_token_price`) e fica em
+# `item_prices`, e não em `historical_item_prices` nem em `leilao`. As telas do item leem daqui quando o item é a Ficha.
+WOW_TOKEN_ID = 122284
+REGIAO_DA_FICHA = "us"
+
+
 class ItemPrice(Base):
     __tablename__ = "item_prices"
 

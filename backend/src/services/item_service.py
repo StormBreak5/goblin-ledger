@@ -1,11 +1,14 @@
 import math
 import re
+from typing import Optional
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from src.scraper.models import HistoricalItemPrice
 from src.models.item import Item
 from src.models.api_models import ItemDetail, ItemSearchResponse, ItemSummary
 from src.repositories.item_repository import ItemRepository
+from src.repositories.item_price_repository import ItemPriceRepository
+from src.models.item_price import REGIAO_DA_FICHA, WOW_TOKEN_ID
 from src.repositories.mercado_repository import MercadoRepository
 from src.services.valor_de_mercado import primeiro_quartil_ponderado
 
@@ -52,6 +55,9 @@ class ItemService:
             except ValueError:
                 pass
         
+        if item_id == WOW_TOKEN_ID:
+            return self._get_token_history(days)
+
         query = self.session.query(HistoricalItemPrice).filter(
             HistoricalItemPrice.item_id == item_id
         )
@@ -78,6 +84,20 @@ class ItemService:
             })
             
         return formatted_results
+
+    def _get_token_history(self, days: Optional[int]) -> list[dict]:
+        """A Ficha do WoW tem série própria (item_prices, coletada a cada 15 min), sem leilões nem volume. O preço vai em
+        cobre (RN01) e o instante em UTC com o fuso explícito, como no histórico dos demais itens."""
+        desde = datetime.now(timezone.utc) - timedelta(days=days) if days is not None else None
+        return [
+            {
+                "timestamp": preco.created_at.astimezone(timezone.utc).isoformat(),
+                "price": preco.price_copper,
+                "quantity": None,
+                "granularity": "HORARIA",  # é um instante (a cada 15 min), e não um dia inteiro
+            }
+            for preco in ItemPriceRepository(self.session).history(WOW_TOKEN_ID, REGIAO_DA_FICHA, desde)
+        ]
 
     def search_items(self, query: str, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> ItemSearchResponse:
         """CU03-C1 / CU03-C2 (RF02): busca itens por nome ou por identificador numérico, com paginação.
@@ -155,6 +175,13 @@ class ItemService:
         Blizzard, e não mais da Undermine Exchange. Considera os leilões do último ciclo de cada mercado; o valor
         de mercado é o primeiro quartil dos preços (RN06). `region` é mantido por compatibilidade e não é usado.
         """
+        if int(item_id) == WOW_TOKEN_ID:
+            # A Ficha não tem leilões: o preço atual é o da última coleta; a contagem de leilões não se aplica.
+            ultimo = ItemPriceRepository(self.session).latest(WOW_TOKEN_ID, REGIAO_DA_FICHA)
+            if ultimo is None:
+                return {"min_price": 0, "total_quantity": None, "market_value": None}
+            return {"min_price": ultimo.price_copper, "total_quantity": None, "market_value": ultimo.price_copper}
+
         ofertas = MercadoRepository(self.session).leiloes_do_ultimo_ciclo(int(item_id))
         if not ofertas:
             return {"min_price": 0, "total_quantity": 0, "market_value": None}

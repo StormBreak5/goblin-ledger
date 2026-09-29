@@ -9,7 +9,7 @@ import { fetchItem, type ItemDetail } from "@/lib/itemSearch";
 interface HistoricalDataPoint {
   timestamp: string;
   price: number;
-  quantity: number;
+  quantity: number | null;
   granularity?: "DIARIA" | "HORARIA";
 }
 
@@ -43,7 +43,7 @@ export default function ItemDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [windowPeriod, setWindowPeriod] = useState("14D");
-  const [currentAuctions, setCurrentAuctions] = useState<{min_price: number, total_quantity: number} | null>(null);
+  const [currentAuctions, setCurrentAuctions] = useState<{min_price: number, total_quantity: number | null} | null>(null);
   const [loadingCurrent, setLoadingCurrent] = useState(false);
 
   useEffect(() => {
@@ -73,7 +73,7 @@ export default function ItemDetailsPage() {
         const response = await fetch(`http://127.0.0.1:8000/api/items/${id}/current-auctions`);
         if (response.ok) {
           const data = await response.json();
-          if (data.min_price > 0 || data.total_quantity > 0) {
+          if (data.min_price > 0 || (data.total_quantity ?? 0) > 0) {
             setCurrentAuctions(data);
           }
         }
@@ -115,9 +115,11 @@ export default function ItemDetailsPage() {
               <p className="text-[var(--color-text-secondary)] text-sm animate-pulse">Consultando Casa de Leilões...</p>
             ) : currentAuctions ? (
               <>
-                <p className="text-[var(--color-text-secondary)] font-medium mb-1">
-                  {currentAuctions.total_quantity.toLocaleString('pt-BR')} leilões ativos
-                </p>
+                {currentAuctions.total_quantity !== null && (
+                  <p className="text-[var(--color-text-secondary)] font-medium mb-1">
+                    {currentAuctions.total_quantity.toLocaleString('pt-BR')} leilões ativos
+                  </p>
+                )}
                 <p className="text-2xl font-bold text-[var(--color-cta)]">
                   {(currentAuctions.min_price / 10000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ouro
                 </p>
