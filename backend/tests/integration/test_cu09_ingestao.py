@@ -295,6 +295,17 @@ def test_cu09_c3_fluxo_principal_persiste_classifica_e_calcula_valor_de_mercado(
     assert MercadoRepository(db_session).leiloes_do_ultimo_ciclo(2002) == []
 
 
+def test_cu09_c3_os_pontos_do_ciclo_sao_gravados_como_horarios_rn16(ingestao, cliente_blizzard, db_session):
+    """O ponto de cada ciclo (a cada hora) é `HORARIA`; sem isso o CU11 misturaria a série horária com a diária da Undermine."""
+    cliente_blizzard.payload_do_reino = {"auctions": [leilao_de_reino(1, 1001, 100)]}
+    cliente_blizzard.payload_das_commodities = {"auctions": [leilao_de_commodity(9, 2001, 50, 20)]}
+
+    ingestao.executar(MERCADO_REINO)
+    ingestao.executar(MERCADO_COMMODITIES)
+
+    assert [(ponto.region, ponto.granularidade) for ponto in _pontos(db_session)] == [("3209", "HORARIA"), ("32512", "HORARIA")]
+
+
 def test_cu09_c3_repetir_o_mesmo_snapshot_nao_duplica_o_historico(ingestao, cliente_blizzard, db_session, relogio):
     cliente_blizzard.payload_do_reino = {"auctions": [leilao_de_reino(1, 1001, 100)]}
     cliente_blizzard.last_modified = relogio()  # a Blizzard ainda não publicou um snapshot novo

@@ -52,7 +52,7 @@ def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     with banco_vazio.connect() as conexao:
         assert set(inspect(conexao).get_table_names()) - {"alembic_version"} == TODAS_AS_TABELAS
         assert conexao.execute(text("SELECT count(*) FROM historical_item_prices")).scalar() == 1  # dados preservados
-        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0004"
+        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0005"
         # linhas antigas ganham os valores padrão das colunas novas, sem reescrever a tabela
         assert conexao.execute(text("SELECT origem, anomalia, granularidade FROM historical_item_prices")).one() == (
             "UNDERMINE", False, "DIARIA",
@@ -97,3 +97,34 @@ def test_cu10_migracao_4_marca_os_pontos_da_blizzard_como_horarios_rn16(banco_va
     with banco_vazio.connect() as conexao:
         linhas = conexao.execute(text("SELECT origem, granularidade FROM historical_item_prices ORDER BY timestamp")).all()
     assert [tuple(linha) for linha in linhas] == [("UNDERMINE", "DIARIA"), ("BLIZZARD", "HORARIA")]
+
+
+def test_cu10_migracao_5_corrige_a_granularidade_dos_pontos_do_ciclo_horario_rn16(banco_vazio):
+    """Os pontos da Blizzard gravados depois da 0004 (com o padrão `DIARIA`) passam a `HORARIA`; o histórico da Undermine
+    e a granularidade das linhas diárias não mudam."""
+    from alembic import command
+    from alembic.config import Config
+    from src.repositories.database import MIGRATIONS_DIR
+
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_DIR)
+    with banco_vazio.begin() as conexao:
+        config.attributes["connection"] = conexao
+        command.upgrade(config, "0004")
+        conexao.execute(text(
+            "INSERT INTO historical_item_prices (item_id, region, timestamp, price, origem, granularidade) VALUES "
+            "(1, '3209', '2026-09-01 00:00', 5, 'UNDERMINE', 'DIARIA'), "
+            "(1, '3209', '2026-09-01 13:00', 5, 'UNDERMINE', 'HORARIA'), "
+            "(1, '3209', '2026-09-29 20:47', 6, 'BLIZZARD', 'DIARIA'), "  # o defeito: gravado com o padrão
+            "(1, '32512', '2026-09-29 20:47', 7, 'BLIZZARD', 'HORARIA')"
+        ))
+        command.upgrade(config, "0005")
+
+    with banco_vazio.connect() as conexao:
+        linhas = conexao.execute(text(
+            "SELECT origem, region, granularidade FROM historical_item_prices ORDER BY origem, region, timestamp"
+        )).all()
+    assert [tuple(linha) for linha in linhas] == [
+        ("BLIZZARD", "3209", "HORARIA"), ("BLIZZARD", "32512", "HORARIA"),
+        ("UNDERMINE", "3209", "DIARIA"), ("UNDERMINE", "3209", "HORARIA"),
+    ]

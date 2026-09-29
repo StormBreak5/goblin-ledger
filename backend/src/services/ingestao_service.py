@@ -14,6 +14,7 @@ from src.models.mercado import (
     CicloIngestao,
 )
 from src.repositories.mercado_repository import MercadoRepository
+from src.scraper.models import GRANULARIDADE_HORARIA
 from src.services import ingestao_config, security
 from src.services.api_client import ApiIndisponivelError, BlizzardApiClient, PayloadDeLeiloes
 from src.services.ingestao_config import Mercado
@@ -151,7 +152,11 @@ class IngestaoService:
             mediana, quantidade_de_pontos = estatisticas.get(item_id, (None, 0))
             anomalo = volume_e_anomalo(volumes[item_id], mediana, quantidade_de_pontos)  # C2 passo 4 (RN12)
             anomalos += anomalo
-            pontos.append((item_id, regiao_do_historico, referencia_sem_fuso, valor, volumes[item_id], ORIGEM_BLIZZARD, anomalo))
+            # CU10 (RN16): o ponto do ciclo é horário; sem a coluna no INSERT ele herdaria o padrão "DIARIA".
+            pontos.append((
+                item_id, regiao_do_historico, referencia_sem_fuso, valor, volumes[item_id], ORIGEM_BLIZZARD, anomalo,
+                GRANULARIDADE_HORARIA,
+            ))
         self.repository.registrar_pontos_de_historico(pontos)
 
         # Passos 5 e 6: data e hora da última atualização do mercado (RN09) e conclusão do ciclo.

@@ -34,7 +34,8 @@ _INSERT_LEILOES = (
     "data_ingestao = EXCLUDED.data_ingestao"
 )
 _INSERT_HISTORICO = (
-    f"INSERT INTO {HistoricalItemPrice.__tablename__} (item_id, region, timestamp, price, quantity, origem, anomalia) "
+    f"INSERT INTO {HistoricalItemPrice.__tablename__} "
+    "(item_id, region, timestamp, price, quantity, origem, anomalia, granularidade) "
     "VALUES %s ON CONFLICT (item_id, region, timestamp) DO NOTHING"
 )
 
