@@ -8,6 +8,8 @@ alwaysApply: true
 Auto-generated from all feature plans. Last updated: 2026-03-01
 
 ## Active Technologies
+- Python 3.11+ + SQLAlchemy, Requests, Pydantic (for validation) (002-price-history-scraper)
+- PostgreSQL 16 (via Docker) (002-price-history-scraper)
 
 - Python 3.11+ + `requests` (API), `sqlalchemy` + `psycopg2-binary` (DB), `pydantic` (Validação), `python-dotenv` (001-wow-token-price)
 
@@ -27,6 +29,7 @@ cd src; pytest; ruff check .
 Python 3.11+: Follow standard conventions
 
 ## Recent Changes
+- 002-price-history-scraper: Added Python 3.11+ + SQLAlchemy, Requests, Pydantic (for validation)
 
 - 001-wow-token-price: Added Python 3.11+ + `requests` (API), `sqlalchemy` + `psycopg2-binary` (DB), `pydantic` (Validação), `python-dotenv`
 

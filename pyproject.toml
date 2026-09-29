@@ -1,0 +1,5 @@
+[tool.pyright]
+extraPaths = ["backend/src"]
+
+[tool.pylance]
+extraPaths = ["backend/src"]

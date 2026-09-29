@@ -1,8 +1,10 @@
 import os
 import time
+from datetime import datetime
 import logging
 from dotenv import load_dotenv
 import sys
+from apscheduler.schedulers.blocking import BlockingScheduler
 
 # Corrige imports quando rodando direto.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,9 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Parseia IDs de itens separados por vírgula no ENV, joga o WoW Token de fallback
-ITEMS_TO_TRACK = os.getenv("ITEMS_TO_TRACK", "122284")
-ITEM_IDS = [int(x.strip()) for x in ITEMS_TO_TRACK.split(",") if x.strip().isdigit()]
+# ITEM_IDS agora são dinâmicos através da tabela Item
 
 def job_fetch_wow_token_price():
     client_id = os.getenv("BLIZZARD_CLIENT_ID")
@@ -36,15 +36,28 @@ def job_fetch_wow_token_price():
     repo = ItemPriceRepository(session)
 
     try:
-        # Recupera dado
-        # Edge Case 1 & 2: requests já vai levantar exception de fallback HTTP de downtime, que capturaos aqui
+        from src.models.item import Item
+        from src.scraper.sync_items import sync_items_from_blizzard
+        
+        # Auto-Bootstrap Logic
+        count = session.query(Item).count()
+        if count == 0:
+            logger.info("Banco Item vazio. Iniciando Auto-Bootstrap...")
+            sync_items_from_blizzard()
+            
+        # Puxa itens dinamicamente
+        active_items = session.query(Item.external_item_id).filter(
+            Item.game == 'wow',
+            Item.is_active == True
+        ).all()
+        
+        item_ids = [int(it[0]) for it in active_items]
+        
+        # Recupera dado do token oficial (o Worker no MVP roda baseado na blizzard)
         token_data = api_client.get_wow_token_price(region="us")
         
-        for item_id in ITEM_IDS:
-            # Atualmente a lógica da BlizzardApiClient.get_wow_token_price foca exclusivamente 
-            # no endpoint do token. Para extrapolar a outros item_ids, ela precisaria
-            # bater na API genérica de leilão ou commodities.
-            # Como a spec pede focar no WoW token, faremos o insert baseado no id extraído.
+        for item_id in item_ids:
+            # O comportamento anterior salvava token para todos.
             repo.save_price(item_id=item_id, region="us", token_response=token_data)
         
     except Exception as e:
@@ -52,22 +65,41 @@ def job_fetch_wow_token_price():
     finally:
         session.close()
 
+def job_run_backfill():
+    logger.info(">>> Iniciando rotina de backfill de históricos...")
+    from src.scraper.backfill import run_backfill, get_items_to_process
+    session = get_session()
+    try:
+        items = get_items_to_process(session)
+        if items:
+            run_backfill(session, items, "3209")
+        else:
+            logger.info("Nenhum item para backfill.")
+    except Exception as e:
+        logger.error(f"Erro no job de backfill: {e}")
+    finally:
+        session.close()
+
 if __name__ == "__main__":
     load_dotenv()
     
     logger.info("====================================")
-    logger.info("Iniciando Goblin Ledger Worker...")
+    logger.info("Iniciando Goblin Ledger Worker (APScheduler)...")
     logger.info("====================================")
 
     # Garante criacao inicial
     init_db()
 
-    # Tempo padrao de wait: 15 minutos em segundos (15 * 60 = 900)
-    poll_interval_seconds = int(os.getenv("POLL_INTERVAL_SECONDS", 900))
+    scheduler = BlockingScheduler()
 
-    while True:
-        logger.info(">>> Iniciando varredura...")
-        job_fetch_wow_token_price()
-        
-        logger.info(f"Dormindo por {poll_interval_seconds} segundos...")
-        time.sleep(poll_interval_seconds)
+    # Agenda a Ficha do WoW a cada 15 minutos (começando agora)
+    scheduler.add_job(job_fetch_wow_token_price, 'interval', minutes=15, id='token_job', next_run_time=datetime.now())
+    
+    # Agenda o Backfill a cada 6 horas (começando agora)
+    scheduler.add_job(job_run_backfill, 'interval', hours=6, id='backfill_job', next_run_time=datetime.now())
+    
+    logger.info("Scheduler rodando. Pressione Ctrl+C para sair.")
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Worker encerrado.")

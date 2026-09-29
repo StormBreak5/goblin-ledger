@@ -57,12 +57,29 @@ Isso fará com que o **Docker** inicialize dois containers:
 1. `goblinledger-db`: O banco de dados PostgreSQL.
 2. `goblinledger-worker`: O worker em Python que coleta os preços da Blizzard e insere no banco.
 
-### 3. Acompanhar os Logs do Worker
+### 3. Sincronização Automática de Itens (Auto-Bootstrap)
 
-Para verificar se o Worker está capturando os preços da Ficha de WoW corretamente e inserindo no banco de dados, você pode rodar:
+O sistema agora é inteligente e dinâmico. Quando o worker é iniciado pela primeira vez e detecta que o banco de dados está vazio, ele realiza um **Auto-Bootstrap**:
+- Ele conecta-se na API da Blizzard e extrai todos os itens ativamente comercializados na Casa de Leilões no momento (~15.000 itens).
+- Isso garante que apenas itens com liquidez e valor comercial real sejam rastreados (ignorando itens inúteis, lixo ou vinculados).
+- Esses itens são armazenados em uma tabela genérica pronta para expansão futura para outros jogos.
+
+### 4. Acompanhar os Logs do Worker
+
+Para verificar o processo de Auto-Bootstrap e se o Worker está capturando os preços em tempo real corretamente, você pode visualizar os logs:
 
 ```bash
 docker-compose logs -f worker
+```
+
+### 5. Executar o Coletor de Histórico (Backfill)
+
+Caso queira carregar dados históricos do passado (para todos os ~15.000 itens descobertos pelo Bootstrap) e treinar modelos preditivos, você pode executar o script de *backfill*. Ele consome a API do Undermine Exchange.
+
+Entre na raiz do `backend` e execute o script dentro do container:
+
+```bash
+docker-compose exec worker python src/scraper/backfill.py --region US
 ```
 
 ---

@@ -30,6 +30,8 @@ def init_db():
         engine = create_engine(db_url, echo=False)
         # Import local para criar as tabelas que herdam da Base
         from src.models.item_price import ItemPrice
+        from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
+        from src.models.item import Item
         
         # Cria as tabelas configuradas se elas não existirem no target DB
         Base.metadata.create_all(engine)
