@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import TooltipDoPonto from "@/components/TooltipDoPonto";
 import type { PontoDoHistorico } from "@/lib/historicoDoItem";
 import {
   LineChart,
@@ -27,23 +28,11 @@ interface PriceChartProps {
 
 export default function PriceChart({ data, mensagemVazia = "Ainda não há dados históricos coletados suficientes para este item" }: PriceChartProps) {
   const formattedData = useMemo(() => {
-    return data.map((d) => {
-      const date = new Date(d.timestamp);
-      // Um ponto diário é o dia inteiro em UTC (00:00 UTC): convertido para GMT-3 apareceria no dia anterior, às 21:00.
-      // Ele mostra a data em UTC e "dia inteiro"; o ponto horário é um instante e aparece no fuso local (GMT-3).
-      const diario = d.granularity === "DIARIA";
-      const zona: Intl.DateTimeFormatOptions = diario ? { timeZone: "UTC" } : {};
-      return {
-        ...d,
-        ts: date.getTime(), // eixo X em tempo real: a dica acompanha o ponto mais próximo do mouse, e não o dia inteiro
-        goldPrice: d.price / 10000,
-        displayDate: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...zona }),
-        displayDateFull: date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', ...zona }),
-        displayTime: diario
-          ? "dia inteiro"
-          : date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }),
-      };
-    });
+    return data.map((d) => ({
+      ...d,
+      ts: new Date(d.timestamp).getTime(), // eixo X em tempo real: a dica acompanha o ponto mais próximo do mouse
+      goldPrice: d.price / 10000, // só a escala do gráfico; a dica converte de Cobre em Ouro/Prata/Cobre (RN01)
+    }));
   }, [data]);
 
   // Eixo X em tempo real (e não um rótulo por data): vários pontos do mesmo dia deixam de compartilhar a mesma posição, e a
@@ -85,28 +74,6 @@ export default function PriceChart({ data, mensagemVazia = "Ainda não há dados
   // A Ficha do WoW não tem volume e seu preço varia pouco perto de 280 mil de ouro: sem volume, a escala acompanha os
   // preços (e não parte do zero) e as barras não são desenhadas.
   const semVolume = formattedData.every((ponto) => ponto.quantity === null || ponto.quantity === undefined);
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const dataPoint = payload[0].payload;
-      return (
-        <div className="bg-[var(--color-surface-solid)] border border-[var(--color-border)] p-3 rounded shadow-xl">
-          <p className="text-[var(--color-text-title)] mb-2 font-medium">
-            {dataPoint.displayDateFull} {dataPoint.displayTime}
-          </p>
-          <p className="text-[var(--color-cta)] text-sm">
-            <span className="text-[var(--color-text-secondary)]">Preço:</span> {dataPoint.goldPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Ouro
-          </p>
-          {dataPoint.quantity !== null && dataPoint.quantity !== undefined && (
-            <p className="text-[var(--color-text-main)] text-sm mt-1">
-              <span className="text-[var(--color-text-secondary)]">Volume:</span> {dataPoint.quantity.toLocaleString('pt-BR')}
-            </p>
-          )}
-        </div>
-      );
-    }
-    return null;
-  };
 
   if (!data || data.length === 0) {
     return (
@@ -157,7 +124,7 @@ export default function PriceChart({ data, mensagemVazia = "Ainda não há dados
               axisLine={false}
               hide
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<TooltipDoPonto serieTemVolume={!semVolume} />} />
             
             {!semVolume && (
               <Bar 
