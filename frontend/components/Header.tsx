@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import AuthNav from '@/components/AuthNav';
 
 export default function Header() {
   return (
@@ -19,11 +20,16 @@ export default function Header() {
           </span>
         </Link>
         
-        <nav className="hidden md:flex gap-6">
-          <Link href="/" className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors">
-            Busca
-          </Link>
-        </nav>
+        <div className="flex items-center gap-6">
+          <nav className="hidden md:flex gap-6">
+            <Link href="/" className="text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors">
+              Busca
+            </Link>
+          </nav>
+          <div className="flex items-center gap-4 text-sm">
+            <AuthNav />
+          </div>
+        </div>
       </div>
     </header>
   );

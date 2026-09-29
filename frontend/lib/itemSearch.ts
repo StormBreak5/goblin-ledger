@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://127.0.0.1:8000/api";
+import { API_BASE_URL } from "@/lib/api";
 
 // Textos dos cenários do CU03 usados quando o backend não chega a responder (rede fora do ar, resposta ilegível).
 // Nos demais casos, o texto exibido é o devolvido pelo backend.

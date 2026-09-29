@@ -19,6 +19,16 @@ services:
       timeout: 5s
       retries: 5
 
+  # CU02-C2: servidor SMTP de desenvolvimento. Recebe o e-mail de recuperação de senha sem enviá-lo de verdade;
+  # as mensagens ficam em http://localhost:8025. Em produção, configure SMTP_* no .env.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: goblinledger-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   worker:
     build:
       context: .

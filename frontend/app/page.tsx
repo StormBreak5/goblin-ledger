@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, HelpCircle } from "lucide-react";
+import AuthNav from "@/components/AuthNav";
 import ItemSearchResults from "@/components/ItemSearchResults";
 import { MSG_ITEM_INDISPONIVEL, searchItems, type SearchResult } from "@/lib/itemSearch";
 
@@ -79,6 +80,11 @@ function HomeContent() {
         />
         {/* Gradient overlay to ensure text readability */}
         <div className="absolute inset-0 bg-gradient-to-b from-[#161124]/40 via-[#161124]/20 to-[#161124]/90" />
+      </div>
+
+      {/* CU01/CU02: acesso à conta */}
+      <div className="absolute right-6 top-6 z-20 flex items-center gap-4 text-sm">
+        <AuthNav />
       </div>
 
       {/* Main Content */}
