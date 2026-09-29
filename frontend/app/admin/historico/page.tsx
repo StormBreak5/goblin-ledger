@@ -144,7 +144,7 @@ function ImportacaoDeHistorico({ token }: { token: string }) {
     <>
       <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
         Importa o histórico retroativo de preços dos arquivos da Undermine Exchange (diário desde set/2022, mais os últimos snapshots
-        horários), harmonizado ao padrão do sistema. Sem itens informados, importa todos os itens ativos, o que pode levar horas.
+        horários), harmonizado ao padrão do sistema. Sem itens informados, importa todos os itens ativos, o que leva bem mais tempo; a tela acompanha o andamento.
       </p>
 
       {erro && <Aviso tipo="erro">{erro}</Aviso>}
