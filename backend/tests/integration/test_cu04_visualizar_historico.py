@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError
 
 from src.controllers import item_controller
@@ -357,6 +358,40 @@ def test_cu04_c2_fa1_ficha_do_wow_tambem_avisa_quando_a_serie_e_curta(historico_
     assert _historico(historico_client, 122284, "30D")["dados_limitados"] is True  # a série só começa há 20 dias
     assert _historico(historico_client, 122284, "14D")["dados_limitados"] is False  # e cobre a janela de 14 dias
     assert _historico(historico_client, 122284, "ALL")["dados_limitados"] is False
+
+
+def test_cu04_c2_fa1_o_primeiro_ponto_parte_das_linhas_do_item_e_nao_do_indice_de_timestamp(db_session, relogio):
+    """Desempenho: `min(timestamp) WHERE item_id = X` pelo índice só de `timestamp` varre as linhas dos outros itens até achar
+    o primeiro do item; para um item de histórico recente isso levou ~19 s com 26 milhões de linhas e travou a tela."""
+    db_session.execute(text("""
+        INSERT INTO historical_item_prices (item_id, region, timestamp, price, quantity, origem, anomalia, granularidade)
+        SELECT i, '3209', timestamp '2024-01-01' + (n || ' days')::interval, 100, 1, 'UNDERMINE', false, 'DIARIA'
+        FROM generate_series(1, 2000) i, generate_series(1, 200) n
+    """))  # 400 mil linhas de outros itens, todas antigas
+    db_session.execute(text("""
+        INSERT INTO historical_item_prices (item_id, region, timestamp, price, quantity, origem, anomalia, granularidade)
+        SELECT 999999, '3209', timestamp '2026-09-01' + (n || ' hours')::interval, 100, 1, 'BLIZZARD', false, 'HORARIA'
+        FROM generate_series(1, 300) n
+    """))  # o item novo, só com pontos recentes
+    db_session.commit()
+    db_session.execute(text("ANALYZE historical_item_prices"))
+    db_session.commit()
+    consultas: list[tuple[str, dict]] = []
+
+    def capturar(conexao, cursor, comando, parametros, contexto, varias):
+        consultas.append((comando, parametros))
+
+    motor = db_session.get_bind()
+    event.listen(motor, "before_cursor_execute", capturar)
+    try:
+        primeiro = ItemService(db_session, relogio)._primeiro_ponto(999_999)
+    finally:
+        event.remove(motor, "before_cursor_execute", capturar)
+
+    assert primeiro == datetime(2026, 9, 1, 1, tzinfo=UTC)
+    (comando, parametros), = [consulta for consulta in consultas if "min(" in consulta[0]]
+    plano = "\n".join(linha[0] for linha in db_session.connection().exec_driver_sql(f"EXPLAIN {comando}", parametros))
+    assert "ix_historical_item_prices_timestamp" not in plano, plano
 
 
 def test_cu04_c2_a_janela_sem_pontos_de_um_item_com_historico_antigo_usa_o_texto_do_fa2(historico_client, db_session, relogio):

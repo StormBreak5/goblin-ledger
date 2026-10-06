@@ -94,7 +94,16 @@ class ItemService:
         """CU04-C2 passo 3: o instante (UTC) do ponto mais antigo da série inteira do item, para saber se a janela é coberta."""
         if item_id == WOW_TOKEN_ID:
             return ItemPriceRepository(self.session).primeiro(WOW_TOKEN_ID, REGIAO_DA_FICHA).created_at.astimezone(timezone.utc)
-        primeiro = self.session.query(func.min(HistoricalItemPrice.timestamp)).filter(HistoricalItemPrice.item_id == item_id).scalar()
+        # `min(timestamp) WHERE item_id = X` leva o PostgreSQL a percorrer o índice só de `timestamp` filtrando por item: para
+        # um item de histórico recente isso varre quase a tabela inteira (19 s com 26 milhões de linhas). O `OFFSET 0`
+        # separa a busca das linhas do item (pelo índice item_id/região/timestamp) do cálculo do mínimo.
+        do_item = (
+            self.session.query(HistoricalItemPrice.timestamp.label("instante"))
+            .filter(HistoricalItemPrice.item_id == item_id)
+            .offset(0)
+            .subquery()
+        )
+        primeiro = self.session.query(func.min(do_item.c.instante)).scalar()
         return primeiro.replace(tzinfo=timezone.utc)
 
     def _pontos_do_item(self, item_id: int, desde: Optional[datetime]) -> list[PontoDoHistorico]:
