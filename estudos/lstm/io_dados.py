@@ -140,13 +140,21 @@ def _primeiro(meta: dict[str, Any], *chaves: str) -> Any:
     return None
 
 
-def _atributos_do_metadata(item_id: int, meta: Optional[dict[str, Any]]) -> dict[str, Any]:
-    """Os atributos fixos (classe, subclasse, qualidade, nível, preço de venda ao vendedor) ainda não são gravados
-    pelo backend: o populate_item_details só salva nome e ícone. Lê o que existir em items.metadata_info."""
+def _atributos_do_metadata(item_id: int, meta: Optional[dict[str, Any]],
+                           ids_commodities: frozenset[str] = frozenset()) -> dict[str, Any]:
+    """Atributos fixos gravados pelo backend em items.metadata_info (populate_item_details): classe, subclasse,
+    qualidade, nível e preço de venda ao vendedor.
+
+    Commodity (variável 18): sem a chave explícita, vale a origem do arquivo da Undermine (`source_region`, gravada pelo
+    CU10-C1). O histórico é gravado sob o reino pedido (3209) também para as commodities, então só a origem distingue
+    o item de commodity (arquivo do id de commodities da região, 32512 nos EUA)."""
     meta = meta or {}
     qualidade = _primeiro(meta, "quality", "qualidade")
     if isinstance(qualidade, str):
         qualidade = QUALIDADES.get(qualidade.upper())
+    commodity = _primeiro(meta, "is_commodity", "commodity")
+    if commodity is None and meta.get("source_region") is not None:
+        commodity = str(meta["source_region"]) in ids_commodities
     return {
         "item_id": item_id,
         "classe_id": _primeiro(meta, "item_class_id", "classe_id", "item_class"),
@@ -154,7 +162,7 @@ def _atributos_do_metadata(item_id: int, meta: Optional[dict[str, Any]]) -> dict
         "qualidade": qualidade,
         "nivel_item": _primeiro(meta, "level", "item_level", "nivel_item"),
         "preco_npc": _primeiro(meta, "sell_price", "preco_npc"),
-        "commodity": _primeiro(meta, "is_commodity", "commodity"),
+        "commodity": commodity,
     }
 
 
@@ -183,8 +191,9 @@ def carregar_banco(url: str, cfg: Config, itens: Optional[list[int]] = None) -> 
                   pd.read_sql_query(text("SELECT id_reino, regiao FROM reino"), con).itertuples()}
         aptos_df = pd.read_sql_query(text("SELECT item_id, apto FROM aptidao_treinamento"), con)
 
+    ids_commodities = frozenset(str(v) for v in cfg.commodities_por_regiao.values())
     atributos = pd.DataFrame([
-        _atributos_do_metadata(int(r.external_item_id), r.metadata_info)
+        _atributos_do_metadata(int(r.external_item_id), r.metadata_info, ids_commodities)
         for r in meta.itertuples() if str(r.external_item_id).isdigit()
     ])
     precos = _padronizar_precos(precos)

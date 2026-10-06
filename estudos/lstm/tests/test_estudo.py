@@ -11,8 +11,8 @@ from avaliar import avaliar
 from config import PERIODOS, Config
 from dataset import DadosPreparados
 from gerar_sinteticos import gerar
-from io_dados import Entrada, _padronizar_eventos, _padronizar_itens, _padronizar_precos
-from preparar_dados import Resultado, preparar, salvar, variaveis_de_calendario
+from io_dados import Entrada, _atributos_do_metadata, _padronizar_eventos, _padronizar_itens, _padronizar_precos
+from preparar_dados import Resultado, preparar, rn03_por_serie, salvar, variaveis_de_calendario
 
 CFG = Config()
 CORTES = {"corte_validacao": "2025-07-14", "corte_teste": "2026-02-24"}
@@ -198,3 +198,85 @@ def test_periodos_cobrem_70_20_10_do_calendario(sinteticos: dict[str, pd.DataFra
     assert (c["corte_validacao"] - c["inicio"]).days / total == pytest.approx(0.70, abs=0.002)
     assert (c["corte_teste"] - c["inicio"]).days / total == pytest.approx(0.90, abs=0.002)
     assert set(res.janelas["periodo"]) == set(PERIODOS)
+
+
+# ------------------------------------------------------------------------- RN03: EMA só com os preços aceitos
+def _rn03(precos: list[float | None]) -> tuple[np.ndarray, np.ndarray]:
+    preco = np.array([np.nan if p is None else p for p in precos], dtype="float64")
+    inicio = np.zeros(len(preco), dtype=bool)
+    inicio[0] = True
+    return rn03_por_serie(preco, inicio, CFG)
+
+
+def test_rn03_pico_isolado_nao_contamina_a_ema() -> None:
+    precos: list[float | None] = [100.0] * 30 + [999_990_100.0] + [100.0] * 30  # anúncio de 99.999 ouro num só dia
+    ema, descartado = _rn03(precos)
+    assert np.flatnonzero(descartado).tolist() == [30]  # com a EMA dos preços brutos, os 30 dias seguintes cairiam
+    assert ema[31] == pytest.approx(100.0)
+
+
+def test_rn03_novo_patamar_confirmado_e_aceito() -> None:
+    precos: list[float | None] = [100.0] * 30 + [1_000.0] * 30  # mudança real: o preço passa a 10× e fica
+    ema, descartado = _rn03(precos)
+    assert not descartado.any()                     # os dias que confirmam o patamar também são aceitos
+    assert ema[40] == pytest.approx(1_000.0)        # a EMA recomeça no novo patamar e não trava a série
+    pico_de_dois_dias = [100.0] * 30 + [1_000.0, 1_000.0] + [100.0] * 10
+    assert np.flatnonzero(_rn03(pico_de_dois_dias)[1]).tolist() == [30, 31]  # 2 dias não confirmam
+    seis_dias = [100.0] * 30 + [1_000.0] * (CFG.rn03_confirmacao - 1) + [100.0] * 10
+    assert _rn03(seis_dias)[1].sum() == CFG.rn03_confirmacao - 1  # um dia a menos que a confirmação: descartados
+
+
+def test_rn03_pico_no_inicio_de_uma_mudanca_real_continua_descartado() -> None:
+    """Item 5526: o preço passa de ~4.500 a 20.000 (mais de 4×, fora da faixa) e o primeiro dia da mudança tem um
+    anúncio de 301 mil ouro. A sequência confirma o patamar de 20.000 pela mediana; o pico fica fora."""
+    precos: list[float | None] = [4_500.0] * 30 + [3_011_110_000.0] + [20_000.0] * 20
+    ema, descartado = _rn03(precos)
+    assert np.flatnonzero(descartado).tolist() == [30]
+    assert ema[45] == pytest.approx(20_000.0)
+
+
+def test_rn03_salto_absurdo_so_vira_patamar_depois_de_28_dias() -> None:
+    """Item 38518: anúncios de 1 milhão de ouro (1.000.000× o preço de 1 ouro) sozinhos por duas semanas."""
+    duas_semanas: list[float | None] = [10_000.0] * 30 + [10_000_000_100.0] * 14 + [10_000.0] * 20
+    _, descartado = _rn03(duas_semanas)
+    assert np.flatnonzero(descartado).tolist() == list(range(30, 44))
+    um_mes: list[float | None] = [10_000.0] * 30 + [10_000_000_100.0] * CFG.rn03_confirmacao_absurdo + [10_000_000_000.0] * 5
+    _, descartado = _rn03(um_mes)
+    assert not descartado.any()  # durou o suficiente: é o novo patamar
+
+
+def test_rn03_placeholder_no_inicio_da_serie_e_descartado() -> None:
+    precos: list[float | None] = [999_990_100.0, None, 999_990_100.0] + [1_000.0 + i for i in range(40)]
+    _, descartado = _rn03(precos)
+    assert descartado[[0, 2]].all()                 # o patamar inicial nunca foi confirmado
+    assert not descartado[3:].any()                 # os preços reais confirmam o patamar e ficam
+    longa = precos[:3] + [1_000.0 + (i % 5) for i in range(150)]
+    res = preparar(entrada_de(serie_simples({1: longa})), CFG, filtro_liquidez=False,
+                   corte_validacao="2024-04-01", corte_teste="2024-05-01")
+    o = res.linhas_originais
+    assert o.loc[[0, 2], "descartado_rn03"].all() and not o.loc[[0, 2], "observado"].any()
+
+
+# ------------------------------------------------------------------------------ eventos: pré-patch e versões
+def test_pre_patch_pela_versao_maior_e_versao_repetida_conta_uma_vez() -> None:
+    eventos = _padronizar_eventos(pd.DataFrame([
+        {"tipo": "PATCH", "nome": "Patch 11.2.7", "versao": "11.2.7", "data_inicio": "2025-12-02"},
+        {"tipo": "PATCH", "nome": "Patch 12.0.0", "versao": "12.0.0", "data_inicio": "2026-01-20"},  # sem "pre-patch"
+        {"tipo": "PATCH", "nome": "Patch 12.0.1", "versao": "12.0.1", "data_inicio": "2026-02-10"},
+        {"tipo": "EXPANSAO", "nome": "Midnight", "data_inicio": "2026-03-02"},
+        {"tipo": "PATCH", "nome": "Patch 12.0.5", "versao": "12.0.5", "data_inicio": "2026-04-21"},
+        {"tipo": "PATCH", "nome": "Patch 12.0.5", "versao": "12.0.5", "data_inicio": "2026-05-19"},  # início de temporada
+    ]))
+    datas = pd.DatetimeIndex(["2026-01-01", "2026-01-10", "2026-02-01", "2026-02-20", "2026-05-20"])
+    v = variaveis_de_calendario(datas, eventos, CFG)
+    assert v["f_expansao"].tolist() == [0, 1, 0, 1, 0]  # 10 dias antes do pré-patch e 10 dias antes da expansão
+    assert v["f_dias_desde_patch"].iloc[4] == pytest.approx(29 / 60)  # conta do 12.0.5 de abril, não da repetição
+
+
+# --------------------------------------------------------------------------- variável 18: commodity
+def test_commodity_pela_origem_do_arquivo_da_undermine() -> None:
+    ids = frozenset({"32512", "32513"})
+    assert _atributos_do_metadata(1, {"source_region": "32512"}, ids)["commodity"] is True
+    assert _atributos_do_metadata(2, {"source_region": "3209"}, ids)["commodity"] is False
+    assert _atributos_do_metadata(3, {"item_class_id": 7}, ids)["commodity"] is None
+    assert _atributos_do_metadata(4, {"source_region": "32512", "is_commodity": False}, ids)["commodity"] is False

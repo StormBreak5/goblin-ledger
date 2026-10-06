@@ -53,6 +53,8 @@ Opções úteis de `preparar_dados.py`:
 | `--corte-validacao` e `--corte-teste` | Fixam as datas de corte, por exemplo para repetir o mesmo corte num retreinamento. |
 | `--ignorar-aptidao` | Usa todos os itens enquanto a `aptidao_treinamento` estiver vazia. |
 | `--ilvl-minimo` | Filtro de nível de item da RN07. |
+| `--rn03-confirmacao` | Preços seguidos fora da faixa da RN03 que confirmam um novo patamar (padrão 7; salto absurdo: 28). |
+| `--rn03-ema-bruta` | RN03 com a EMA de todos os preços do banco (comportamento anterior), para comparação. |
 
 ## O que acontece, na ordem
 
@@ -60,7 +62,7 @@ Opções úteis de `preparar_dados.py`:
 |---|---|---|
 | Seleção | Itens aptos, com quantidade média acima de 50 nos últimos 7 dias. Lê só a série diária da Undermine, sem pontos anômalos. | RN15, RN02, RN16, RN12 |
 | Calendário | Uma linha por item e por dia, do primeiro ao último registro. | |
-| Higienização | Descarta o preço maior que 4× ou menor que 0,1× a EMA de 14 dias. A EMA usa só os dias anteriores. | RN03 |
+| Higienização | Descarta o preço maior que 4× ou menor que 0,1× a EMA de 14 dias. A EMA usa só os dias anteriores **já aceitos**. 7 preços seguidos fora da faixa, do mesmo lado, confirmam um novo patamar (28, num salto de 1.000× ou mais; ver abaixo). | RN03 |
 | Preenchimento | Até 3 dias sem registro recebem o último valor e são marcados como não observados. | RN24 |
 | Variáveis | Calculadas **item a item**: todo shift, rolling e EMA é feito por série. | |
 | Datas de corte | 70/20/10 do calendário, **as mesmas para todos os itens**. | RN25 |
@@ -115,17 +117,56 @@ Os dias preenchidos e os descartados pela RN03 não entram no cálculo do erro, 
 | 7 | `f_preco_npc` | ln(p ÷ preço de venda ao vendedor) ÷ p99; 0 sem esse preço |
 | 8 | `f_observado` | 1 = observado; 0 = preenchido |
 | 9 | `f_dia_sin`, `f_dia_cos` | sen e cos de 2π·dia/7 |
-| 10 | `f_dias_desde_patch` | min(dias, 60) ÷ 60 |
+| 10 | `f_dias_desde_patch` | min(dias, 60) ÷ 60. A mesma versão de patch com duas datas conta só na primeira. |
 | 11 | `f_dias_ate_patch` | dias ÷ 14 quando o patch está a até 14 dias; senão 1 (o patch ainda não foi anunciado) |
-| 12 | `f_expansao` | Expansão ou pré-patch nos próximos 14 dias |
+| 12 | `f_expansao` | Expansão ou pré-patch nos próximos 14 dias. Pré-patch = primeiro patch de cada versão maior (10.0.0, 11.0.0, 12.0.0) ou nome com "pre-patch". |
 | 13 | `f_temporada_ativa`, `f_dias_temporada` | Indicador; min(dias, 60) ÷ 60 |
 | 14 | `f_evento` | Evento sazonal ativo |
 | 15 | `classe_idx`, `subclasse_idx` | Índice para embedding (0 = desconhecida) |
 | 16 | `f_qualidade`, `f_nivel_item` | Qualidade ÷ 5; nível pelo mínimo e máximo do treino |
 | 17 | `f_tem_piso` | Tem preço de venda ao vendedor |
-| 18 | `f_commodity` | Commodity |
+| 18 | `f_commodity` | Commodity: `source_region` do item é o id de commodities da região (32512 nos EUA) |
 
 Saída: 7 log-retornos ln(pₜ₊ₕ ÷ pₜ), com média e desvio próprios por horizonte, calculados no treino.
+
+## RN03: EMA só com os preços aceitos
+
+A RN03 existe para que preços absurdos não "inflacionem médias". Com a EMA calculada sobre todos os preços do banco,
+um único anúncio-placeholder de 99.999 ouro inflava a própria EMA, e os preços reais dos dias seguintes passavam a ser
+descartados por semanas. No item 238485, foram 106 de 223 dias. Por isso (`rn03_por_serie`):
+
+1. a EMA de 14 dias usa só os preços anteriores **já aceitos**;
+2. 7 preços seguidos (`rn03_confirmacao`) fora da faixa, do mesmo lado, são uma mudança real de patamar, e a série não
+   trava. O novo patamar é a mediana da sequência: os preços próximos dela são aceitos e a EMA recomeça neles. Um pico
+   no meio da mudança continua descartado;
+3. um salto de 1.000× ou mais (`rn03_salto_absurdo`) sobre um patamar já confirmado só vira patamar depois de 28 preços
+   seguidos (`rn03_confirmacao_absurdo`). É o caso do anúncio de 1 milhão de ouro que fica sozinho por duas semanas;
+4. o primeiro preço da série é aceito (não há com o que comparar). Se outro patamar for confirmado antes de o primeiro ter
+   7 preços aceitos, o primeiro é descartado (o placeholder do item novo).
+
+A EMA usa só os dias anteriores. Os dias posteriores servem apenas para confirmar um patamar. No sistema, durante uma
+mudança de patamar ainda não confirmada, o preço fica preenchido por até 3 dias, e depois o item fica sem amostra até
+a confirmação.
+
+**Comparação.** Mesmas séries e mesmos cortes, só validação, regressão linear. Os erros foram medidos contra o preço
+bruto, nos dias "reais" por uma referência neutra (preço entre 0,1× e 4× a mediana centrada de 15 dias), e nas amostras
+que existem em todas as variantes.
+
+| RN03 (500 séries do `real01`) | Dias descartados | Mediana do MAPE por item | Erros > 100% | Itens que superam o ingênuo | h7 |
+|---|---|---|---|---|---|
+| EMA de todos os preços (anterior) | 7,24% | 47,43% | 8,71% | 269 | 65,5% |
+| Aceitos, confirmação 5 | 4,40% | 45,02% | 7,74% | 274 | 62,5% |
+| **Aceitos, confirmação 7** | 5,51% | 44,07% | 7,31% | 296 | **61,0%** |
+| Aceitos, confirmação 10 | 6,66% | 43,39% | 7,20% | 304 | 61,1% |
+
+Nas 500 séries do `real02`, a regra nova também ganha em todas as medidas:
+
+- MAPE médio por item: de 59,5% para 53,5%;
+- mediana do MAPE por item: de 48,95% para 45,53%;
+- itens que superam o ingênuo: de 279 para 317.
+
+Com a confirmação de 10 dias há um pequeno ganho nas medianas, mas a média por item piora, porque picos reais de 7 a 9
+dias passam a ser descartados, e o treino perde amostras. Por isso ficou a de 7 dias.
 
 ## Diferenças em relação ao script do estudo
 
@@ -137,12 +178,13 @@ Saída: 7 log-retornos ln(pₜ₊ₕ ÷ pₜ), com média e desvio próprios por
 | Dias até o patch | Data real do patch, limite 60 | Conhecido só 14 dias antes, limite 14 | A tabela `evento_jogo` não guarda a data do anúncio, então usar a data real seria olhar o futuro. |
 | Variáveis 8 e 13 | Não havia | `f_observado`, `f_temporada_ativa` | Marcam os dias preenchidos e tiram a ambiguidade de "0 dias de temporada". |
 | Volatilidade | `min_periods=2` | `min_periods=5` | Com 2 retornos, o desvio é muito instável. |
-| EMA da RN03 | Inclui o próprio dia | Só os dias anteriores | A RN03 fala em registros anteriores ao dia avaliado. |
+| EMA da RN03 | Inclui o próprio dia e os preços descartados | Só os dias anteriores já aceitos, com confirmação de patamar | A RN03 fala em registros anteriores ao dia avaliado e quer evitar que preços absurdos inflacionem a média. |
 | Atributos fixos | Repetidos nos 30 passos | Uma vez por amostra, depois da LSTM | Mesma informação, com menos memória. |
 
 ## Limitações conhecidas
 
-- **Atributos fixos do item.** O backend ainda não grava classe, subclasse, qualidade, nível e preço de venda ao vendedor. O `populate_item_details` só salva o nome e o ícone. O script lê esses campos de `items.metadata_info` se existirem (formato da API da Blizzard). Enquanto não existirem, as variáveis 6, 7, 15, 16 e 17 ficam como "desconhecidas". O log mostra a cobertura de cada atributo.
+- **Atributos fixos do item.** O backend grava classe, subclasse, qualidade, nível e preço de venda ao vendedor em `items.metadata_info` (`populate_item_details`; 99,4% dos itens em 2026-10-06). Os itens que a API da Blizzard não tem ficam com `atributos_indisponiveis` e as variáveis 6, 7, 15, 16 e 17 como "desconhecidas". O log mostra a cobertura de cada atributo e quantos itens são commodities.
 - **Memória.** A preparação usa cerca de 0,8 KB por linha (item × dia). Com 10 milhões de linhas, isso dá uns 8 GB. Para os primeiros testes, use `--max-itens`.
-- **Valores a confirmar.** Estão em `config.py`: janela de 30 dias, horizonte de 7, padronização de 90 dias, MAPE de 15% da RN10 e antecedência de 14 dias.
+- **Valores a confirmar.** Estão em `config.py`: janela de 30 dias, horizonte de 7, padronização de 90 dias, MAPE de 15% da RN10, antecedência de 14 dias e os parâmetros da RN03 (confirmação de 7 dias; salto absurdo de 1.000× com 28 dias).
+- **Alvos não observados no treino.** O `treinar.py` ainda não usa a máscara `obs_1..obs_7`: dias descartados ou preenchidos entram na perda com o último preço válido repetido.
 - **Dados sintéticos.** Os resultados com eles só servem para testar o código. Não dizem nada sobre o mercado real.

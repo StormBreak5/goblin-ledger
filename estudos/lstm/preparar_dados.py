@@ -43,6 +43,7 @@ logger = logging.getLogger("preparar_dados")
 EPS = 1e-12
 TIPOS_PATCH = ("PATCH", "EXPANSAO")
 PADRAO_PRE_PATCH = re.compile(r"pr[ée][\s-]?patch", re.IGNORECASE)
+PADRAO_VERSAO = re.compile(r"(\d+)\.")
 CLASSES_EQUIPAMENTO = (2, 4)  # classes de item da Blizzard: 2 = arma, 4 = armadura (RN07)
 VERSAO_FORMATO = 1
 
@@ -156,15 +157,96 @@ def limitar_dias(dias: np.ndarray, limite: int) -> np.ndarray:
 
 
 # ============================================================================================ 2 e 3. RN03 e preenchimento
+def rn03_por_serie(preco: np.ndarray, inicio_de_serie: np.ndarray, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    """RN03 com a EMA de 14 dias calculada só com os preços anteriores **já aceitos**, para que o preço absurdo não
+    inflacione a média que deveria barrá-lo. Devolve a EMA anterior a cada dia e se o dia foi descartado.
+
+    - Preço fora da faixa (> EMA·4 ou < EMA·0,1) é descartado.
+    - `rn03_confirmacao` (7) preços seguidos fora da faixa, do mesmo lado, são uma mudança real de patamar (sem isso, a
+      série ficaria travada depois de uma mudança real). O novo patamar é a mediana da sequência: os preços da
+      sequência dentro da faixa dessa mediana são aceitos, os demais (um pico no meio da mudança) continuam
+      descartados, e a EMA recomeça nos aceitos.
+    - Salto absurdo: se a mediana da sequência estiver a `rn03_salto_absurdo` (1.000×) ou mais do patamar confirmado,
+      para cima ou para baixo, a confirmação exige `rn03_confirmacao_absurdo` (28) preços seguidos. Assim o anúncio de
+      1 milhão de ouro que fica sozinho por duas semanas não vira patamar, mas uma mudança que dura um mês não trava a
+      série.
+    - O primeiro preço de cada série não tem com o que ser comparado e é aceito. O patamar inicial só fica confirmado
+      com `rn03_confirmacao` preços aceitos; se outro patamar for confirmado antes disso, os preços do inicial são
+      descartados (o placeholder de um item novo).
+
+    A decisão sobre um dia usa registros posteriores só para confirmar um patamar; a EMA usa só os anteriores. Dias
+    sem registro (NaN) não contam; preço ≤ 0 nunca é aceito.
+    """
+    n = len(preco)
+    ema_anterior = np.full(n, np.nan)
+    descartado = np.zeros(n, dtype=bool)
+    alfa = 2.0 / (cfg.ema_span + 1)
+    sup, inf = 1.0 + cfg.rn03_acima, 1.0 - cfg.rn03_abaixo
+    k = max(int(cfg.rn03_confirmacao), 2)
+    k_absurdo = max(int(cfg.rn03_confirmacao_absurdo), k)
+    salto = float(cfg.rn03_salto_absurdo)
+    ema = np.nan
+    patamar: list[int] = []   # preços aceitos do patamar atual
+    confirmado = False        # o patamar atual já tem k preços aceitos (ou nasceu de uma confirmação)
+    sequencia: list[int] = []  # preços seguidos fora da faixa, todos do mesmo lado
+    lado_da_sequencia = 0
+    for i in range(n):
+        if inicio_de_serie[i]:
+            ema, patamar, confirmado, sequencia, lado_da_sequencia = np.nan, [], False, [], 0
+        ema_anterior[i] = ema
+        p = preco[i]
+        if p != p:  # dia sem registro
+            continue
+        if p <= 0:
+            descartado[i] = True
+            continue
+        if ema != ema:  # primeiro preço da série
+            ema, patamar = p, [i]
+            continue
+        lado = 1 if p > ema * sup else (-1 if p < ema * inf else 0)
+        if lado == 0:
+            ema = alfa * p + (1.0 - alfa) * ema
+            patamar.append(i)
+            confirmado = confirmado or len(patamar) >= k
+            sequencia, lado_da_sequencia = [], 0
+            continue
+        if lado != lado_da_sequencia:
+            sequencia, lado_da_sequencia = [], lado
+        sequencia.append(i)
+        descartado[i] = True
+        if len(sequencia) < k:
+            continue
+        centro = float(np.median(preco[sequencia]))
+        if confirmado and not 1.0 / salto < centro / ema < salto and len(sequencia) < k_absurdo:
+            continue  # salto absurdo: ainda não confirmado
+        # Novo patamar confirmado: os preços da sequência próximos da mediana.
+        aceitos = [j for j in sequencia if inf * centro <= preco[j] <= sup * centro]
+        descartado[aceitos] = False
+        if not confirmado:
+            descartado[patamar] = True  # o patamar inicial nunca chegou a ser confirmado
+        ema = preco[aceitos[0]]
+        for j in aceitos[1:]:
+            ema = alfa * preco[j] + (1.0 - alfa) * ema
+        patamar, confirmado, sequencia, lado_da_sequencia = aceitos, True, [], 0
+    return ema_anterior, descartado
+
+
 def higienizar(linhas: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     """RN03: descarta o preço maior que EMA·(1+3,00) ou menor que EMA·(1−0,90), com a EMA de 14 dias calculada
-    somente com os registros anteriores ao dia avaliado. RN24: preenche até 3 dias com o último valor."""
+    somente com os registros anteriores ao dia avaliado (ver `rn03_por_serie`). RN24: preenche até 3 dias com o último
+    valor."""
     chave = linhas["serie_idx"]
-    ema = _ewm_por_serie(linhas["preco_bruto"], chave, cfg.ema_span)
-    linhas["ema14_anterior"] = ema.groupby(chave, sort=False).shift(1)
-    acima = linhas["preco_bruto"] > linhas["ema14_anterior"] * (1 + cfg.rn03_acima)
-    abaixo = linhas["preco_bruto"] < linhas["ema14_anterior"] * (1 - cfg.rn03_abaixo)
-    linhas["descartado_rn03"] = (acima | abaixo).fillna(False).astype(bool)
+    if cfg.rn03_ema_so_aceitos:
+        inicio = np.r_[True, linhas["serie_idx"].to_numpy()[1:] != linhas["serie_idx"].to_numpy()[:-1]]
+        ema_anterior, descartado = rn03_por_serie(linhas["preco_bruto"].to_numpy(dtype="float64"), inicio, cfg)
+        linhas["ema14_anterior"] = ema_anterior
+        linhas["descartado_rn03"] = descartado
+    else:  # EMA de todos os preços do banco (comportamento anterior)
+        ema = _ewm_por_serie(linhas["preco_bruto"], chave, cfg.ema_span)
+        linhas["ema14_anterior"] = ema.groupby(chave, sort=False).shift(1)
+        acima = linhas["preco_bruto"] > linhas["ema14_anterior"] * (1 + cfg.rn03_acima)
+        abaixo = linhas["preco_bruto"] < linhas["ema14_anterior"] * (1 - cfg.rn03_abaixo)
+        linhas["descartado_rn03"] = (acima | abaixo).fillna(False).astype(bool)
 
     preco_valido = linhas["preco_bruto"].where(~linhas["descartado_rn03"] & (linhas["preco_bruto"] > 0))
     linhas["observado"] = preco_valido.notna()
@@ -175,6 +257,48 @@ def higienizar(linhas: pd.DataFrame, cfg: Config) -> pd.DataFrame:
 
 
 # ===================================================================================================== 4. variáveis
+def _versao_maior(versao: Any) -> Optional[int]:
+    m = PADRAO_VERSAO.match(str(versao or "").strip())
+    return int(m.group(1)) if m else None
+
+
+def datas_de_patch_e_marcos(eventos: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Datas dos patches e expansões (variáveis 10 e 11) e dos marcos de expansão (variável 12), já ordenadas.
+
+    - Versão repetida: a mesma versão de patch com mais de uma data conta só na primeira. As datas seguintes são
+      atualizações de conteúdo da mesma versão (em evento_jogo: 9.2.5 e 10.2.6, nos inícios de temporada, que a
+      variável 13 já cobre).
+    - Pré-patch: o primeiro patch de cada versão maior (4.0.1, 5.0.4, ..., 10.0.0, 11.0.0, 12.0.0) é o pré-patch da
+      expansão seguinte. O nome nem sempre diz isso (só o 12.0.0 traz "pre-patch"); o nome continua valendo também.
+    """
+    ev = eventos[eventos["tipo"].isin(TIPOS_PATCH)].sort_values("data_inicio", kind="mergesort")
+    vistas: set[str] = set()
+    maior_ate_agora: Optional[int] = None
+    patches: list[np.datetime64] = []
+    marcos: list[np.datetime64] = []
+    for tipo, nome, versao, data in zip(ev["tipo"], ev["nome"].fillna("").astype(str), ev["versao"], ev["data_inicio"]):
+        dia = np.datetime64(pd.Timestamp(data).date(), "D")
+        if tipo == "EXPANSAO":
+            patches.append(dia)
+            marcos.append(dia)
+            continue
+        chave = str(versao).strip() if isinstance(versao, str) and versao.strip() else None
+        if chave is not None:
+            if chave in vistas:
+                continue
+            vistas.add(chave)
+        patches.append(dia)
+        maior = _versao_maior(chave)
+        nova_versao_maior = maior is not None and maior_ate_agora is not None and maior > maior_ate_agora
+        if maior is not None:
+            maior_ate_agora = maior if maior_ate_agora is None else max(maior_ate_agora, maior)
+        if nova_versao_maior or PADRAO_PRE_PATCH.search(nome):
+            marcos.append(dia)
+    vazio = np.array([], dtype="datetime64[D]")
+    return (np.unique(np.array(patches, dtype="datetime64[D]")) if patches else vazio,
+            np.unique(np.array(marcos, dtype="datetime64[D]")) if marcos else vazio)
+
+
 def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     """Variáveis 9 a 14 (calendário e eventos, conhecidas antecipadamente). RN25: um patch só é considerado
     conhecido a partir de `antecedencia_anuncio_dias` antes da data, pois evento_jogo não guarda a data do anúncio."""
@@ -190,9 +314,8 @@ def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg:
     ini = eventos["data_inicio"].values.astype("datetime64[D]")
     fim = eventos["data_fim"].values.astype("datetime64[D]")
     tipo = eventos["tipo"].to_numpy()
-    nome = eventos["nome"].fillna("").astype(str).to_numpy()
 
-    patches = np.unique(ini[np.isin(tipo, TIPOS_PATCH)])
+    patches, marcos = datas_de_patch_e_marcos(eventos)
     pos = np.searchsorted(patches, d, side="right") - 1
     desde = np.where(pos >= 0, (d - patches[np.clip(pos, 0, None)]) / um_dia if patches.size else np.inf, np.inf)
     out["f_dias_desde_patch"] = limitar_dias(desde, lim)
@@ -203,9 +326,6 @@ def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg:
                    np.inf)
     out["f_dias_ate_patch"] = np.where(ate <= a, ate / a, 1.0)
 
-    marco = (tipo == "EXPANSAO") | ((tipo == "PATCH") & np.array([bool(PADRAO_PRE_PATCH.search(n)) for n in nome],
-                                                                   dtype=bool))
-    marcos = np.unique(ini[marco])
     p = np.searchsorted(marcos, d, side="left")
     out["f_expansao"] = ((p < marcos.size) & (marcos[np.clip(p, 0, max(marcos.size - 1, 0))] <= d + a * um_dia)
                          if marcos.size else np.zeros(len(d), dtype=bool)).astype("float64")
@@ -213,7 +333,7 @@ def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg:
     temp = eventos[eventos["tipo"] == "TEMPORADA"].sort_values("data_inicio")
     t_ini = temp["data_inicio"].values.astype("datetime64[D]")
     t_fim = temp["data_fim"].values.astype("datetime64[D]")
-    prox_ini = np.append(t_ini[1:] - um_dia, np.datetime64("NaT"))
+    prox_ini = np.append(t_ini[1:] - um_dia, np.datetime64("NaT", "D"))
     t_fim = np.where(np.isnat(t_fim), prox_ini, t_fim)  # sem data de fim: vai até a véspera da próxima temporada
     q = np.searchsorted(t_ini, d, side="right") - 1
     if t_ini.size:
@@ -421,6 +541,7 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
     unicos = linhas.drop_duplicates("item_id")
     cobertura = {c: float(unicos[c].notna().mean())
                  for c in ("classe_id", "subclasse_id", "qualidade", "nivel_item", "preco_npc")}
+    itens_commodity = int(unicos["commodity"].sum())
     del unicos
     ajuste = ajustar_e_aplicar(linhas, treino, cfg)
 
@@ -447,6 +568,7 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
         "preenchidas": int(linhas["preenchido"].sum()),
         "amostras": {p: int((jan["periodo"] == p).sum()) for p in PERIODOS},
         "cobertura_atributos": cobertura,
+        "itens_commodity": itens_commodity,
     }
     normalizacao = {
         "versao_formato": VERSAO_FORMATO,
@@ -494,6 +616,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--janela", type=int)
     ap.add_argument("--horizonte", type=int)
     ap.add_argument("--semente", type=int, default=42)
+    ap.add_argument("--rn03-confirmacao", type=int, help="preços seguidos fora da faixa que confirmam um novo patamar")
+    ap.add_argument("--rn03-ema-bruta", action="store_true",
+                    help="RN03 com a EMA de todos os preços do banco (comportamento anterior, para comparação)")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -502,6 +627,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg = replace(cfg, janela=args.janela)
     if args.horizonte:
         cfg = replace(cfg, horizonte=args.horizonte)
+    if args.rn03_confirmacao:
+        cfg = replace(cfg, rn03_confirmacao=args.rn03_confirmacao)
+    if args.rn03_ema_bruta:
+        cfg = replace(cfg, rn03_ema_so_aceitos=False)
 
     if args.banco:
         if args.env_arquivo:
@@ -522,7 +651,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     logger.info("Cortes: %s", res.normalizacao["cortes"])
     logger.info("Amostras: %s | linhas aptas: %d de %d | RN03: %d | preenchidas: %d",
                 c["amostras"], c["linhas_aptas"], c["linhas"], c["descartadas_rn03"], c["preenchidas"])
-    logger.info("Cobertura dos atributos fixos: %s", c["cobertura_atributos"])
+    logger.info("Cobertura dos atributos fixos: %s | itens de commodity: %d", c["cobertura_atributos"],
+                c["itens_commodity"])
     logger.info("Arquivos gravados em %s", args.saida.resolve())
     return 0
 

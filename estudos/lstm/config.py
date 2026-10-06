@@ -30,6 +30,18 @@ class Config:
     ema_span: int = 14
     rn03_acima: float = 3.00
     rn03_abaixo: float = 0.90
+    # A EMA usa só os preços aceitos: um preço absurdo não "inflaciona a média" que deveria barrá-lo (A CONFIRMAR).
+    # False = EMA de todos os preços do banco (comportamento anterior, mantido para comparação).
+    rn03_ema_so_aceitos: bool = True
+    # Preços seguidos fora da faixa, do mesmo lado, que confirmam um novo patamar: são aceitos e a EMA recomeça neles.
+    # No início da série, um novo patamar confirmado antes de o primeiro ter esse número de preços aceitos descarta o
+    # primeiro (o anúncio-placeholder de 99.999 ouro de um item novo). 7 = uma semana: na comparação de 2, 3, 5, 7, 10
+    # e 14 dias (500 séries, validação, referência neutra), o ganho para a partir de 7. (A CONFIRMAR)
+    rn03_confirmacao: int = 7
+    # Salto absurdo: um novo patamar a 1.000× ou mais do patamar confirmado (para cima ou para baixo) só é aceito depois
+    # de 28 preços seguidos. Evita que o anúncio de 1 milhão de ouro que fica sozinho por semanas vire patamar. (A CONFIRMAR)
+    rn03_salto_absurdo: float = 1000.0
+    rn03_confirmacao_absurdo: int = 28
 
     # RN25 - integridade temporal
     proporcao_treino: float = 0.70     # 70/20/10 por data de calendário, igual para todos os itens

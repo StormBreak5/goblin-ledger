@@ -5,4 +5,5 @@ sqlalchemy>=2.0,<2.1
 psycopg2-binary>=2.9
 python-dotenv>=1.0
 pytest>=8.0
-# para treinar.py e exemplo_keras.py (Python 3.10 a 3.12; não funciona em Alpine): tensorflow>=2.16
+# Testado em 2026-10-06 com Python 3.13: numpy 2.5.3, pandas 3.0.6, pyarrow 25.0.1, SQLAlchemy 2.0.54.
+# para treinar.py e exemplo_keras.py (testado com tensorflow 2.21.0 no Python 3.13; não funciona em Alpine): tensorflow>=2.16
