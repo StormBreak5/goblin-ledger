@@ -10,13 +10,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiohttp
 from psycopg2.extras import execute_values
-from sqlalchemy import func, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import bindparam, func, update
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Session
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from src.models.item import Item
+from src.models.item import Item, mesclar_metadata
 from src.models.mercado import ORIGEM_UNDERMINE
 from src.scraper.models import (
     FALHA_FONTE,
@@ -55,6 +55,15 @@ LIMITE_DE_ARQUIVOS_ILEGIVEIS = int(os.getenv("IMPORTACAO_LIMITE_ARQUIVOS_ILEGIVE
 # Resultado de `fetch_item_history` além dos códigos HTTP.
 STATUS_ERRO_DE_REDE = 0
 STATUS_FORMATO_INVALIDO = -1
+
+# CU10-C1: ETag e origem do arquivo de cada item, mesclados no `metadata_info` que estiver no banco na hora da gravação.
+# A importação leva horas; regravar o JSON lido no início dela apagaria o que foi gravado no meio (atributos do item).
+_ITENS = Item.__table__
+ATUALIZAR_ORIGEM_DO_ITEM = (
+    update(_ITENS)
+    .where(_ITENS.c.id == bindparam("b_id"))
+    .values(metadata_info=mesclar_metadata(_ITENS.c.metadata_info, bindparam("b_meta", type_=JSONB)))
+)
 
 INSERT_SQL = (
     f"INSERT INTO {HistoricalItemPrice.__tablename__} (item_id, region, timestamp, price, quantity, granularidade) "
@@ -358,13 +367,11 @@ class ChunkWriter:
                     rows.append((target.item_id, self.region_id, timestamp, p['price'], p['quantity'], granularidade))
 
                 # Update item's ETag and remember which source served it
-                new_meta = dict(target.metadata)
-                new_meta['last_etag'] = r['new_etag']
-                new_meta['source_region'] = r['source']
+                origem = {'last_etag': r['new_etag'], 'source_region': r['source']}
                 if target.novo:
-                    items_to_create.append((target.item_id, new_meta))  # CU10-C1-FA2
+                    items_to_create.append((target.item_id, {**target.metadata, **origem}))  # CU10-C1-FA2
                 else:
-                    items_to_update.append({'id': target.pk, 'metadata_info': new_meta})
+                    items_to_update.append({'b_id': target.pk, 'b_meta': origem})
 
         if items_to_create:
             self.items_created += self._cadastrar_itens(items_to_create)
@@ -372,7 +379,7 @@ class ChunkWriter:
         self.records_inserted += inserted
         self.records_duplicated += skipped + (len(rows) - inserted)
         if items_to_update:
-            self.db_session.execute(update(Item), items_to_update)
+            self.db_session.execute(ATUALIZAR_ORIGEM_DO_ITEM, items_to_update)
 
         self.records_discarded += discarded
         if discarded:

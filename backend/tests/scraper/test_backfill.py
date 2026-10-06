@@ -399,6 +399,33 @@ def test_cu10_c1_arquivo_sem_dados_reconhece_o_stub_e_so_ele():
     assert not backfill.arquivo_sem_dados({"snapshots": [{"price": 100, "quantity": 0}], "daily": []})
 
 
+def test_cu10_c1_etag_mescla_metadata_sem_apagar_atributos(db_session, add_item, fonte_falsa, mocker, pg_engine):
+    """O ETag e a origem entram no `metadata_info` que está no banco na hora da gravação: o que foi gravado durante a
+    importação (os atributos do item) não é apagado pelo JSON lido no início dela."""
+    item = add_item(9821, "Linen Cloth")
+    item.metadata_info = {"source": "ah_dump"}
+    db_session.commit()
+    fonte_falsa.com_dias(9821, dias(3))
+    buscar = fonte_falsa.buscar
+
+    async def gravar_atributos_durante_o_download(http_session, region_id, target, **kwargs):
+        with pg_engine.begin() as outra_conexao:
+            outra_conexao.execute(
+                text("UPDATE items SET metadata_info = metadata_info || CAST(:atributos AS JSONB) WHERE external_item_id = '9821'"),
+                {"atributos": '{"item_class_id": 7, "quality": "COMMON"}'},
+            )
+        return await buscar(http_session, region_id, target, **kwargs)
+
+    mocker.patch.object(backfill, "fetch_item_history", gravar_atributos_durante_o_download)
+
+    _importar(db_session, [item])
+
+    db_session.refresh(item)
+    assert item.metadata_info == {
+        "source": "ah_dump", "item_class_id": 7, "quality": "COMMON", "last_etag": '"etag-9821-3"', "source_region": REGIAO,
+    }
+
+
 def test_cu10_c1_etag_sem_origem_registrada_nao_e_reaproveitado_na_recuperacao(db_session, add_item, fonte_falsa):
     """Um ETag guardado antes de `source_region` existir pode ser o do stub do reino: a recuperação não o usa."""
     legado, atual = add_item(9811, "Legado"), add_item(9812, "Atual")
