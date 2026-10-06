@@ -1,6 +1,7 @@
 import os
+import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import logging
 from dotenv import load_dotenv
 import sys
@@ -23,6 +24,18 @@ logger = logging.getLogger(__name__)
 # Agendador em uso (definido em start_scheduler); a ingestão de mercado reagenda a si mesma depois de cada rodada.
 scheduler = None
 INGESTAO_JOB_ID = "ingestao_job"
+VIGIA_JOB_ID = "vigia_ingestao_job"
+
+# A rodada é quem agenda a seguinte. O APScheduler descarta um job `date` atrasado além da tolerância, e então ninguém
+# agendava mais nada: com o PC suspenso por dias (Docker pausado), a coleta horária parava para sempre e só o job da Ficha
+# seguia vivo. Por isso a rodada nunca é descartada por atraso: ao acordar, ela roda na hora (e a recuperação de 48 h,
+# que é decidida dentro dela, é avaliada).
+ATRASO_MAXIMO_DA_RODADA = None
+# De quanto em quanto tempo o vigia confere se existe uma rodada agendada (defesa para qualquer outra forma de a cadeia se perder).
+INTERVALO_DO_VIGIA_MINUTOS = 5
+# Trava da rodada em andamento: um job `date` sai do agendador ao começar a rodar, então sem ela o vigia não distinguiria
+# "a cadeia se perdeu" de "a rodada está executando agora".
+_rodada_em_andamento = threading.Lock()
 
 # ITEM_IDS agora são dinâmicos através da tabela Item
 
@@ -84,42 +97,60 @@ def job_ingestao_de_mercado():
     """
     CU09-C1 (ativação): rodada de ingestão dos leilões da Blizzard, de 60 em 60 minutos. Ao iniciar o worker, a rodada
     roda na hora; ela decide sozinha se precisa recompor o histórico (mais de 48 h sem coleta) e quais endpoints já
-    podem ser consultados (RN05). Ao terminar, agenda a próxima para quando o primeiro endpoint puder ser consultado.
+    podem ser consultados (RN05). Ao terminar, agenda a próxima para quando o primeiro endpoint puder ser consultado,
+    aconteça o que acontecer na rodada (senão a coleta pararia para sempre).
     """
+    if not _rodada_em_andamento.acquire(blocking=False):
+        logger.warning("Já há uma rodada de ingestão de mercado em andamento; esta foi ignorada.")
+        return
+    try:
+        proximo = None
+        try:
+            proximo = _rodada_de_ingestao()
+        except Exception:
+            logger.exception("Erro na rodada de ingestão de mercado.")
+        agendar_ingestao(proximo)
+    finally:
+        _rodada_em_andamento.release()
+
+def _rodada_de_ingestao():
+    """Executa uma rodada (`executar_rodada`) e devolve quando a próxima deve rodar (None: não foi possível calcular)."""
     from src.services.ingestao_config import carregar_mercados
     from src.services.rodada_de_ingestao import executar_rodada
 
     client_id = os.getenv("BLIZZARD_CLIENT_ID")
     client_secret = os.getenv("BLIZZARD_CLIENT_SECRET")
-    proximo = None
     if not client_id or not client_secret:
         logger.error("Env vars 'BLIZZARD_CLIENT_ID' ou 'BLIZZARD_CLIENT_SECRET' ausentes. Ingestão de mercado ignorada.")
-    else:
-        session = get_session()
-        try:
-            proximo = executar_rodada(
-                session, BlizzardApiClient(client_id, client_secret), carregar_mercados(), job_run_backfill,
-                preencher_itens_novos=job_preencher_itens_novos,
-            )
-        except Exception:
-            logger.exception("Erro na rodada de ingestão de mercado.")
-        finally:
-            session.close()
-    agendar_ingestao(proximo)
+        return None
+    session = get_session()
+    try:
+        return executar_rodada(
+            session, BlizzardApiClient(client_id, client_secret), carregar_mercados(), job_run_backfill,
+            preencher_itens_novos=job_preencher_itens_novos,
+        )
+    finally:
+        session.close()
 
 def agendar_ingestao(quando=None):
     """Agenda a próxima rodada da ingestão de mercado. Sem horário (falha ou credenciais ausentes), tenta em 1 hora."""
-    from datetime import timedelta, timezone
-
     if scheduler is None:
         return
     if quando is None:
         quando = datetime.now(timezone.utc) + timedelta(hours=1)
     scheduler.add_job(
         job_ingestao_de_mercado, 'date', run_date=quando, id=INGESTAO_JOB_ID,
-        replace_existing=True, misfire_grace_time=3600,
+        replace_existing=True, misfire_grace_time=ATRASO_MAXIMO_DA_RODADA,
     )
     logger.info("Próxima rodada de ingestão de mercado agendada para %s.", quando.isoformat())
+
+def job_vigiar_ingestao():
+    """CU09-C1 (ativação): garante que a ingestão de mercado tenha sempre uma próxima rodada agendada. Se a cadeia de
+    rodadas se perdeu (ninguém agendou a seguinte), retoma na hora; a rodada decide sozinha o que coletar (RN05, 48 h)."""
+    if scheduler is None or _rodada_em_andamento.locked() or scheduler.get_job(INGESTAO_JOB_ID) is not None:
+        return
+    logger.warning("Nenhuma rodada de ingestão de mercado agendada; retomando agora.")
+    agendar_ingestao(datetime.now(timezone.utc))
 
 def start_scheduler():
     global scheduler
@@ -153,8 +184,10 @@ def start_scheduler():
     # Agenda a descoberta de novos itens a cada 24 horas
     scheduler.add_job(job_sync_items, 'interval', days=1, id='sync_items_job')
 
-    # Ingestão de mercado (CU09): roda na hora ao iniciar e reagenda a si mesma de 60 em 60 minutos.
-    scheduler.add_job(job_ingestao_de_mercado, 'date', run_date=now_local, id=INGESTAO_JOB_ID, misfire_grace_time=3600)
+    # Ingestão de mercado (CU09): roda na hora ao iniciar e reagenda a si mesma de 60 em 60 minutos; o vigia a retoma
+    # se a cadeia se perder.
+    agendar_ingestao(datetime.now(timezone.utc))
+    scheduler.add_job(job_vigiar_ingestao, 'interval', minutes=INTERVALO_DO_VIGIA_MINUTOS, id=VIGIA_JOB_ID)
 
     scheduler.start()
     logger.info("Scheduler rodando em background.")
