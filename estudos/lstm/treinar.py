@@ -1,0 +1,191 @@
+"""Treino da LSTM global com os dados preparados (passos 6 e 7 do roteiro).
+
+- Usa todas as amostras de treino, montando os lotes sob demanda (nada de [milhões, 30, 16] na memória). A cada época
+  sorteia `--amostras-por-epoca` amostras do treino (0 = todas).
+- Para quando o erro na validação passa `--paciencia` épocas sem melhorar e volta para a melhor versão (EarlyStopping).
+- Grava em <pasta>/modelos/<nome>/: modelo.keras, normalizacao.json (as constantes desta versão, RN25), treino.json,
+  historico.csv e previsoes_validacao.parquet (com id_amostra, pronto para o avaliar.py).
+- O período de teste só é previsto com --prever-teste (junto com o treino) ou com --apenas-prever-teste (usa o modelo
+  já gravado em modelos/<nome>). Use uma única vez, com a configuração já escolhida (RN25).
+
+Uso
+    python treinar.py --pasta saida/real01 --nome lstm01
+    python avaliar.py --pasta saida/real01 --periodo validacao --previsoes saida/real01/modelos/lstm01/previsoes_validacao.parquet
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import shutil
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+
+from avaliar import salvar_previsoes
+from dataset import DadosPreparados
+
+
+def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa: float, perda: str):  # type: ignore[no-untyped-def]
+    import keras
+    from keras import layers
+
+    voc = dados.normalizacao["vocabulario"]
+    seq = keras.Input((dados.janela, len(dados.var_seq)), name="X_seq")
+    est = keras.Input((len(dados.var_est),), name="X_est")
+    cat = keras.Input((2,), dtype="int32", name="X_cat")
+    h = layers.LSTM(unidades, name="lstm")(seq)
+    h = layers.Dropout(dropout, name="dropout")(h)
+    classe = layers.Flatten()(layers.Embedding(len(voc["classe_id"]) + 1, 4, name="emb_classe")(cat[:, 0:1]))
+    subclasse = layers.Flatten()(layers.Embedding(len(voc["subclasse_id"]) + 1, 8, name="emb_subclasse")(cat[:, 1:2]))
+    h = layers.Concatenate()([h, est, classe, subclasse])
+    h = layers.Dense(32, activation="relu")(h)
+    saida = layers.Dense(dados.horizonte, name="y")(h)
+    modelo = keras.Model([seq, est, cat], saida, name="lstm_global")
+    fn_perda = keras.losses.Huber(delta=1.0) if perda == "huber" else "mse"
+    modelo.compile(optimizer=keras.optimizers.Adam(taxa), loss=fn_perda, metrics=["mae"])
+    return modelo
+
+
+def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca: int, embaralhar: bool, semente: int):  # type: ignore[no-untyped-def]
+    import keras
+
+    class Lotes(keras.utils.PyDataset):
+        def __init__(self) -> None:
+            super().__init__(workers=1, use_multiprocessing=False)
+            self.rng = np.random.default_rng(semente)
+            self.n = len(jan) if not por_epoca else min(por_epoca, len(jan))
+            self._sortear()
+
+        def _sortear(self) -> None:
+            if embaralhar:
+                self.ordem = self.rng.choice(len(jan), size=self.n, replace=False)
+            else:
+                self.ordem = np.arange(self.n)
+
+        def __len__(self) -> int:
+            return math.ceil(self.n / lote)
+
+        def __getitem__(self, i: int):  # type: ignore[no-untyped-def]
+            t = dados.tensores(jan.iloc[self.ordem[i * lote:(i + 1) * lote]])
+            return {"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}, t["y"]
+
+        def on_epoch_end(self) -> None:
+            self._sortear()
+
+    return Lotes()
+
+
+def prever(modelo, dados: DadosPreparados, jan: pd.DataFrame, lote: int = 4096) -> tuple[np.ndarray, np.ndarray]:  # type: ignore[no-untyped-def]
+    ids, saidas = [], []
+    for ini in range(0, len(jan), lote):
+        t = dados.tensores(jan.iloc[ini:ini + lote])
+        saidas.append(modelo.predict_on_batch({"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}))
+        ids.append(t["id_amostra"])
+    return np.concatenate(ids), np.concatenate(saidas)
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--pasta", type=Path, required=True, help="saída do preparar_dados.py")
+    ap.add_argument("--nome", default=None, help="nome desta versão (padrão: lstm_<data-hora>)")
+    ap.add_argument("--epocas", type=int, default=100, help="máximo de épocas")
+    ap.add_argument("--paciencia", type=int, default=10, help="épocas sem melhora na validação até parar")
+    ap.add_argument("--lote", type=int, default=512)
+    ap.add_argument("--amostras-por-epoca", type=int, default=400_000, help="sorteadas do treino a cada época; 0 = todas")
+    ap.add_argument("--amostras-validacao", type=int, default=200_000,
+                    help="amostra fixa da validação para a parada antecipada; 0 = todas")
+    ap.add_argument("--perda", choices=["huber", "mse"], default="huber")
+    ap.add_argument("--unidades", type=int, default=64)
+    ap.add_argument("--dropout", type=float, default=0.2)
+    ap.add_argument("--taxa", type=float, default=1e-3, help="taxa de aprendizado do Adam")
+    ap.add_argument("--semente", type=int, default=42)
+    ap.add_argument("--prever-teste", action="store_true", help="também prevê o período de teste (uso único, RN25)")
+    ap.add_argument("--apenas-prever-teste", action="store_true",
+                    help="não treina: carrega modelos/<nome>/modelo.keras e prevê o período de teste (uso único, RN25)")
+    args = ap.parse_args(argv)
+
+    import keras
+    import tensorflow as tf
+
+    keras.utils.set_random_seed(args.semente)
+    dados = DadosPreparados(args.pasta)
+    if args.apenas_prever_teste:
+        if not args.nome:
+            ap.error("--apenas-prever-teste exige --nome do modelo já treinado")
+        destino = args.pasta / "modelos" / args.nome
+        modelo = keras.models.load_model(destino / "modelo.keras")
+        ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"))
+        salvar_previsoes(ids_t, yhat_t, destino / "previsoes_teste.parquet")
+        info_p = destino / "treino.json"
+        info = json.loads(info_p.read_text(encoding="utf-8"))
+        info["previu_teste"] = True
+        info_p.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"Previsões do teste em {destino / 'previsoes_teste.parquet'}. Avalie com:\n  python avaliar.py --pasta "
+              f"{args.pasta} --periodo teste --previsoes {destino / 'previsoes_teste.parquet'} --rotulo {args.nome}")
+        return 0
+    nome = args.nome or "lstm_" + datetime.now().strftime("%Y%m%d_%H%M")
+    destino = args.pasta / "modelos" / nome
+    if destino.exists():
+        ap.error(f"{destino} já existe; escolha outro --nome")
+    destino.mkdir(parents=True)
+
+    jan_tr = dados.janelas("treino")
+    jan_va = dados.janelas("validacao")
+    va_es = jan_va if not args.amostras_validacao or len(jan_va) <= args.amostras_validacao else \
+        jan_va.sample(args.amostras_validacao, random_state=args.semente).sort_values("id_amostra")
+    print(f"amostras: treino {len(jan_tr):,} (por época: {args.amostras_por_epoca or len(jan_tr):,}) | "
+          f"validação {len(jan_va):,} (parada antecipada com {len(va_es):,})")
+
+    modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda)
+    modelo.summary(print_fn=lambda s, **_: print(s))
+    callbacks = [
+        keras.callbacks.EarlyStopping(monitor="val_loss", patience=args.paciencia, restore_best_weights=True),
+        keras.callbacks.CSVLogger(str(destino / "historico.csv")),
+        keras.callbacks.TerminateOnNaN(),
+    ]
+    inicio = time.time()
+    hist = modelo.fit(
+        criar_lotes(dados, jan_tr, args.lote, args.amostras_por_epoca, True, args.semente),
+        validation_data=criar_lotes(dados, va_es, args.lote, 0, False, args.semente),
+        epochs=args.epocas, callbacks=callbacks, verbose=2)
+    duracao = time.time() - inicio
+    val = hist.history.get("val_loss", [])
+    melhor = int(np.argmin(val)) + 1 if val else None
+
+    modelo.save(destino / "modelo.keras")
+    shutil.copy(args.pasta / "normalizacao.json", destino / "normalizacao.json")
+    ids, yhat = prever(modelo, dados, jan_va)
+    salvar_previsoes(ids, yhat, destino / "previsoes_validacao.parquet")
+    if args.prever_teste:
+        ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"))
+        salvar_previsoes(ids_t, yhat_t, destino / "previsoes_teste.parquet")
+
+    info: dict[str, Any] = {
+        "nome": nome,
+        "treinado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "parametros": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
+        "epocas_executadas": len(val),
+        "melhor_epoca": melhor,
+        "melhor_val_loss": float(min(val)) if val else None,
+        "duracao_segundos": round(duracao, 1),
+        "segundos_por_epoca": round(duracao / max(len(val), 1), 1),
+        "amostras": {"treino": len(jan_tr), "validacao": len(jan_va)},
+        "versoes": {"tensorflow": tf.__version__, "keras": keras.__version__},
+        "previu_teste": bool(args.prever_teste),
+    }
+    (destino / "treino.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({k: info[k] for k in ("epocas_executadas", "melhor_epoca", "melhor_val_loss", "segundos_por_epoca")},
+                     ensure_ascii=False))
+    print(f"\nModelo em {destino}. Próximo passo:\n  python avaliar.py --pasta {args.pasta} --periodo validacao "
+          f"--previsoes {destino / 'previsoes_validacao.parquet'} --rotulo {nome}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

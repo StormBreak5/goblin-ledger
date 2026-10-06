@@ -1,0 +1,7 @@
+saida/
+dados_sinteticos/
+__pycache__/
+.pytest_cache/
+.venv/
+*.npz
+*.mp4

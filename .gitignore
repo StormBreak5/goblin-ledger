@@ -44,3 +44,12 @@ desktop.ini
 
 # Root files
 /*.pdf
+
+*.mp4
+
+# Artefatos de modelos e dados (estudos/)
+*.parquet
+*.keras
+*.h5
+*.npz
+.ipynb_checkpoints/
