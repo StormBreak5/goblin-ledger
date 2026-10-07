@@ -3,10 +3,16 @@
 - Usa todas as amostras de treino, montando os lotes sob demanda (nada de [milhões, 30, 16] na memória). A cada época
   sorteia `--amostras-por-epoca` amostras do treino (0 = todas).
 - Para quando o erro na validação passa `--paciencia` épocas sem melhorar e volta para a melhor versão (EarlyStopping).
+- Máscara (opcional, `--mascara`): o erro de cada amostra passa a ser a média só dos dias previstos com preço
+  observado (obs_1..obs_7). O padrão é sem máscara: na etapa 2b (3 sementes, validação), treinar sem a máscara foi
+  melhor (docs/relatorio-etapa2b.md).
 - Grava em <pasta>/modelos/<nome>/: modelo.keras, normalizacao.json (as constantes desta versão, RN25), treino.json,
   historico.csv e previsoes_validacao.parquet (com id_amostra, pronto para o avaliar.py).
 - O período de teste só é previsto com --prever-teste (junto com o treino) ou com --apenas-prever-teste (usa o modelo
   já gravado em modelos/<nome>). Use uma única vez, com a configuração já escolhida (RN25).
+- Etapa 2c: numa base preparada com --reservar-itens, as amostras dos itens reservados ficam fora do treino e da
+  parada antecipada (o modelo nunca as vê), mas são previstas na validação, para medir o erro em itens não vistos.
+  Com --incluir-reservados, treina com todos os itens (o controle do experimento).
 
 Uso
     python treinar.py --pasta saida/real01 --nome lstm01
@@ -31,6 +37,31 @@ from avaliar import salvar_previsoes
 from dataset import DadosPreparados
 
 
+def criar_perdas(tipo: str, horizonte: int, delta: float = 1.0):  # type: ignore[no-untyped-def]
+    """Perda e métrica mascaradas. y_true chega como [y_1..y_H, obs_1..obs_H]; os dias com obs = 0 não contam.
+    Com todos os obs = 1, a perda é igual à Huber (ou MSE) do Keras sobre os H dias."""
+    from keras import ops
+
+    def _separar(y_true, y_pred):  # type: ignore[no-untyped-def]
+        y, m = y_true[:, :horizonte], y_true[:, horizonte:]
+        return y_pred - y, m, ops.maximum(ops.sum(m, axis=-1), 1.0)
+
+    def perda_mascarada(y_true, y_pred):  # type: ignore[no-untyped-def]
+        e, m, n = _separar(y_true, y_pred)
+        if tipo == "huber":
+            a = ops.abs(e)
+            elem = ops.where(a <= delta, 0.5 * e * e, delta * (a - 0.5 * delta))
+        else:
+            elem = e * e
+        return ops.sum(elem * m, axis=-1) / n
+
+    def mae_mascarado(y_true, y_pred):  # type: ignore[no-untyped-def]
+        e, m, n = _separar(y_true, y_pred)
+        return ops.sum(ops.abs(e) * m, axis=-1) / n
+
+    return perda_mascarada, mae_mascarado
+
+
 def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa: float, perda: str):  # type: ignore[no-untyped-def]
     import keras
     from keras import layers
@@ -47,12 +78,13 @@ def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa
     h = layers.Dense(32, activation="relu")(h)
     saida = layers.Dense(dados.horizonte, name="y")(h)
     modelo = keras.Model([seq, est, cat], saida, name="lstm_global")
-    fn_perda = keras.losses.Huber(delta=1.0) if perda == "huber" else "mse"
-    modelo.compile(optimizer=keras.optimizers.Adam(taxa), loss=fn_perda, metrics=["mae"])
+    fn_perda, fn_mae = criar_perdas(perda, dados.horizonte)
+    modelo.compile(optimizer=keras.optimizers.Adam(taxa), loss=fn_perda, metrics=[fn_mae])
     return modelo
 
 
-def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca: int, embaralhar: bool, semente: int):  # type: ignore[no-untyped-def]
+def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca: int, embaralhar: bool, semente: int,
+                usar_mascara: bool = True):  # type: ignore[no-untyped-def]
     import keras
 
     class Lotes(keras.utils.PyDataset):
@@ -73,7 +105,8 @@ def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca:
 
         def __getitem__(self, i: int):  # type: ignore[no-untyped-def]
             t = dados.tensores(jan.iloc[self.ordem[i * lote:(i + 1) * lote]])
-            return {"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}, t["y"]
+            mascara = t["mascara"].astype(np.float32) if usar_mascara else np.ones_like(t["y"], dtype=np.float32)
+            return {"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}, np.concatenate([t["y"], mascara], 1)
 
         def on_epoch_end(self) -> None:
             self._sortear()
@@ -88,6 +121,23 @@ def prever(modelo, dados: DadosPreparados, jan: pd.DataFrame, lote: int = 4096) 
         saidas.append(modelo.predict_on_batch({"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}))
         ids.append(t["id_amostra"])
     return np.concatenate(ids), np.concatenate(saidas)
+
+
+def separar_reservados(jan_tr: pd.DataFrame, jan_va: pd.DataFrame,
+                       incluir: bool) -> tuple[pd.DataFrame, pd.DataFrame, Optional[dict[str, Any]]]:
+    """Etapa 2c: tira os itens reservados do treino e da validação usada na parada antecipada (a escolha da época
+    também não pode depender deles). Devolve o treino, a validação da parada antecipada e o resumo da reserva."""
+    if "reservado" not in jan_tr.columns:
+        return jan_tr, jan_va, None
+    itens = int(pd.concat([jan_tr.loc[jan_tr["reservado"], "item_id"], jan_va.loc[jan_va["reservado"], "item_id"]])
+                .nunique())
+    resumo = {"itens_reservados": itens, "incluidos_no_treino": bool(incluir),
+              "amostras_reservadas_treino": int(jan_tr["reservado"].sum()),
+              "amostras_reservadas_validacao": int(jan_va["reservado"].sum())}
+    if incluir:
+        return jan_tr, jan_va, resumo
+    return (jan_tr[~jan_tr["reservado"].to_numpy()].reset_index(drop=True),
+            jan_va[~jan_va["reservado"].to_numpy()].reset_index(drop=True), resumo)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -105,6 +155,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--dropout", type=float, default=0.2)
     ap.add_argument("--taxa", type=float, default=1e-3, help="taxa de aprendizado do Adam")
     ap.add_argument("--semente", type=int, default=42)
+    mascara = ap.add_mutually_exclusive_group()
+    mascara.add_argument("--mascara", action="store_true",
+                         help="ignora no erro os dias preenchidos ou descartados pela RN03 (comparação)")
+    mascara.add_argument("--sem-mascara", action="store_true", help="padrão; mantido por compatibilidade")
+    ap.add_argument("--incluir-reservados", action="store_true",
+                    help="etapa 2c: treina também com os itens reservados (controle); padrão: deixá-los de fora")
     ap.add_argument("--prever-teste", action="store_true", help="também prevê o período de teste (uso único, RN25)")
     ap.add_argument("--apenas-prever-teste", action="store_true",
                     help="não treina: carrega modelos/<nome>/modelo.keras e prevê o período de teste (uso único, RN25)")
@@ -119,7 +175,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not args.nome:
             ap.error("--apenas-prever-teste exige --nome do modelo já treinado")
         destino = args.pasta / "modelos" / args.nome
-        modelo = keras.models.load_model(destino / "modelo.keras")
+        modelo = keras.models.load_model(destino / "modelo.keras", compile=False)
         ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"))
         salvar_previsoes(ids_t, yhat_t, destino / "previsoes_teste.parquet")
         info_p = destino / "treino.json"
@@ -137,10 +193,14 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     jan_tr = dados.janelas("treino")
     jan_va = dados.janelas("validacao")
-    va_es = jan_va if not args.amostras_validacao or len(jan_va) <= args.amostras_validacao else \
-        jan_va.sample(args.amostras_validacao, random_state=args.semente).sort_values("id_amostra")
+    jan_tr, va_base, reserva = separar_reservados(jan_tr, jan_va, args.incluir_reservados)
+    va_es = va_base if not args.amostras_validacao or len(va_base) <= args.amostras_validacao else \
+        va_base.sample(args.amostras_validacao, random_state=args.semente).sort_values("id_amostra")
     print(f"amostras: treino {len(jan_tr):,} (por época: {args.amostras_por_epoca or len(jan_tr):,}) | "
           f"validação {len(jan_va):,} (parada antecipada com {len(va_es):,})")
+    if reserva:
+        print(f"etapa 2c: {reserva['itens_reservados']:,} itens reservados "
+              f"{'INCLUÍDOS no treino (controle)' if reserva['incluidos_no_treino'] else 'FORA do treino'}")
 
     modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda)
     modelo.summary(print_fn=lambda s, **_: print(s))
@@ -151,8 +211,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ]
     inicio = time.time()
     hist = modelo.fit(
-        criar_lotes(dados, jan_tr, args.lote, args.amostras_por_epoca, True, args.semente),
-        validation_data=criar_lotes(dados, va_es, args.lote, 0, False, args.semente),
+        criar_lotes(dados, jan_tr, args.lote, args.amostras_por_epoca, True, args.semente, args.mascara),
+        validation_data=criar_lotes(dados, va_es, args.lote, 0, False, args.semente, args.mascara),
         epochs=args.epocas, callbacks=callbacks, verbose=2)
     duracao = time.time() - inicio
     val = hist.history.get("val_loss", [])
@@ -175,9 +235,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         "melhor_val_loss": float(min(val)) if val else None,
         "duracao_segundos": round(duracao, 1),
         "segundos_por_epoca": round(duracao / max(len(val), 1), 1),
-        "amostras": {"treino": len(jan_tr), "validacao": len(jan_va)},
+        "amostras": {"treino": len(jan_tr), "validacao": len(jan_va), "validacao_parada_antecipada": len(va_es)},
+        "reserva": reserva,
         "versoes": {"tensorflow": tf.__version__, "keras": keras.__version__},
         "previu_teste": bool(args.prever_teste),
+        "mascara": bool(args.mascara),
+        "variaveis_sequencia": len(dados.var_seq),
     }
     (destino / "treino.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps({k: info[k] for k in ("epocas_executadas", "melhor_epoca", "melhor_val_loss", "segundos_por_epoca")},

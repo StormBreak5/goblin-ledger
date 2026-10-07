@@ -12,6 +12,9 @@ Uso
     python avaliar.py --pasta saida/estudo01 --periodo validacao --previsoes previsoes_validacao.parquet
     python avaliar.py --pasta saida/estudo01 --periodo validacao --ingenuo     # modelo ingênuo (amanhã = hoje)
     python avaliar.py --pasta saida/estudo01 --periodo validacao --verificar   # ida e volta: tem de dar erro zero
+
+Etapa 2c: com itens.parquet na base, o resumo traz "por_grupo" (itens reservados ou não, commodity, apto pela RN15,
+líquido pela RN02) e "por_idade" (erro pela idade do item no dia da previsão, para definir o histórico mínimo).
 """
 from __future__ import annotations
 
@@ -60,9 +63,14 @@ def para_cobre(preco_base: np.ndarray, log_retorno: np.ndarray) -> np.ndarray:
 
 
 def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: np.ndarray,
-            limiar_mape: Optional[float] = None) -> Avaliacao:
+            limiar: Optional[float] = None, metrica: Optional[str] = None) -> Avaliacao:
     H = dados.horizonte
-    limiar = float(limiar_mape if limiar_mape is not None else dados.normalizacao["config"]["limiar_mape"])
+    cfg = dados.normalizacao["config"]
+    # Bases preparadas antes da decisão da RN10 só têm "limiar_mape"; a regra nova vale para elas também.
+    limiar = float(limiar if limiar is not None else cfg.get("limiar_rn10", cfg.get("limiar_mape", 0.15)))
+    metrica = metrica or cfg.get("metrica_rn10", "mdape")
+    if metrica not in ("mdape", "mape"):
+        raise ValueError("metrica deve ser 'mdape' ou 'mape'")
     jan = dados.janelas(periodo).set_index("id_amostra")
     faltando = np.setdiff1d(id_amostra, jan.index.to_numpy())
     if faltando.size:
@@ -81,6 +89,7 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
     real = orig["preco_cobre"].to_numpy(dtype="float64", na_value=np.nan)[alvo]
     avaliavel = orig["observado"].to_numpy()[alvo] & np.isfinite(real)
 
+    idade = jan["dias_de_historico"].to_numpy() if "dias_de_historico" in jan.columns else np.full(len(jan), -1)
     det = pd.DataFrame({
         "id_amostra": np.repeat(id_amostra, H),
         "id_linha_origem": np.repeat(origem, H),
@@ -94,24 +103,36 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
         "preco_real": real.ravel(),
         "preco_previsto": previsto.ravel(),
         "avaliavel": avaliavel.ravel(),
+        "dias_de_historico": np.repeat(idade, H),
     })
     det["preco_ingenuo"] = det["preco_base"]
     det["erro_abs"] = (det["preco_previsto"] - det["preco_real"]).abs()
     det["erro_pct"] = det["erro_abs"] / det["preco_real"]
-    det["erro_pct_ingenuo"] = (det["preco_ingenuo"] - det["preco_real"]).abs() / det["preco_real"]
-    det.loc[~det["avaliavel"], ["erro_abs", "erro_pct", "erro_pct_ingenuo"]] = np.nan
+    det["erro_abs_ingenuo"] = (det["preco_ingenuo"] - det["preco_real"]).abs()
+    det["erro_pct_ingenuo"] = det["erro_abs_ingenuo"] / det["preco_real"]
+    det.loc[~det["avaliavel"], ["erro_abs", "erro_pct", "erro_abs_ingenuo", "erro_pct_ingenuo"]] = np.nan
 
     ok = det[det["avaliavel"]]
     por_item = ok.groupby(["serie", "item_id"]).agg(
         n=("erro_pct", "size"),
         mape=("erro_pct", "mean"),
         mape_ingenuo=("erro_pct_ingenuo", "mean"),
+        mdape=("erro_pct", "median"),
+        mdape_ingenuo=("erro_pct_ingenuo", "median"),
         mae_ouro=("erro_abs", lambda e: e.mean() / COBRE_POR_OURO),
+        mae_ingenuo_ouro=("erro_abs_ingenuo", lambda e: e.mean() / COBRE_POR_OURO),
         rmse_ouro=("erro_abs", lambda e: float(np.sqrt((e ** 2).mean())) / COBRE_POR_OURO),
     ).reset_index()
-    # RN10: projeção liberada se o MAPE do item ficar no limiar e abaixo do modelo ingênuo.
+    # Erro relativo ao ingênuo (MAE do modelo ÷ MAE do ingênuo nos mesmos dias): < 1 = melhor que o ingênuo. É livre de
+    # escala, como o erro escalado de Hyndman e Athanasopoulos (2018, seção 3.4).
+    por_item["erro_relativo_ingenuo"] = por_item["mae_ouro"] / por_item["mae_ingenuo_ouro"].where(
+        por_item["mae_ingenuo_ouro"] > 0)
+    # Mantido como no relatório da etapa 2: o item "supera o ingênuo" quando o MAPE é menor que o do ingênuo.
     por_item["supera_ingenuo"] = por_item["mape"] < por_item["mape_ingenuo"]
-    por_item["situacao"] = np.where((por_item["mape"] <= limiar) & por_item["supera_ingenuo"], "Liberada", "Bloqueada")
+    # RN10: projeção liberada se a métrica do item (MdAPE por padrão) ficar no limiar e abaixo da do modelo ingênuo.
+    supera_na_metrica = por_item[metrica] < por_item[f"{metrica}_ingenuo"]
+    por_item["situacao"] = np.where((por_item[metrica] <= limiar) & supera_na_metrica, "Liberada", "Bloqueada")
+    por_item = juntar_info_dos_itens(por_item, dados.itens)
 
     por_h = ok.groupby("h").agg(n=("erro_pct", "size"), mape=("erro_pct", "mean"),
                                 mape_ingenuo=("erro_pct_ingenuo", "mean"),
@@ -126,10 +147,94 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
         "mape_ingenuo_medio_por_item": float(por_item["mape_ingenuo"].mean()) if len(por_item) else None,
         "mape_geral": float(ok["erro_pct"].mean()) if len(ok) else None,
         "itens_que_superam_ingenuo": int(por_item["supera_ingenuo"].sum()),
-        "limiar_mape_rn10": limiar,
+        "rn10": {"metrica": metrica, "limiar": limiar},
         "itens_liberados_rn10": int((por_item["situacao"] == "Liberada").sum()),
+        "mediana_mape_por_item": float(por_item["mape"].median()) if len(por_item) else None,
+        "mediana_mdape_por_item": float(por_item["mdape"].median()) if len(por_item) else None,
+        "mediana_erro_relativo_ingenuo": float(por_item["erro_relativo_ingenuo"].median()) if len(por_item) else None,
+        "itens_com_erro_relativo_menor_que_1": int((por_item["erro_relativo_ingenuo"] < 1).sum()),
+        # Quantos itens seriam liberados com outras métricas e limiares (sempre exigindo superar o ingênuo na mesma
+        # métrica). Serve para decidir a RN10; não muda a situação calculada acima.
+        "liberacao_por_limiar": curva_de_liberacao(por_item),
     }
+    grupos = resumo_por_grupo(por_item)
+    if grupos:
+        resumo["por_grupo"] = grupos
+    if (idade >= 0).any():
+        resumo["por_idade"] = resumo_por_idade(ok)
     return Avaliacao(det, por_item, por_h, resumo)
+
+
+GRUPOS = ("reservado", "commodity", "apto_rn15", "liquido_rn02")
+# Idade do item (dias desde o primeiro registro) no dia da previsão. A primeira amostra de um item sai por volta do
+# 60º dia: 30 dias até a padronização móvel valer (RN24) mais a janela de 30 dias.
+FAIXAS_IDADE: tuple[tuple[int, float, str], ...] = ((0, 90, "até 89 dias"), (90, 120, "90 a 119 dias"),
+                                                    (120, 180, "120 a 179 dias"), (180, 365, "180 a 364 dias"),
+                                                    (365, np.inf, "365 dias ou mais"))
+
+
+def juntar_info_dos_itens(por_item: pd.DataFrame, itens: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """Acrescenta ao resultado por item os critérios de seleção e a reserva (itens.parquet), quando existirem."""
+    if itens is None or por_item.empty:
+        return por_item
+    cols = [c for c in GRUPOS if c in itens.columns]
+    info = itens[["serie", "item_id"] + cols].astype({"serie": str})
+    out = por_item.astype({"serie": str}).merge(info, on=["serie", "item_id"], how="left")
+    return out
+
+
+def resumo_do_grupo(pi: pd.DataFrame) -> dict[str, Any]:
+    n = int(len(pi))
+    if not n:
+        return {"itens": 0}
+    rel = pi["erro_relativo_ingenuo"]
+    liberados = int((pi["situacao"] == "Liberada").sum())
+    return {
+        "itens": n,
+        "mediana_mdape_por_item": float(pi["mdape"].median()),
+        "mediana_mdape_ingenuo_por_item": float(pi["mdape_ingenuo"].median()),
+        "mediana_mape_por_item": float(pi["mape"].median()),
+        "mediana_erro_relativo_ingenuo": float(rel.median()) if rel.notna().any() else None,
+        "itens_com_erro_relativo_menor_que_1": int((rel < 1).sum()),
+        "pct_erro_relativo_menor_que_1": round(float((rel < 1).sum()) / n, 4),
+        "itens_liberados_rn10": liberados,
+        "pct_liberados_rn10": round(liberados / n, 4),
+    }
+
+
+def resumo_por_grupo(por_item: pd.DataFrame) -> dict[str, dict[str, dict[str, Any]]]:
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for col in GRUPOS:
+        if col not in por_item.columns or por_item[col].isna().all():
+            continue
+        valores = por_item[col].astype("object").where(por_item[col].notna(), "desconhecido")
+        out[col] = {str(v): resumo_do_grupo(por_item[valores == v]) for v in sorted(valores.unique(), key=str)}
+    return out
+
+
+def resumo_por_idade(ok: pd.DataFrame) -> list[dict[str, Any]]:
+    """Erro de todos os alvos avaliados, por faixa de idade do item no dia da previsão (mediana sobre os alvos)."""
+    linhas: list[dict[str, Any]] = []
+    for ini, fim, rotulo in FAIXAS_IDADE:
+        f = ok[(ok["dias_de_historico"] >= ini) & (ok["dias_de_historico"] < fim)]
+        if f.empty:
+            linhas.append({"faixa": rotulo, "alvos": 0})
+            continue
+        md, md_ing = float(f["erro_pct"].median()), float(f["erro_pct_ingenuo"].median())
+        linhas.append({"faixa": rotulo, "alvos": int(len(f)), "itens": int(f["item_id"].nunique()),
+                       "mdape": md, "mdape_ingenuo": md_ing, "razao_ingenuo": md / md_ing if md_ing > 0 else None})
+    return linhas
+
+
+LIMIARES = (0.10, 0.15, 0.20, 0.25, 0.30)
+
+
+def curva_de_liberacao(por_item: pd.DataFrame) -> dict[str, dict[str, int]]:
+    curva: dict[str, dict[str, int]] = {}
+    for metrica in ("mape", "mdape"):
+        melhor = por_item[metrica] < por_item[f"{metrica}_ingenuo"]
+        curva[metrica] = {f"{round(lim * 100)}%": int(((por_item[metrica] <= lim) & melhor).sum()) for lim in LIMIARES}
+    return curva
 
 
 def gravar(av: Avaliacao, pasta: Path, rotulo: str) -> None:
@@ -154,7 +259,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     modo.add_argument("--previsoes", type=Path, help="parquet/csv com id_amostra e yhat_1..yhat_7 (normalizados)")
     modo.add_argument("--ingenuo", action="store_true", help="avalia o modelo ingênuo (preço de hoje para os 7 dias)")
     modo.add_argument("--verificar", action="store_true", help="usa o próprio y verdadeiro: confere o mecanismo")
-    ap.add_argument("--limiar-mape", type=float, help="RN10; padrão: o de normalizacao.json")
+    ap.add_argument("--limiar", "--limiar-mape", dest="limiar", type=float,
+                    help="RN10; padrão: o de normalizacao.json (15%%)")
+    ap.add_argument("--metrica", choices=["mdape", "mape"], help="RN10; padrão: mdape")
     ap.add_argument("--rotulo", help="sufixo dos arquivos de saída")
     args = ap.parse_args(argv)
 
@@ -174,7 +281,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         yhat = jan[dados.colunas_alvo()].to_numpy(dtype=np.float64)
         rotulo = args.rotulo or "verificacao"
 
-    av = avaliar(dados, args.periodo, ids, yhat, args.limiar_mape)
+    av = avaliar(dados, args.periodo, ids, yhat, args.limiar, args.metrica)
     gravar(av, args.pasta, rotulo)
     print(json.dumps(av.resumo, indent=2, ensure_ascii=False))
     print(av.por_horizonte.to_string(index=False))

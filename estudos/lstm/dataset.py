@@ -13,6 +13,7 @@ Uso
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -22,6 +23,23 @@ import numpy as np
 import pandas as pd
 
 from config import PERIODOS
+
+
+def assinatura_normalizacao(normalizacao: dict[str, Any]) -> str:
+    """Identifica a normalização de uma versão do modelo (RN24/RN25): datas de corte, constantes, vocabulário, nível de
+    item, alvo e variáveis. Duas bases com a mesma assinatura alimentam o mesmo modelo exatamente da mesma forma,
+    mesmo que tenham itens diferentes (é o que permite prever itens fora do treino com o modelo já treinado)."""
+    cfg = normalizacao["config"]
+    conteudo = {
+        "cortes": {k: normalizacao["cortes"][k] for k in ("corte_validacao", "corte_teste")},
+        "constantes": normalizacao["constantes"],
+        "vocabulario": normalizacao["vocabulario"],
+        "nivel_item": normalizacao["nivel_item"],
+        "alvo": normalizacao["alvo"],
+        "variaveis": normalizacao["variaveis"],
+        "formato": {"janela": cfg["janela"], "horizonte": cfg["horizonte"]},
+    }
+    return hashlib.sha256(json.dumps(conteudo, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
 class DadosPreparados:
@@ -55,6 +73,13 @@ class DadosPreparados:
     @property
     def normalizadas(self) -> pd.DataFrame:
         return self._normalizadas
+
+    @property
+    def itens(self) -> Optional[pd.DataFrame]:
+        """Um registro por série e item (itens.parquet): atributos, critérios de seleção e reserva. None em bases
+        preparadas antes da etapa 2c."""
+        caminho = self.pasta / "itens.parquet"
+        return pd.read_parquet(caminho) if caminho.exists() else None
 
     def janelas(self, periodo: str) -> pd.DataFrame:
         if periodo not in PERIODOS:

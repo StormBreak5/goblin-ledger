@@ -8,6 +8,8 @@ import pandas as pd
 import pytest
 
 from avaliar import avaliar
+from dataclasses import replace
+
 from config import PERIODOS, Config
 from dataset import DadosPreparados
 from gerar_sinteticos import gerar
@@ -82,7 +84,9 @@ def test_tensores_tem_o_formato_da_lstm(preparado: tuple[Resultado, Path]) -> No
     _, pasta = preparado
     dados = DadosPreparados(pasta)
     t = dados.tensores(dados.janelas("treino").head(64))
-    assert t["X_seq"].shape == (64, CFG.janela, 16)
+    # padrão (etapa 2b): eventos agregados, só as 16 variáveis de sequência
+    assert len(dados.var_seq) == 16
+    assert t["X_seq"].shape == (64, CFG.janela, len(dados.var_seq))
     assert t["X_est"].shape == (64, 4) and t["X_cat"].shape == (64, 2) and t["y"].shape == (64, CFG.horizonte)
     assert np.isfinite(t["X_seq"]).all()
     assert (np.abs(t["X_seq"]) <= 1.0 + 1e-6).all()  # RN24: tudo entre −1 e 1
@@ -280,3 +284,238 @@ def test_commodity_pela_origem_do_arquivo_da_undermine() -> None:
     assert _atributos_do_metadata(2, {"source_region": "3209"}, ids)["commodity"] is False
     assert _atributos_do_metadata(3, {"item_class_id": 7}, ids)["commodity"] is None
     assert _atributos_do_metadata(4, {"source_region": "32512", "is_commodity": False}, ids)["commodity"] is False
+
+
+# ------------------------------------------------------------------------------- variável 14 detalhada e máscara
+def test_eventos_detalhados_um_par_por_festival_e_feira() -> None:
+    eventos = _padronizar_eventos(pd.DataFrame([
+        {"tipo": "EVENTO_SAZONAL", "nome": "Feast of Winter Veil", "data_inicio": "2025-12-16", "data_fim": "2026-01-02"},
+        {"tipo": "EVENTO_SAZONAL", "nome": "Love is in the Air", "data_inicio": "2026-02-09", "data_fim": "2026-02-23"},
+        {"tipo": "EVENTO_SAZONAL", "nome": "Noblegarden (aproximado)", "data_inicio": "2026-04-05",
+         "data_fim": "2026-04-12"},
+        {"tipo": "RECORRENTE", "nome": "Darkmoon Faire", "data_inicio": "2026-01-04", "data_fim": "2026-01-10"},
+        {"tipo": "RECORRENTE", "nome": "Trading Post monthly rotation", "data_inicio": "2026-01-01",
+         "data_fim": "2026-01-31"},
+    ]))
+    datas = pd.DatetimeIndex(["2025-12-10", "2025-12-16", "2026-01-02", "2026-01-03", "2026-02-10"])
+    v = variaveis_de_calendario(datas, eventos, replace(CFG, eventos_detalhados=True))
+    inverno = "f_festival_feast_of_winter_veil"
+    assert v[inverno].tolist() == [0, 1, 1, 0, 0]
+    # fração dos próximos 7 dias com o festival: em 10/12, só 16 e 17 → 2/7 (o calendário é conhecido antes, RN25)
+    assert v[inverno + "_prox"].tolist() == pytest.approx([2 / 7, 1, 0, 0, 0])
+    assert "f_festival_noblegarden" in v.columns  # sem a marca "(aproximado)"
+    assert v["f_feira_negrilua"].tolist() == [0, 0, 0, 0, 0]
+    assert v["f_feira_negrilua_prox"].tolist() == pytest.approx([0, 0, 6 / 7, 1, 0])
+    assert not any("trading" in c for c in v.columns)  # a rotação do Posto de Troca não entra
+    assert v["f_evento"].tolist() == [0, 1, 1, 0, 1]  # o agregado continua
+
+
+def test_eventos_agregados_so_mantem_f_evento() -> None:
+    eventos = _padronizar_eventos(pd.DataFrame([
+        {"tipo": "EVENTO_SAZONAL", "nome": "Brewfest", "data_inicio": "2025-09-20", "data_fim": "2025-10-06"},
+        {"tipo": "RECORRENTE", "nome": "Darkmoon Faire", "data_inicio": "2025-10-05", "data_fim": "2025-10-11"}]))
+    v = variaveis_de_calendario(pd.DatetimeIndex(["2025-10-01"]), eventos, replace(CFG, eventos_detalhados=False))
+    assert not any(c.startswith(("f_festival_", "f_feira")) for c in v.columns)
+    assert v["f_evento"].tolist() == [1]
+
+
+def test_festival_sem_dia_ativo_no_treino_fica_de_fora(sinteticos: dict[str, pd.DataFrame]) -> None:
+    """Um festival que só aparece depois do corte da validação teria pesos nunca treinados: não entra nas variáveis."""
+    dados = {k: v.copy() for k, v in sinteticos.items()}
+    novo = pd.DataFrame([{"tipo": "EVENTO_SAZONAL", "nome": "Festival novo", "versao": None,
+                          "data_inicio": "2026-08-01", "data_fim": "2026-08-10", "regiao": "GLOBAL"}])
+    dados["eventos"] = pd.concat([dados["eventos"], novo], ignore_index=True)
+    res = preparar(entrada_de(dados), replace(CFG, eventos_detalhados=True), filtro_liquidez=False, **CORTES)
+    seq = res.normalizacao["variaveis"]["sequencia"]
+    assert "f_festival_festival_novo" not in seq and "f_festival_festival_novo_prox" not in seq
+    assert "Festival novo" in res.normalizacao["eventos_detalhados"]["sem_ocorrencia_no_treino"]
+    assert {"f_feira_negrilua", "f_festival_festival_de_inverno", "f_festival_festival_de_verao"} <= set(seq)
+
+
+def test_perda_mascarada_ignora_os_dias_nao_observados() -> None:
+    keras = pytest.importorskip("keras")
+    from treinar import criar_perdas
+
+    perda, mae = criar_perdas("huber", 3)
+    y_pred = np.array([[0.1, 0.5, -2.0]], dtype="float32")
+    y = np.array([[0.0, 0.4, 1.0]], dtype="float32")
+    m = np.array([[1, 1, 0]], dtype="float32")
+    base = float(np.asarray(perda(np.concatenate([y, m], 1), y_pred))[0])
+    assert base == pytest.approx(0.005, rel=1e-4)  # só os dois dias observados: Huber(0,1) = 0,005
+    y_outro = y.copy()
+    y_outro[0, 2] = 50.0  # mudar o dia não observado não muda nada
+    assert float(np.asarray(perda(np.concatenate([y_outro, m], 1), y_pred))[0]) == pytest.approx(base)
+    assert float(np.asarray(mae(np.concatenate([y, m], 1), y_pred))[0]) == pytest.approx(0.1, rel=1e-4)
+    # com todos os dias observados, é a Huber do Keras
+    um = np.ones_like(y)
+    ref = float(np.asarray(keras.losses.Huber(delta=1.0, reduction=None)(y, y_pred))[0])
+    assert float(np.asarray(perda(np.concatenate([y, um], 1), y_pred))[0]) == pytest.approx(ref, rel=1e-5)
+
+
+def test_avaliacao_traz_mdape_erro_relativo_e_curva_de_liberacao(preparado: tuple[Resultado, Path]) -> None:
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    alvo = dados.normalizacao["alvo"]
+    zero = (0.0 - np.asarray(alvo["media"])) / np.asarray(alvo["desvio"])
+    av = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), np.tile(zero, (len(jan), 1)))
+    # o próprio ingênuo: erro relativo 1 e nenhum item liberado (não supera a si mesmo)
+    assert np.allclose(av.por_item["erro_relativo_ingenuo"].dropna(), 1.0)
+    assert np.allclose(av.por_item["mdape"], av.por_item["mdape_ingenuo"])
+    assert all(v == 0 for m in av.resumo["liberacao_por_limiar"].values() for v in m.values())
+    assert set(av.resumo["liberacao_por_limiar"]["mdape"]) == {"10%", "15%", "20%", "25%", "30%"}
+
+
+def test_rn10_libera_por_mdape_quem_supera_o_ingenuo(preparado: tuple[Resultado, Path]) -> None:
+    """RN10 (decisão após a etapa 2b): MdAPE ≤ 15% e menor que o MdAPE do ingênuo."""
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    perfeito = jan[dados.colunas_alvo()].to_numpy("float64")  # o próprio y: erro ~0
+    av = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), perfeito)
+    assert av.resumo["rn10"] == {"metrica": "mdape", "limiar": 0.15}
+    esperado = av.por_item["mdape_ingenuo"] > av.por_item["mdape"]
+    assert ((av.por_item["situacao"] == "Liberada") == esperado).all()
+    # a regra antiga continua disponível para comparação
+    av_mape = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), perfeito, limiar=0.15, metrica="mape")
+    assert av_mape.resumo["rn10"]["metrica"] == "mape"
+
+
+# ------------------------------------------------------------------------- etapa 2c: itens fora do treino
+FRACAO = 0.25
+
+
+@pytest.fixture(scope="module")
+def com_reserva(sinteticos: dict[str, pd.DataFrame],
+                tmp_path_factory: pytest.TempPathFactory) -> tuple[Resultado, Path]:
+    res = preparar(entrada_de(sinteticos), CFG, filtro_liquidez=False, reservar_itens=FRACAO, semente=3, **CORTES)
+    pasta = tmp_path_factory.mktemp("reserva")
+    salvar(res, pasta)
+    return res, pasta
+
+
+def test_reserva_estratificada_pela_classe_e_reprodutivel() -> None:
+    from preparar_dados import sortear_reservados
+
+    itens = pd.DataFrame({"item_id": range(100), "classe_id": [7.0] * 60 + [2.0] * 20 + [None] * 20})
+    a = sortear_reservados(itens, 0.2, semente=1)
+    assert a == sortear_reservados(itens, 0.2, semente=1)          # mesma semente, mesmos itens
+    assert a != sortear_reservados(itens, 0.2, semente=2)
+    por_classe = itens.assign(r=itens["item_id"].isin(a)).groupby(itens["classe_id"].fillna(-1))["r"].sum()
+    assert por_classe.to_dict() == {-1.0: 4, 2.0: 4, 7.0: 12}       # 20% de cada classe
+
+
+def test_reservados_nao_influenciam_a_normalizacao(sinteticos: dict[str, pd.DataFrame],
+                                                   com_reserva: tuple[Resultado, Path]) -> None:
+    """Constantes, faixa do nível, vocabulário e escala do alvo são as mesmas de uma base sem os itens reservados.
+    (A variação do índice da subclasse é a exceção esperada: no dia, ela inclui os preços dos outros itens do mercado.)"""
+    res, _ = com_reserva
+    reservados = set(res.normalizacao["reserva"]["itens"])
+    assert 0 < len(reservados) < res.itens["item_id"].nunique()
+    sem = preparar(entrada_de(sinteticos), CFG, filtro_liquidez=False, excluir_itens=reservados, **CORTES)
+    assert not set(sem.janelas["item_id"]) & reservados
+    ca, cb = res.normalizacao["constantes"], sem.normalizacao["constantes"]
+    assert {k: v for k, v in ca.items() if k != "f_retorno_subclasse"} == \
+           {k: v for k, v in cb.items() if k != "f_retorno_subclasse"}
+    assert res.normalizacao["nivel_item"] == sem.normalizacao["nivel_item"]
+    assert res.normalizacao["vocabulario"] == sem.normalizacao["vocabulario"]
+    assert np.allclose(res.normalizacao["alvo"]["media"], sem.normalizacao["alvo"]["media"])
+    assert np.allclose(res.normalizacao["alvo"]["desvio"], sem.normalizacao["alvo"]["desvio"])
+
+
+def test_janelas_marcam_reservados_e_a_idade_do_item(com_reserva: tuple[Resultado, Path]) -> None:
+    res, _ = com_reserva
+    jan, o = res.janelas, res.linhas_originais
+    reservados = set(res.normalizacao["reserva"]["itens"])
+    assert (jan["reservado"] == jan["item_id"].isin(reservados)).all()
+    assert set(res.itens.loc[res.itens["reservado"], "item_id"]) == reservados
+    primeiro = o.groupby("item_id")["data"].min()
+    esperado = (jan["data_origem"] - jan["item_id"].map(primeiro)).dt.days + 1
+    assert (jan["dias_de_historico"] == esperado).all()
+    assert jan["dias_de_historico"].min() >= CFG.janela  # não há amostra antes de a janela encher
+    assert res.normalizacao["contagens"]["amostras_reservadas"]["treino"] == int(
+        (jan["reservado"] & (jan["periodo"] == "treino")).sum())
+
+
+def test_treino_deixa_os_reservados_de_fora_e_o_controle_os_inclui(com_reserva: tuple[Resultado, Path]) -> None:
+    from treinar import separar_reservados
+
+    _, pasta = com_reserva
+    dados = DadosPreparados(pasta)
+    tr, va = dados.janelas("treino"), dados.janelas("validacao")
+    tr_a, va_a, info_a = separar_reservados(tr, va, incluir=False)
+    assert not tr_a["reservado"].any() and not va_a["reservado"].any()   # nem no treino nem na parada antecipada
+    assert len(tr_a) == int((~tr["reservado"]).sum())
+    tr_b, va_b, info_b = separar_reservados(tr, va, incluir=True)
+    assert len(tr_b) == len(tr) and len(va_b) == len(va)
+    assert info_a["itens_reservados"] == info_b["itens_reservados"] > 0
+    assert separar_reservados(tr.drop(columns="reservado"), va, False)[2] is None  # base sem reserva: nada muda
+
+
+def test_normalizacao_de_outra_base_reproduz_a_mesma_base(sinteticos: dict[str, pd.DataFrame],
+                                                          preparado: tuple[Resultado, Path]) -> None:
+    """Aplicar a normalização gravada aos mesmos itens dá exatamente as mesmas linhas e amostras."""
+    res_a, _ = preparado
+    res_b = preparar(entrada_de(sinteticos), CFG, filtro_liquidez=False, normalizacao_base=res_a.normalizacao)
+    assert res_b.normalizacao["assinatura"] == res_a.normalizacao["assinatura"]
+    pd.testing.assert_frame_equal(res_a.linhas_normalizadas, res_b.linhas_normalizadas)
+    pd.testing.assert_frame_equal(res_a.janelas, res_b.janelas)
+
+
+def test_normalizacao_de_outra_base_em_itens_que_ela_nao_tem(sinteticos: dict[str, pd.DataFrame]) -> None:
+    """O caminho de um item qualquer: base B só com itens novos, normalizada como a versão do modelo (base A).
+    Uma subclasse que a base A nunca viu vira categoria desconhecida (0)."""
+    itens = sinteticos["itens"]
+    so_em_b = set(itens.loc[itens["subclasse_id"] == 8, "item_id"])
+    outros_b = set(itens["item_id"].iloc[::4]) - so_em_b
+    b_ids = so_em_b | outros_b
+    res_a = preparar(entrada_de(sinteticos), CFG, filtro_liquidez=False, excluir_itens=b_ids, **CORTES)
+    res_b = preparar(entrada_de(sinteticos), CFG, filtro_liquidez=False, normalizacao_base=res_a.normalizacao,
+                     excluir_itens=set(res_a.itens["item_id"]))
+    assert set(res_b.itens["item_id"]) == b_ids
+    for k in ("constantes", "nivel_item", "vocabulario", "alvo", "variaveis"):
+        assert res_b.normalizacao[k] == res_a.normalizacao[k]
+    assert res_b.normalizacao["cortes"]["corte_validacao"] == res_a.normalizacao["cortes"]["corte_validacao"]
+    assert res_b.normalizacao["normalizacao_de"]["assinatura"] == res_a.normalizacao["assinatura"]
+    assert "8" not in res_a.normalizacao["vocabulario"]["subclasse_id"]
+    nb = res_b.linhas_normalizadas
+    assert (nb.loc[nb["item_id"].isin(so_em_b), "subclasse_idx"] == 0).all()
+    assert len(res_b.janelas[res_b.janelas["periodo"] == "validacao"]) > 0
+
+
+def test_prever_recusa_base_com_outra_normalizacao(preparado: tuple[Resultado, Path],
+                                                   com_reserva: tuple[Resultado, Path]) -> None:
+    from prever import conferir_compatibilidade
+
+    a, b = preparado[0].normalizacao, com_reserva[0].normalizacao
+    conferir_compatibilidade(a, a)
+    with pytest.raises(ValueError, match="incompatível"):
+        conferir_compatibilidade(a, b)  # a reserva muda as constantes e a escala do alvo
+
+
+def test_avaliacao_por_grupo_e_por_idade(com_reserva: tuple[Resultado, Path]) -> None:
+    _, pasta = com_reserva
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    av = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), jan[dados.colunas_alvo()].to_numpy("float64"))
+    g = av.resumo["por_grupo"]["reservado"]
+    assert set(g) == {"False", "True"}
+    assert g["False"]["itens"] + g["True"]["itens"] == av.resumo["itens"]
+    assert "reservado" in av.por_item.columns and "commodity" in av.resumo["por_grupo"]
+    idade = av.resumo["por_idade"]
+    assert [f["faixa"] for f in idade][0] == "até 89 dias" and len(idade) == 5
+    assert sum(f["alvos"] for f in idade) == av.resumo["alvos_avaliados"]
+
+
+def test_comparacao_pareada_item_a_item() -> None:
+    from comparar import comparar
+
+    base = {"serie": ["1", "1", "1"], "item_id": [1, 2, 3], "mape": [0.3, 0.2, 0.5],
+            "erro_relativo_ingenuo": [0.9, 0.8, 1.1], "reservado": [True, True, False]}
+    a = pd.DataFrame({**base, "mdape": [0.12, 0.30, 0.50], "situacao": ["Liberada", "Bloqueada", "Bloqueada"]})
+    b = pd.DataFrame({**base, "mdape": [0.10, 0.31, 0.10], "situacao": ["Liberada", "Bloqueada", "Liberada"]})
+    r = comparar(a, b, filtro="reservado")
+    assert r["itens"] == 2                                   # o item 3 não é reservado
+    assert r["mdape"]["mediana_da_diferenca"] == pytest.approx(0.005)
+    assert r["mdape"]["itens_a_pior_que_b"] == 1 and r["mdape"]["itens_com_diferenca_ate_1pp"] == 1
+    assert r["rn10"] == {"liberados_a": 1, "liberados_b": 1, "liberados_nos_dois": 1, "so_a": 0, "so_b": 0}

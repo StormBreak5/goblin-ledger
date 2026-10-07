@@ -15,10 +15,22 @@ Mecanismo de identificação
     id_amostra identifica cada janela de entrada. A amostra guarda id_linha_origem (o último dia de entrada, "hoje");
                o alvo h (1 a 7) é sempre a linha id_linha_origem + h, da mesma série.
     normalizacao.json guarda as datas de corte e todas as constantes, para desfazer a normalização na avaliação.
+    itens.parquet  um registro por série e item: atributos, critérios de seleção (RN15, RN02), primeiro registro e
+               se o item foi reservado (etapa 2c).
+
+Generalização para itens fora do treino (etapa 2c)
+    --reservar-itens 0.2   sorteia 20% dos itens (estratificado pela classe) e os marca como reservados. Eles ficam
+                           de fora de tudo o que o modelo aprende: constantes, vocabulário, escala do alvo e treino.
+                           Servem para medir o erro em itens que o modelo nunca viu.
+    --normalizacao-de P    aplica a normalização já calculada na base P (cortes, constantes, vocabulário, alvo e
+                           variáveis), sem recalcular nada. É o caminho da previsão de um item qualquer com um modelo
+                           já treinado. Use com --excluir-itens-de P para pegar só itens que não estão em P.
 
 Uso
     python preparar_dados.py --banco --regiao US --saida saida/estudo01 [--max-itens 500]
     python preparar_dados.py --csv dados_sinteticos --saida saida/sintetico
+    python preparar_dados.py --banco --regiao US --saida saida/fora2c --normalizacao-de saida/treino2c \\
+        --excluir-itens-de saida/treino2c --ignorar-aptidao --sem-filtro-liquidez --max-itens 3000
 """
 from __future__ import annotations
 
@@ -27,6 +39,7 @@ import json
 import logging
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,7 +48,9 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from config import PERIODOS, VARIAVEIS_CATEGORICAS, VARIAVEIS_ESTATICAS, VARIAVEIS_SEQUENCIA, Config
+from config import (PERIODOS, PREFIXO_FESTIVAL, SUFIXO_PROXIMOS, VARIAVEIS_CATEGORICAS, VARIAVEIS_ESTATICAS,
+                    VARIAVEIS_SEQUENCIA, VARIAVEL_FEIRA, Config)
+from dataset import assinatura_normalizacao
 from io_dados import Entrada, carregar_banco, carregar_csv, url_do_banco
 
 logger = logging.getLogger("preparar_dados")
@@ -54,22 +69,33 @@ class Resultado:
     linhas_normalizadas: pd.DataFrame
     janelas: pd.DataFrame
     normalizacao: dict[str, Any]
+    itens: Optional[pd.DataFrame] = None
 
 
 # ================================================================================================ 1. seleção e calendário
-def selecionar_series(entrada: Entrada, cfg: Config, regiao: Optional[str], ignorar_aptidao: bool,
-                      filtro_liquidez: bool, ilvl_minimo: Optional[float], max_itens: Optional[int],
-                      semente: int) -> pd.DataFrame:
-    """CU11-C1 passo 2: itens aptos (RN15), com liquidez (RN02) e equipamentos relevantes (RN07)."""
+def _precos_da_regiao(entrada: Entrada, regiao: Optional[str]) -> pd.DataFrame:
     precos = entrada.precos
     precos = precos.assign(regiao=precos["serie"].map(entrada.regiao_da_serie))
     if regiao:
         sem_regiao = precos["regiao"].isna()
         if sem_regiao.any():
             logger.warning("Séries sem região conhecida ignoradas: %s", sorted(precos.loc[sem_regiao, "serie"].unique()))
-        precos = precos[precos["regiao"] == regiao]
-    else:
-        precos = precos.assign(regiao=precos["regiao"].fillna("GLOBAL"))
+        return precos[precos["regiao"] == regiao]
+    return precos.assign(regiao=precos["regiao"].fillna("GLOBAL"))
+
+
+def selecionar_series(entrada: Entrada, cfg: Config, regiao: Optional[str], ignorar_aptidao: bool,
+                      filtro_liquidez: bool, ilvl_minimo: Optional[float], max_itens: Optional[int],
+                      semente: int, excluir_itens: Optional[set[int]] = None) -> pd.DataFrame:
+    """CU11-C1 passo 2: itens aptos (RN15), com liquidez (RN02) e equipamentos relevantes (RN07).
+    `excluir_itens` (etapa 2c) tira da seleção os itens de outra base antes do sorteio de --max-itens."""
+    precos = _precos_da_regiao(entrada, regiao)
+
+    if excluir_itens:
+        antes = precos["item_id"].nunique()
+        precos = precos[~precos["item_id"].isin(excluir_itens)]
+        logger.info("Excluídos %d itens de outra base: restam %d de %d.", antes - precos["item_id"].nunique(),
+                    precos["item_id"].nunique(), antes)
 
     if entrada.aptos is not None and not ignorar_aptidao:
         antes = precos["item_id"].nunique()
@@ -97,6 +123,42 @@ def selecionar_series(entrada: Entrada, cfg: Config, regiao: Optional[str], igno
             chaves = chaves.sample(max_itens, random_state=semente)
             precos = precos.merge(chaves, on=["serie", "item_id"])
     return precos
+
+
+def criterios_dos_itens(entrada: Entrada, cfg: Config, regiao: Optional[str]) -> pd.DataFrame:
+    """Por série e item da região: apto pela RN15 (nulo sem a tabela de aptidão) e líquido pela RN02 (quantidade média
+    acima do mínimo nos últimos dias da base). Só registra; quem filtra é selecionar_series."""
+    precos = _precos_da_regiao(entrada, regiao)
+    out = precos.groupby(["serie", "item_id"], as_index=False, observed=True)["data"].agg(
+        primeiro_registro="min", ultimo_registro="max", dias_com_registro="count")
+    if len(precos):
+        fim = precos["data"].max()
+        recentes = precos[precos["data"] > fim - pd.Timedelta(days=cfg.liquidez_dias)]
+        media = recentes.groupby(["serie", "item_id"], observed=True)["quantidade"].mean()
+        liquidas = set(media[media > cfg.liquidez_min_quantidade].index)
+    else:
+        liquidas = set()
+    out["liquido_rn02"] = [(s, i) in liquidas for s, i in zip(out["serie"], out["item_id"])]
+    if entrada.aptos is not None:
+        out["apto_rn15"] = out["item_id"].isin(entrada.aptos)
+    else:
+        out["apto_rn15"] = pd.Series(pd.NA, index=out.index, dtype="boolean")
+    return out
+
+
+def sortear_reservados(itens: pd.DataFrame, fracao: float, semente: int) -> set[int]:
+    """Etapa 2c: sorteia `fracao` dos itens para ficarem fora do treino, estratificado pela classe (classe
+    desconhecida é um estrato), para que os reservados tenham a mesma composição dos demais. Reprodutível pela semente."""
+    if not 0 < fracao < 1:
+        raise ValueError("a fração reservada deve estar entre 0 e 1")
+    rng = np.random.default_rng(semente)
+    ids = itens[["item_id", "classe_id"]].drop_duplicates("item_id")
+    reservados: list[int] = []
+    for _, g in ids.groupby(ids["classe_id"].fillna(-1), sort=True):
+        n = int(round(len(g) * fracao))
+        if n:
+            reservados += rng.choice(np.sort(g["item_id"].to_numpy()), size=n, replace=False).tolist()
+    return {int(x) for x in reservados}
 
 
 def montar_calendario(precos: pd.DataFrame) -> pd.DataFrame:
@@ -299,7 +361,37 @@ def datas_de_patch_e_marcos(eventos: pd.DataFrame) -> tuple[np.ndarray, np.ndarr
             np.unique(np.array(marcos, dtype="datetime64[D]")) if marcos else vazio)
 
 
-def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+def _nome_do_festival(nome: Any) -> str:
+    """Nome do festival sem a marca "(aproximado)" das datas geradas por regra (Noblegarden, Lunar Festival)."""
+    return re.sub(r"\s*\(aproximado\)\s*$", "", str(nome or ""), flags=re.IGNORECASE).strip()
+
+
+def _slug(nome: str) -> str:
+    sem_acento = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "_", sem_acento.lower()).strip("_")
+
+
+def festivais_do_calendario(eventos: pd.DataFrame) -> dict[str, str]:
+    """Variável 14 detalhada: coluna -> nome de cada festival (EVENTO_SAZONAL) do banco, em ordem alfabética."""
+    nomes = sorted({_nome_do_festival(n) for n in eventos.loc[eventos["tipo"] == "EVENTO_SAZONAL", "nome"]} - {""})
+    return {PREFIXO_FESTIVAL + _slug(n): n for n in nomes}
+
+
+def _ativo_e_proximos(d: np.ndarray, inicios: np.ndarray, fins: np.ndarray, horizonte: int) -> tuple[np.ndarray, np.ndarray]:
+    """Para cada dia de `d`: o evento está ativo hoje (0/1) e em que fração dos próximos `horizonte` dias estará."""
+    um_dia = np.timedelta64(1, "D")
+    grade = np.arange(d.min(), d.max() + (horizonte + 1) * um_dia, um_dia)
+    ativo = np.zeros(len(grade), dtype=bool)
+    for i0, f0 in zip(inicios, fins):
+        ativo |= (grade >= i0) & (grade <= f0)
+    acum = np.concatenate([[0], np.cumsum(ativo)])
+    pos = ((d - grade[0]) / um_dia).astype(int)
+    proximos = (acum[pos + horizonte + 1] - acum[pos + 1]) / horizonte
+    return ativo[pos].astype("float64"), proximos.astype("float64")
+
+
+def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg: Config,
+                            festivais: Optional[dict[str, str]] = None) -> pd.DataFrame:
     """Variáveis 9 a 14 (calendário e eventos, conhecidas antecipadamente). RN25: um patch só é considerado
     conhecido a partir de `antecedencia_anuncio_dias` antes da data, pois evento_jogo não guarda a data do anúncio."""
     d = datas.values.astype("datetime64[D]")
@@ -351,10 +443,25 @@ def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg:
     for i0, f0 in zip(s_ini, s_fim):
         ativo |= (d >= i0) & (d <= f0)
     out["f_evento"] = ativo.astype("float64")
+
+    if cfg.eventos_detalhados and len(d):
+        # Feira de Negrilua (evento recorrente gerado por regra no CU10-C2): uma semana por mês.
+        tem_darkmoon = np.array(["darkmoon" in str(n).lower() for n in eventos["nome"].fillna("")], dtype=bool)
+        feira = (tipo == "RECORRENTE") & tem_darkmoon
+        f_ini, f_fim = ini[feira], np.where(np.isnat(fim[feira]), ini[feira], fim[feira])
+        out[VARIAVEL_FEIRA], out[VARIAVEL_FEIRA + SUFIXO_PROXIMOS] = _ativo_e_proximos(d, f_ini, f_fim, cfg.horizonte)
+        # Um par de colunas por festival.
+        festivais = festivais_do_calendario(eventos) if festivais is None else festivais
+        nome_norm = np.array([_nome_do_festival(n) for n in eventos["nome"]], dtype=object)
+        for col, nome in festivais.items():
+            m = sazonal & (nome_norm == nome)
+            e_ini, e_fim = ini[m], np.where(np.isnat(fim[m]), ini[m], fim[m])
+            out[col], out[col + SUFIXO_PROXIMOS] = _ativo_e_proximos(d, e_ini, e_fim, cfg.horizonte)
     return out
 
 
-def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Config) -> pd.DataFrame:
+def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Config,
+                              festivais: Optional[dict[str, str]] = None) -> pd.DataFrame:
     """Variáveis antes das constantes globais. Tudo que usa shift/rolling/EMA é feito por série (groupby)."""
     chave = linhas["serie_idx"]
     linhas["log_preco"] = np.log(linhas["preco"])
@@ -395,7 +502,7 @@ def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Confi
         pos = np.flatnonzero(regioes == regiao)
         ev = entrada.eventos[entrada.eventos["regiao"].isin(["GLOBAL", regiao])]
         datas = linhas["data"].to_numpy()[pos]
-        cal = variaveis_de_calendario(pd.DatetimeIndex(np.unique(datas)), ev, cfg)
+        cal = variaveis_de_calendario(pd.DatetimeIndex(np.unique(datas)), ev, cfg, festivais)
         valores = cal.reindex(pd.DatetimeIndex(datas)).to_numpy(dtype="float32")
         for k, col in enumerate(cal.columns):
             if col not in linhas:
@@ -428,15 +535,34 @@ def periodo_da_data(datas: pd.Series, cortes: dict[str, pd.Timestamp]) -> pd.Ser
 
 
 # ======================================================================================== 6. normalização (só treino)
-def ajustar_e_aplicar(linhas: pd.DataFrame, treino: pd.Series, cfg: Config) -> dict[str, Any]:
-    """RN24 + RN25: as constantes são calculadas com as linhas do treino e aplicadas a todas as linhas."""
-    const: dict[str, float] = {}
-    for bruto, final, simetrico in (("log_return", "f_log_return", True),
-                                    ("log_preco_ema14", "f_preco_ema14", True),
-                                    ("volatilidade_7d", "f_volatilidade_7d", False),
-                                    ("retorno_subclasse", "f_retorno_subclasse", True),
-                                    ("log_preco_npc", "f_preco_npc", True)):
-        const[final] = percentil_treino(linhas[bruto], treino, cfg, simetrico)
+CONSTANTES_GLOBAIS: tuple[tuple[str, str, bool], ...] = (  # (variável bruta, variável final, simétrica)
+    ("log_return", "f_log_return", True),
+    ("log_preco_ema14", "f_preco_ema14", True),
+    ("volatilidade_7d", "f_volatilidade_7d", False),
+    ("retorno_subclasse", "f_retorno_subclasse", True),
+    ("log_preco_npc", "f_preco_npc", True),
+)
+
+
+def ajustar(linhas: pd.DataFrame, treino: pd.Series, cfg: Config) -> dict[str, Any]:
+    """RN24 + RN25: constantes globais, faixa do nível de item e vocabulário das categorias, só com as linhas de
+    `treino` (o período de treinamento, sem os itens reservados da etapa 2c)."""
+    const = {final: percentil_treino(linhas[bruto], treino, cfg, simetrico)
+             for bruto, final, simetrico in CONSTANTES_GLOBAIS}
+    niveis = linhas.loc[treino, ["item_id", "nivel_item"]].drop_duplicates("item_id")["nivel_item"].dropna()
+    nmin, nmax = (float(niveis.min()), float(niveis.max())) if len(niveis) else (0.0, 1.0)
+    vocab: dict[str, dict[str, int]] = {}
+    for col in ("classe_id", "subclasse_id"):
+        valores = sorted(int(v) for v in linhas.loc[treino, col].dropna().unique())
+        vocab[col] = {str(v): i + 1 for i, v in enumerate(valores)}  # 0 = desconhecida
+    return {"constantes": const, "nivel_item": {"min": nmin, "max": nmax}, "vocabulario": vocab}
+
+
+def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: Config) -> None:
+    """Aplica a normalização (de agora ou de uma versão anterior do modelo) a todas as linhas. Categoria fora do
+    vocabulário, como a de um item de uma subclasse nunca vista no treino, vira 0 (desconhecida)."""
+    const = ajuste["constantes"]
+    for bruto, final, simetrico in CONSTANTES_GLOBAIS:
         linhas[final] = escalar(linhas[bruto], const[final], simetrico).astype("float32")
     # Sem pares na subclasse no dia, ou item sem preço de venda ao vendedor: 0.
     linhas["f_retorno_subclasse"] = linhas["f_retorno_subclasse"].fillna(0.0)
@@ -445,22 +571,24 @@ def ajustar_e_aplicar(linhas: pd.DataFrame, treino: pd.Series, cfg: Config) -> d
 
     qualidade = linhas["qualidade"].clip(0, cfg.qualidade_max) / cfg.qualidade_max
     linhas["f_qualidade"] = qualidade.fillna(0.0).astype("float32")
-    niveis = linhas.loc[treino, ["item_id", "nivel_item"]].drop_duplicates("item_id")["nivel_item"].dropna()
-    nmin, nmax = (float(niveis.min()), float(niveis.max())) if len(niveis) else (0.0, 1.0)
+    nmin, nmax = ajuste["nivel_item"]["min"], ajuste["nivel_item"]["max"]
     nivel = ((linhas["nivel_item"] - nmin) / max(nmax - nmin, EPS)).clip(0, 1)
     linhas["f_nivel_item"] = nivel.fillna(0.0).astype("float32")
     linhas["f_commodity"] = linhas["commodity"].astype("float32")
 
-    vocab: dict[str, dict[str, int]] = {}
     for col, idx_col in (("classe_id", "classe_idx"), ("subclasse_id", "subclasse_idx")):
-        valores = sorted(int(v) for v in linhas.loc[treino, col].dropna().unique())
-        vocab[col] = {str(v): i + 1 for i, v in enumerate(valores)}  # 0 = desconhecida
-        mapa = {float(v): i + 1 for i, v in enumerate(valores)}
+        mapa = {float(v): i for v, i in ajuste["vocabulario"][col].items()}
         linhas[idx_col] = linhas[col].map(mapa).fillna(0).astype("int32")
     linhas.drop(columns=["log_return", "log_preco_ema14", "volatilidade_7d", "retorno_subclasse", "log_preco_npc",
                          "ema14_anterior", "classe_id", "subclasse_id", "qualidade", "nivel_item", "preco_npc",
                          "commodity"], inplace=True)
-    return {"constantes": const, "nivel_item": {"min": nmin, "max": nmax}, "vocabulario": vocab}
+
+
+def ajustar_e_aplicar(linhas: pd.DataFrame, treino: pd.Series, cfg: Config) -> dict[str, Any]:
+    """RN24 + RN25: as constantes são calculadas com as linhas do treino e aplicadas a todas as linhas."""
+    ajuste = ajustar(linhas, treino, cfg)
+    aplicar(linhas, ajuste, cfg)
+    return ajuste
 
 
 # ============================================================================================== 7. janelas e separação
@@ -495,6 +623,8 @@ def montar_janelas(linhas: pd.DataFrame, cortes: dict[str, pd.Timestamp], cfg: C
 
     lp = linhas["log_preco"].to_numpy()
     obs = linhas["observado"].to_numpy()
+    # Idade do item no dia da previsão: dias desde o primeiro registro da série (o calendário começa nele).
+    primeiro = linhas.groupby("serie_idx", sort=False)["data"].transform("min").to_numpy()
     jan = pd.DataFrame({
         "id_amostra": np.arange(o.size, dtype="int64"),
         "id_linha_origem": o.astype("int64"),
@@ -503,52 +633,122 @@ def montar_janelas(linhas: pd.DataFrame, cortes: dict[str, pd.Timestamp], cfg: C
         "data_origem": datas[o],
         "periodo": periodo,
         "preco_base": linhas["preco"].to_numpy()[o].round().astype("int64"),  # último preço conhecido "hoje" (Cobre)
+        "dias_de_historico": ((datas[o] - primeiro[o]) / np.timedelta64(1, "D")).astype("int32") + 1,
     })
+    if "reservado" in linhas:  # etapa 2c: item fora do treino
+        jan["reservado"] = linhas["reservado"].to_numpy()[o]
     for h in range(1, H + 1):
         jan[f"y_{h}"] = lp[o + h] - lp[o]          # log-retorno de hoje até o dia h (ainda sem normalizar)
         jan[f"obs_{h}"] = obs[o + h]               # o alvo do dia h foi observado (e não preenchido)?
     return jan
 
 
-def normalizar_alvo(jan: pd.DataFrame, cfg: Config) -> dict[str, list[float]]:
-    """Escalonador próprio do alvo (como recomendado no estudo do orientador), ajustado só nas amostras de treino."""
+def normalizar_alvo(jan: pd.DataFrame, cfg: Config,
+                    alvo: Optional[dict[str, list[float]]] = None) -> dict[str, list[float]]:
+    """Escalonador próprio do alvo (como recomendado no estudo do orientador), ajustado só nas amostras de treino dos
+    itens não reservados. Com `alvo` (normalização de outra base), só aplica."""
     cols = [f"y_{h}" for h in range(1, cfg.horizonte + 1)]
-    treino = jan["periodo"] == PERIODOS[0]
-    if not treino.any():
-        raise ValueError("Nenhuma amostra de treino: histórico curto demais para a janela, o horizonte e o corte.")
-    media = jan.loc[treino, cols].mean().to_numpy(dtype="float64")
-    desvio = jan.loc[treino, cols].std(ddof=0).to_numpy(dtype="float64")
-    desvio = np.where(desvio > EPS, desvio, 1.0)
-    jan[cols] = ((jan[cols].to_numpy(dtype="float64") - media) / desvio).astype("float32")
+    if alvo is None:
+        treino = jan["periodo"] == PERIODOS[0]
+        if "reservado" in jan:
+            treino &= ~jan["reservado"]
+        if not treino.any():
+            raise ValueError("Nenhuma amostra de treino: histórico curto demais para a janela, o horizonte e o corte.")
+        media = jan.loc[treino, cols].mean().to_numpy(dtype="float64")
+        desvio = jan.loc[treino, cols].std(ddof=0).to_numpy(dtype="float64")
+        desvio = np.where(desvio > EPS, desvio, 1.0)
+    else:
+        media = np.asarray(alvo["media"], dtype="float64")
+        desvio = np.asarray(alvo["desvio"], dtype="float64")
+    if len(jan):
+        jan[cols] = ((jan[cols].to_numpy(dtype="float64") - media) / desvio).astype("float32")
     return {"media": media.tolist(), "desvio": desvio.tolist()}
 
 
 # ======================================================================================================= orquestração
 def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignorar_aptidao: bool = False,
              filtro_liquidez: bool = True, ilvl_minimo: Optional[float] = None, max_itens: Optional[int] = None,
-             corte_validacao: Optional[str] = None, corte_teste: Optional[str] = None, semente: int = 42) -> Resultado:
-    precos = selecionar_series(entrada, cfg, regiao, ignorar_aptidao, filtro_liquidez, ilvl_minimo, max_itens, semente)
+             corte_validacao: Optional[str] = None, corte_teste: Optional[str] = None, semente: int = 42,
+             reservar_itens: float = 0.0, normalizacao_base: Optional[dict[str, Any]] = None,
+             excluir_itens: Optional[set[int]] = None) -> Resultado:
+    """Prepara a base. Etapa 2c: `reservar_itens` tira uma fração dos itens de tudo o que o modelo aprende;
+    `normalizacao_base` aplica a normalização de outra base (outra versão do modelo) em vez de calculá-la."""
+    if normalizacao_base is not None and reservar_itens:
+        raise ValueError("reservar itens só faz sentido ao calcular a normalização, não ao reaproveitá-la")
+    precos = selecionar_series(entrada, cfg, regiao, ignorar_aptidao, filtro_liquidez, ilvl_minimo, max_itens, semente,
+                               excluir_itens)
     if precos.empty:
         raise ValueError("Nenhuma série selecionada (verifique a região, a aptidão e a liquidez).")
     linhas = montar_calendario(precos)
     logger.info("%d séries, %d linhas (série × dia).", linhas["serie_idx"].nunique(), len(linhas))
     linhas = higienizar(linhas, cfg)
-    linhas = calcular_variaveis_brutas(linhas, entrada, cfg)
+    if normalizacao_base is None:
+        # O mesmo conjunto de festivais para todas as regiões (as colunas precisam ser as mesmas em todas as linhas).
+        regioes_usadas = set(linhas["regiao"].astype(str).unique()) | {"GLOBAL"}
+        festivais = festivais_do_calendario(entrada.eventos[entrada.eventos["regiao"].isin(regioes_usadas)])
+    else:  # as mesmas colunas de festival da versão do modelo
+        festivais = {c: n for c, n in normalizacao_base["eventos_detalhados"]["colunas"].items() if c != VARIAVEL_FEIRA}
+    linhas = calcular_variaveis_brutas(linhas, entrada, cfg, festivais)
 
-    cortes = calcular_cortes(linhas, cfg, corte_validacao, corte_teste)
+    # Registro por item: atributos, critérios de seleção e reserva (itens.parquet).
+    itens = (linhas.drop_duplicates("serie_idx")[["serie", "item_id", "classe_id", "subclasse_id", "commodity"]]
+             .astype({"serie": str}).reset_index(drop=True))
+    criterios = criterios_dos_itens(entrada, cfg, regiao)
+    itens = itens.merge(criterios, on=["serie", "item_id"], how="left")
+    reservados: set[int] = set()
+    if reservar_itens:
+        reservados = sortear_reservados(itens, reservar_itens, semente)
+        linhas["reservado"] = linhas["item_id"].isin(reservados).to_numpy()
+        logger.info("Etapa 2c: %d de %d itens reservados (fora do treino, das constantes e do vocabulário).",
+                    len(reservados), itens["item_id"].nunique())
+    itens["reservado"] = itens["item_id"].isin(reservados)
+
+    if normalizacao_base is None:
+        cortes = calcular_cortes(linhas, cfg, corte_validacao, corte_teste)
+    else:  # mesmas datas de corte da versão do modelo; início e fim são os desta base
+        cortes = {"inicio": linhas["data"].min(), "fim": linhas["data"].max(),
+                  "corte_validacao": pd.Timestamp(normalizacao_base["cortes"]["corte_validacao"]),
+                  "corte_teste": pd.Timestamp(normalizacao_base["cortes"]["corte_teste"])}
     linhas["periodo"] = periodo_da_data(linhas["data"], cortes).astype("category")
     treino = linhas["periodo"] == PERIODOS[0]
+    if reservados:
+        treino &= ~linhas["reservado"]
     unicos = linhas.drop_duplicates("item_id")
     cobertura = {c: float(unicos[c].notna().mean())
                  for c in ("classe_id", "subclasse_id", "qualidade", "nivel_item", "preco_npc")}
     itens_commodity = int(unicos["commodity"].sum())
     del unicos
-    ajuste = ajustar_e_aplicar(linhas, treino, cfg)
+    if normalizacao_base is None:
+        ajuste = ajustar(linhas, treino, cfg)
+    else:
+        ajuste = {k: normalizacao_base[k] for k in ("constantes", "nivel_item", "vocabulario")}
+    aplicar(linhas, ajuste, cfg)
 
-    variaveis = VARIAVEIS_SEQUENCIA + VARIAVEIS_ESTATICAS
+    # Variável 14 detalhada: entram a feira e os festivais com ao menos um dia ativo no treino. Um festival que só
+    # aparece na validação ou no teste teria pesos nunca treinados (ruído), então fica de fora e é registrado.
+    extras: list[str] = []
+    festivais_usados: dict[str, str] = {}
+    ignorados: list[str] = []
+    if normalizacao_base is not None:
+        variaveis_seq = list(normalizacao_base["variaveis"]["sequencia"])
+        festivais_usados = dict(normalizacao_base["eventos_detalhados"]["colunas"])
+        ignorados = list(normalizacao_base["eventos_detalhados"]["sem_ocorrencia_no_treino"])
+    else:
+        if cfg.eventos_detalhados:
+            candidatos = {VARIAVEL_FEIRA: "Darkmoon Faire", **festivais}
+            for col, nome in candidatos.items():
+                if col in linhas and float(linhas.loc[treino, col].max()) > 0:
+                    extras += [col, col + SUFIXO_PROXIMOS]
+                    festivais_usados[col] = nome
+                else:
+                    ignorados.append(nome)
+            if ignorados:
+                logger.info("Eventos sem nenhum dia ativo no treino (fora das variáveis): %s", ignorados)
+        variaveis_seq = VARIAVEIS_SEQUENCIA + extras
+    variaveis = variaveis_seq + VARIAVEIS_ESTATICAS
     linhas["apta"] = linhas["preco"].notna() & np.isfinite(linhas[variaveis].to_numpy(dtype="float32")).all(axis=1)
     jan = montar_janelas(linhas, cortes, cfg)
-    alvo = normalizar_alvo(jan, cfg)
+    alvo = normalizar_alvo(jan, cfg, None if normalizacao_base is None else normalizacao_base["alvo"])
 
     originais = linhas[["id_linha", "serie", "item_id", "regiao", "data", "periodo", "preco_bruto", "quantidade_bruta",
                         "descartado_rn03", "observado", "preenchido", "preco", "quantidade"]].copy()
@@ -560,17 +760,19 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
                           VARIAVEIS_CATEGORICAS].copy()
     normalizadas[variaveis] = normalizadas[variaveis].astype("float32")
 
-    contagens = {
+    contagens: dict[str, Any] = {
         "series": int(linhas["serie_idx"].nunique()),
         "linhas": int(len(linhas)),
         "linhas_aptas": int(linhas["apta"].sum()),
         "descartadas_rn03": int(linhas["descartado_rn03"].sum()),
         "preenchidas": int(linhas["preenchido"].sum()),
-        "amostras": {p: int((jan["periodo"] == p).sum()) for p in PERIODOS},
+        "amostras": {p: int((jan["periodo"] == p).sum()) if len(jan) else 0 for p in PERIODOS},
         "cobertura_atributos": cobertura,
         "itens_commodity": itens_commodity,
     }
-    normalizacao = {
+    if reservados:
+        contagens["amostras_reservadas"] = {p: int((jan["reservado"] & (jan["periodo"] == p)).sum()) for p in PERIODOS}
+    normalizacao: dict[str, Any] = {
         "versao_formato": VERSAO_FORMATO,
         "gerado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "origem": entrada.origem,
@@ -579,11 +781,20 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
         "cortes": {k: v.date().isoformat() for k, v in cortes.items()},
         **ajuste,
         "alvo": alvo,
-        "variaveis": {"sequencia": VARIAVEIS_SEQUENCIA, "estaticas": VARIAVEIS_ESTATICAS,
+        "variaveis": {"sequencia": variaveis_seq, "estaticas": VARIAVEIS_ESTATICAS,
                       "categoricas": VARIAVEIS_CATEGORICAS},
+        "eventos_detalhados": {"colunas": festivais_usados, "sem_ocorrencia_no_treino": ignorados},
         "contagens": contagens,
     }
-    return Resultado(originais, normalizadas, jan, normalizacao)
+    normalizacao["reserva"] = ({"fracao": reservar_itens, "semente": semente, "estratificada_por": "classe_id",
+                                "itens": sorted(reservados)} if reservados else None)
+    if normalizacao_base is not None:
+        normalizacao["normalizacao_de"] = {"assinatura": assinatura_normalizacao(normalizacao_base),
+                                           "pasta": normalizacao_base.get("_pasta")}
+    normalizacao["assinatura"] = assinatura_normalizacao(normalizacao)
+    if normalizacao_base is not None and normalizacao["assinatura"] != normalizacao["normalizacao_de"]["assinatura"]:
+        raise AssertionError("a normalização aplicada difere da base de origem")
+    return Resultado(originais, normalizadas, jan, normalizacao, itens)
 
 
 def salvar(res: Resultado, pasta: Path) -> None:
@@ -594,6 +805,8 @@ def salvar(res: Resultado, pasta: Path) -> None:
         res.janelas[res.janelas["periodo"] == p].to_parquet(pasta / f"janelas_{p}.parquet", index=False)
     (pasta / "normalizacao.json").write_text(json.dumps(res.normalizacao, indent=2, ensure_ascii=False),
                                              encoding="utf-8")
+    if res.itens is not None:
+        res.itens.to_parquet(pasta / "itens.parquet", index=False)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -616,13 +829,42 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--janela", type=int)
     ap.add_argument("--horizonte", type=int)
     ap.add_argument("--semente", type=int, default=42)
+    eventos = ap.add_mutually_exclusive_group()
+    eventos.add_argument("--eventos-detalhados", action="store_true",
+                         help="variável 14 com um indicador por festival e pela Feira de Negrilua (comparação)")
+    eventos.add_argument("--eventos-agregados", action="store_true",
+                         help="variável 14 só como 'algum festival ativo' (padrão; mantido por compatibilidade)")
     ap.add_argument("--rn03-confirmacao", type=int, help="preços seguidos fora da faixa que confirmam um novo patamar")
     ap.add_argument("--rn03-ema-bruta", action="store_true",
                     help="RN03 com a EMA de todos os preços do banco (comportamento anterior, para comparação)")
+    ap.add_argument("--reservar-itens", type=float, default=0.0,
+                    help="etapa 2c: fração dos itens (ex.: 0.2) sorteada para ficar fora do treino, pela --semente")
+    ap.add_argument("--normalizacao-de", type=Path,
+                    help="etapa 2c: aplica a normalização (cortes, constantes, vocabulário, alvo) da base desta pasta")
+    ap.add_argument("--excluir-itens-de", type=Path,
+                    help="etapa 2c: não seleciona os itens que já estão na base desta pasta")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    base: Optional[dict[str, Any]] = None
+    if args.normalizacao_de:
+        conflitos = [n for n, v in (("--janela", args.janela), ("--horizonte", args.horizonte),
+                                    ("--eventos-detalhados", args.eventos_detalhados),
+                                    ("--rn03-confirmacao", args.rn03_confirmacao),
+                                    ("--rn03-ema-bruta", args.rn03_ema_bruta), ("--corte-validacao", args.corte_validacao),
+                                    ("--corte-teste", args.corte_teste), ("--reservar-itens", args.reservar_itens)) if v]
+        if conflitos:
+            ap.error(f"com --normalizacao-de, a configuração vem da outra base; tire {', '.join(conflitos)}")
+        base = json.loads((args.normalizacao_de / "normalizacao.json").read_text(encoding="utf-8"))
+        base["_pasta"] = str(args.normalizacao_de)
+    excluir: Optional[set[int]] = None
+    if args.excluir_itens_de:
+        excluir = set(pd.read_parquet(args.excluir_itens_de / "linhas_originais.parquet", columns=["item_id"])["item_id"]
+                      .unique().tolist())
     cfg = Config()
+    if base is not None:
+        campos = set(Config.__dataclass_fields__)
+        cfg = Config(**{k: v for k, v in base["config"].items() if k in campos})
     if args.janela:
         cfg = replace(cfg, janela=args.janela)
     if args.horizonte:
@@ -631,6 +873,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg = replace(cfg, rn03_confirmacao=args.rn03_confirmacao)
     if args.rn03_ema_bruta:
         cfg = replace(cfg, rn03_ema_so_aceitos=False)
+    if args.eventos_detalhados:
+        cfg = replace(cfg, eventos_detalhados=True)
 
     if args.banco:
         if args.env_arquivo:
@@ -645,7 +889,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     res = preparar(entrada, cfg, regiao=args.regiao or None, ignorar_aptidao=args.ignorar_aptidao,
                    filtro_liquidez=not args.sem_filtro_liquidez, ilvl_minimo=args.ilvl_minimo,
                    max_itens=args.max_itens, corte_validacao=args.corte_validacao, corte_teste=args.corte_teste,
-                   semente=args.semente)
+                   semente=args.semente, reservar_itens=args.reservar_itens, normalizacao_base=base,
+                   excluir_itens=excluir)
     salvar(res, args.saida)
     c = res.normalizacao["contagens"]
     logger.info("Cortes: %s", res.normalizacao["cortes"])
@@ -653,6 +898,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                 c["amostras"], c["linhas_aptas"], c["linhas"], c["descartadas_rn03"], c["preenchidas"])
     logger.info("Cobertura dos atributos fixos: %s | itens de commodity: %d", c["cobertura_atributos"],
                 c["itens_commodity"])
+    if res.normalizacao.get("reserva"):
+        logger.info("Reservados (fora do treino): %d itens | amostras: %s", len(res.normalizacao["reserva"]["itens"]),
+                    c["amostras_reservadas"])
     logger.info("Arquivos gravados em %s", args.saida.resolve())
     return 0
 

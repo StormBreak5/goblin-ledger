@@ -37,6 +37,10 @@ def eventos_sinteticos() -> pd.DataFrame:
                    "data_inicio": f"{ano}-12-16", "data_fim": f"{ano + 1}-01-02"})
         ev.append({"tipo": "EVENTO_SAZONAL", "nome": "Festival de verão", "versao": None,
                    "data_inicio": f"{ano}-06-21", "data_fim": f"{ano}-07-05"})
+    for mes in pd.date_range("2022-09-01", "2026-12-01", freq="MS"):
+        domingo = mes + pd.Timedelta(days=(6 - mes.dayofweek) % 7)  # primeiro domingo do mês, uma semana
+        ev.append({"tipo": "RECORRENTE", "nome": "Darkmoon Faire", "versao": None, "data_inicio": domingo.date(),
+                   "data_fim": (domingo + pd.Timedelta(days=6)).date()})
     df = pd.DataFrame(ev)
     df["regiao"] = "GLOBAL"
     return df

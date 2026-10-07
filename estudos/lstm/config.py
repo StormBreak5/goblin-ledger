@@ -43,6 +43,12 @@ class Config:
     rn03_salto_absurdo: float = 1000.0
     rn03_confirmacao_absurdo: int = 28
 
+    # Variável 14 detalhada: um par de colunas por festival (ativo hoje; fração dos próximos dias do horizonte em que
+    # estará ativo) e o mesmo para a Feira de Negrilua. Festivais sem nenhum dia ativo no treino ficam de fora.
+    # Padrão False (só f_evento, "algum festival ativo hoje"): na etapa 2b (3 sementes, validação), os eventos
+    # agregados foram melhores que os detalhados, com e sem máscara (docs/relatorio-etapa2b.md).
+    eventos_detalhados: bool = False
+
     # RN25 - integridade temporal
     proporcao_treino: float = 0.70     # 70/20/10 por data de calendário, igual para todos os itens
     proporcao_validacao: float = 0.20  # o teste fica com o restante (10%)
@@ -52,8 +58,11 @@ class Config:
     liquidez_min_quantidade: float = 50
     liquidez_dias: int = 7
 
-    # RN10 - limiar de acurácia, usado na avaliação
-    limiar_mape: float = 0.15        # (A CONFIRMAR)
+    # RN10 - projeção liberada se a métrica do item ficar no limiar e abaixo da do modelo ingênuo (na mesma métrica).
+    # MdAPE (mediana do erro percentual absoluto): o preço da Undermine é o menor anúncio do dia, e quedas isoladas
+    # explodem a média (MAPE). Decidido pelo autor após a etapa 2b; limiar mantido em 15%.
+    metrica_rn10: str = "mdape"      # "mdape" ou "mape"
+    limiar_rn10: float = 0.15
 
     # Ids convencionados das commodities de cada região (src/services/ingestao_config.py)
     commodities_por_regiao: dict[str, int] = field(default_factory=lambda: {"US": 32512, "EU": 32513})
@@ -82,6 +91,13 @@ VARIAVEIS_SEQUENCIA: list[str] = [
     "f_dias_temporada",     # 13 dias desde o início da temporada
     "f_evento",             # 14 evento sazonal ativo
 ]
+
+# Variável 14 detalhada (só com eventos_detalhados): colunas criadas a partir dos eventos do banco.
+# f_<prefixo><festival> = festival ativo hoje; f_<prefixo><festival>_prox = fração dos próximos `horizonte` dias com o
+# festival ativo (o calendário dos festivais e da feira é conhecido antecipadamente, RN25).
+PREFIXO_FESTIVAL: str = "f_festival_"
+VARIAVEL_FEIRA: str = "f_feira_negrilua"
+SUFIXO_PROXIMOS: str = "_prox"
 
 # Atributos fixos do item: entram uma vez por amostra, juntados à saída da LSTM.
 VARIAVEIS_ESTATICAS: list[str] = [

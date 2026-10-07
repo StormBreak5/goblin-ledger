@@ -1,6 +1,8 @@
 # Pedido ao Claude Code: implementar o CU11, Cenário 01 (treinamento inicial)
 
-Esta é a **etapa 3 de `estudos/lstm/ROTEIRO.md`**. As etapas 1 (preparação) e 2 (primeiro treino no estudo) já foram feitas.
+> **Ainda não use este pedido.** Ele espera a etapa 2c (`pedido-etapa2c.md`) e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md` com a separação entre os itens que treinam o modelo e os que recebem projeção.
+
+Esta é a **etapa 3 de `estudos/lstm/ROTEIRO.md`**. As etapas 1 (preparação), 2 e 2b (treino e escolha da configuração no estudo) já foram feitas.
 
 ## Autorização do autor
 
@@ -17,7 +19,7 @@ Antes do plano, faça estes três ajustes:
 1. **Leia antes de planejar:**
    - `docs/casos-de-uso/CU11-treinar-modelo.md`, inteiro, principalmente as "Observações para a implementação";
    - `estudos/lstm/README.md` e o código do estudo, que é a implementação de referência do pipeline;
-   - o resumo da etapa 1 (números do banco real) e os resultados da etapa 2 (configuração escolhida para a rede). Vou colar os dois abaixo.
+   - `docs/relatorio-etapa1.md`, `docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`: números do banco real, resultados e configuração escolhida.
 2. **Implemente somente o Cenário 01.** O C2 e o C3 vêm em pedidos separados, mas o desenho das tabelas já deve atender aos três.
 3. **Comece em modo de planejamento.** Proponha:
    - os arquivos a criar e a alterar;
@@ -27,9 +29,14 @@ Antes do plano, faça estes três ajustes:
    - a lista de testes, um por fluxo, com os nomes do CU11.
 4. **No plano, pergunte as decisões pendentes,** cada uma com a sua recomendação:
    - onde o TensorFlow roda (sugestão: serviço `modelo` com `python:3.11-slim`);
-   - a função de perda;
    - o nível mínimo da RN07 (sugestão: desligado e configurável);
    - os nomes e campos das tabelas.
+
+   **Já decidido, não pergunte:**
+   - a configuração da rede é a escolhida na etapa 2b: eventos agregados, perda Huber sem máscara e os demais padrões do `treinar.py`;
+   - a RN10 libera o item com MdAPE ≤ 15% e menor que o do ingênuo;
+   - a RN03 é a do estudo, com EMA dos preços aceitos e confirmação de patamar;
+   - a divisão é 70/20/10 por data.
 5. **Espere a minha aprovação antes de implementar.**
 
 ## Regras
@@ -54,12 +61,8 @@ Antes do plano, faça estes três ajustes:
 2. Suba os containers e **dispare o treinamento inicial pela tela do Admin**, com os dados reais e a região US.
 3. Traga o resumo:
    - itens liberados, bloqueados e ignorados;
-   - MAPE médio do modelo e do ingênuo no teste;
+   - no teste: mediana do MdAPE e do MAPE por item, do modelo e do ingênuo, e quantos itens superam o ingênuo;
    - tempo total e tempo por época;
    - versão gravada.
 4. Faça o commit `feat(CU11): treinamento inicial do modelo global (C1)`.
 5. Liste o que ficou pendente e as decisões tomadas, para eu atualizar o texto do TC.
-
-## Resultados das etapas anteriores
-
-(cole aqui o resumo da etapa 1 e a tabela da etapa 2)

@@ -5,6 +5,7 @@
 | 0. Arrumar o terreno | você | banco no ar, arquivos no projeto |
 | 1. Preparação | Claude Code (pedido 1) | atributos no banco, dados conferidos, primeiras referências |
 | 2. **Primeiro treino da rede neural** | você ou o Claude Code (comandos abaixo) | LSTM treinada e comparada com o ingênuo e a regressão linear |
+| 2c. **Itens fora do treino** | Claude Code (`pedido-etapa2c.md`) | erro do modelo em itens que ele nunca viu e em itens fora da seleção |
 | 3. Levar para o sistema (CU11) | Claude Code (pedidos 2, 3 e 4) | treinamento pela tela do Admin, retreino semanal, previsões diárias |
 | 4. Escrever no TC | você (com o Claude no Cowork) | texto do CU11 com o comportamento e os números reais |
 
@@ -59,6 +60,8 @@ Ao fim de cada etapa, traga o resultado para o Claude no Cowork antes de seguir.
 
 ## Etapa 2: primeiro treino da rede neural (no estudo)
 
+> **Concluída.** Resultados em `docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`. A configuração escolhida (eventos agregados, sem máscara) e a RN10 por MdAPE ≤ 15% já são o padrão dos scripts.
+
 Você pode rodar os comandos no PowerShell ou pedir ao Claude Code: *"Rode a etapa 2 de `estudos/lstm/ROTEIRO.md` (passos 1 a 4) e me traga a tabela de resultados."*
 
 ```powershell
@@ -97,6 +100,8 @@ python avaliar.py --pasta saida\treino01 --periodo validacao --previsoes saida\t
 - `--perda mse`
 - `--taxa 0.0005`
 - janela de 60 dias: prepare uma base nova com `--janela 60 --saida saida\treino01_j60` e treine nela.
+- eventos detalhados (um indicador por festival e pela Feira de Negrilua): prepare uma base nova com `--eventos-detalhados --saida saida\treino01_det` e treine nela com os mesmos parâmetros.
+- `--mascara`: ignora, no erro do treino, os dias sem preço real.
 
 Anote cada resultado na tabela. Fica a configuração que errar menos.
 
@@ -106,15 +111,36 @@ Traga a tabela para o Claude no Cowork. Com ela, decidimos a configuração da r
 
 ---
 
+## Etapa 2c: o modelo prevê itens que não viu no treino?
+
+A rede foi pensada para prever **qualquer item** com histórico, não só os do treino. Antes de levar o CU11 para o sistema, a etapa 2c mede isso no estudo:
+
+- **Parte A:** 20% dos itens ficam fora do treino. O erro neles é comparado, item a item, com o de um modelo que os viu.
+- **Parte B:** o modelo já treinado prevê 3.000 itens que a seleção do treino deixa de fora (equipamentos de reino, commodities pouco negociadas, itens com histórico curto).
+
+1. Cole no Claude Code:
+
+   ```
+   Leia estudos/lstm/pedido-etapa2c.md e siga.
+   ```
+
+2. São 4 treinos de 10 a 25 minutos cada, mais as preparações: umas 2 horas no total.
+3. Traga o `docs/relatorio-etapa2c.md` para o Claude no Cowork.
+4. Com o resultado, o CU11 e as regras (RN02, RN10, RN15 e uma nova regra de histórico mínimo) são ajustados para separar quem **treina** o modelo de quem **recebe** projeção. Só depois disso siga para a etapa 3.
+
+---
+
 ## Etapa 3: levar para o sistema (CU11)
 
-1. **Pedido 2: Cenário 01, treinamento inicial.** Cole no Claude Code e, abaixo, o resumo da etapa 1 e a tabela da etapa 2:
+> **Aguarde a etapa 2c** e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`. O fluxo de seleção e liberação dos itens vai mudar.
+
+1. **Pedido 2: Cenário 01, treinamento inicial.** Os resultados das etapas 1 e 2 já estão em `docs/relatorio-etapa1.md`, `docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`. Cole no Claude Code:
 
    ```
-   Leia estudos/lstm/pedido-cu11-c1.md e siga, começando pelo plano. Os resultados das etapas 1 e 2 estão abaixo.
+   Leia estudos/lstm/pedido-cu11-c1.md e siga, começando pelo plano.
    ```
 
-   - No plano, ele vai perguntar as decisões pendentes. As recomendações estão no próprio CU11: serviço `modelo` separado, perda escolhida na etapa 2, RN07 desligada até você definir o nível.
+   - No plano, ele vai perguntar as decisões pendentes. As recomendações estão no próprio CU11: serviço `modelo` separado, a configuração da etapa 2b (perda Huber, sem máscara, eventos agregados) e a RN07 desligada até você definir o nível.
    - Depois de pronto, **dispare o treinamento inicial pela tela do Admin**. Esse é o treino oficial da rede, com o teste de verdade.
 2. **Pedido 3: Cenário 02, retreinamento semanal.** Cole:
 

@@ -55,6 +55,9 @@ Opções úteis de `preparar_dados.py`:
 | `--ilvl-minimo` | Filtro de nível de item da RN07. |
 | `--rn03-confirmacao` | Preços seguidos fora da faixa da RN03 que confirmam um novo patamar (padrão 7; salto absurdo: 28). |
 | `--rn03-ema-bruta` | RN03 com a EMA de todos os preços do banco (comportamento anterior), para comparação. |
+| `--reservar-itens` | Etapa 2c: sorteia uma fração dos itens (ex.: 0.2, pela `--semente`, estratificado pela classe) e os deixa fora de tudo o que o modelo aprende. |
+| `--normalizacao-de` | Etapa 2c: aplica a normalização de outra base (a de uma versão do modelo), sem recalcular nada. |
+| `--excluir-itens-de` | Etapa 2c: não seleciona os itens que já estão em outra base. |
 
 ## O que acontece, na ordem
 
@@ -82,7 +85,8 @@ O teste `test_sem_vazamento_do_futuro` altera todos os preços da validação e 
 | `linhas_originais.parquet` | Uma linha por item e dia, com `id_linha`. Guarda o preço e a quantidade como vieram do banco, se o dia foi descartado pela RN03, se foi observado ou preenchido, o preço usado (Cobre) e o período. |
 | `linhas_normalizadas.parquet` | O mesmo `id_linha`, na mesma ordem. Traz as 16 variáveis de sequência, as 4 fixas e os 2 índices de categoria, além de `apta`, que diz se a linha pode entrar numa janela. |
 | `janelas_<periodo>.parquet` | Uma amostra por linha. Traz `id_amostra`, `id_linha_origem` (o "hoje" da amostra), item, data, `preco_base` (Cobre), os alvos `y_1..y_7` já normalizados e `obs_1..obs_7`, que dizem se cada alvo foi observado. |
-| `normalizacao.json` | Datas de corte, parâmetros, constantes, vocabulário das categorias, média e desvio do alvo e contagens. Tudo o que é preciso para desfazer a normalização. |
+| `normalizacao.json` | Datas de corte, parâmetros, constantes, vocabulário das categorias, média e desvio do alvo e contagens. Tudo o que é preciso para desfazer a normalização. A `assinatura` identifica essa normalização; com a reserva da etapa 2c, `reserva` lista os itens reservados. |
+| `itens.parquet` | Um registro por item: classe, subclasse, commodity, primeiro e último registro, se é apto pela RN15, se é líquido pela RN02 e se foi reservado. |
 | `avaliacao_<periodo>_<rotulo>_*` | Gerado pelo `avaliar.py`. O detalhe (por amostra e por dia), o resumo por item com a situação pela RN10, o resumo por horizonte e um resumo geral. |
 
 ## Mecanismo de identificação
@@ -121,13 +125,63 @@ Os dias preenchidos e os descartados pela RN03 não entram no cálculo do erro, 
 | 11 | `f_dias_ate_patch` | dias ÷ 14 quando o patch está a até 14 dias; senão 1 (o patch ainda não foi anunciado) |
 | 12 | `f_expansao` | Expansão ou pré-patch nos próximos 14 dias. Pré-patch = primeiro patch de cada versão maior (10.0.0, 11.0.0, 12.0.0) ou nome com "pre-patch". |
 | 13 | `f_temporada_ativa`, `f_dias_temporada` | Indicador; min(dias, 60) ÷ 60 |
-| 14 | `f_evento` | Evento sazonal ativo |
+| 14 | `f_evento` | Algum evento sazonal (festival) ativo hoje |
+| 14 (detalhada) | `f_festival_<nome>`, `f_festival_<nome>_prox` | Para cada festival do banco (Winter Veil, Love is in the Air, Noblegarden etc.): ativo hoje (0/1) e fração dos próximos 7 dias em que estará ativo. O calendário dos festivais é conhecido antes (RN25). Festivais sem nenhum dia ativo no treino ficam de fora. **Desligada por padrão**; liga com `--eventos-detalhados`. |
+| 14 (detalhada) | `f_feira_negrilua`, `f_feira_negrilua_prox` | O mesmo para a Feira de Negrilua (evento recorrente: uma semana por mês). |
 | 15 | `classe_idx`, `subclasse_idx` | Índice para embedding (0 = desconhecida) |
 | 16 | `f_qualidade`, `f_nivel_item` | Qualidade ÷ 5; nível pelo mínimo e máximo do treino |
 | 17 | `f_tem_piso` | Tem preço de venda ao vendedor |
 | 18 | `f_commodity` | Commodity: `source_region` do item é o id de commodities da região (32512 nos EUA) |
 
 Saída: 7 log-retornos ln(pₜ₊ₕ ÷ pₜ), com média e desvio próprios por horizonte, calculados no treino.
+
+No treino (`treinar.py`), a opção `--mascara` faz o erro de cada amostra contar só os dias previstos com preço observado (`obs_1..obs_7`). **O padrão é sem máscara.**
+
+## Configuração escolhida (etapa 2b)
+
+Foram comparadas 4 configurações, com 3 sementes cada, na validação (`docs/relatorio-etapa2b.md`). A escolhida é **eventos agregados, sem máscara**, que é o padrão dos scripts:
+
+| Configuração | Mediana do MAPE por item (média ± desvio, 3 sementes) |
+|---|---|
+| **Eventos agregados, sem máscara** | **38,66% ± 0,19** |
+| Eventos agregados, com máscara | 39,27% ± 0,41 |
+| Eventos detalhados, sem máscara | 39,83% ± 0,25 |
+| Eventos detalhados, com máscara | 39,89% ± 0,32 |
+| Regressão linear (referência) | 44,51% |
+| Ingênuo (referência) | 47,19% |
+
+**RN10 (decisão do autor):** a projeção do item é liberada se o **MdAPE** (mediana do erro percentual absoluto dos dias observados) for de no máximo 15% e menor que o do ingênuo. O preço da Undermine é o menor anúncio do dia, e quedas isoladas explodem a média (MAPE). Na validação, isso libera 592 de 6.484 itens (9,1%). No `avaliar.py`, `--metrica mape` e `--limiar` permitem comparar com outras regras.
+
+Ficam de fora (limitações): a rotação mensal do Posto de Troca (cosmética), o reinício semanal (coberto pelo dia da semana) e os eventos de bônus que se alternam, como Caminhadas Temporais e Provação do Estilo, que não estão no `evento_jogo`.
+
+## Generalização para itens fora do treino (etapa 2c)
+
+**Pergunta.** O modelo não recebe nenhum identificador do item: só a janela de 30 dias, já em escala relativa ao
+próprio item, e os atributos (classe, subclasse, qualidade, nível). Então ele deveria prever bem um item que **nunca viu
+no treino**, desde que o item tenha histórico. A etapa 2c mede isso, em duas partes.
+
+**Parte A: itens não vistos.** Na mesma base, 20% dos itens são sorteados e reservados (estratificado pela classe). Os
+reservados ficam fora das constantes, do vocabulário, da escala do alvo, do treino e da parada antecipada. Dois modelos
+são treinados com a mesma configuração:
+
+| Braço | Treino | Para quê |
+|---|---|---|
+| `c_sem` | sem os reservados (padrão do `treinar.py` numa base com reserva) | erro nos itens que o modelo nunca viu |
+| `c_todos` | com todos (`--incluir-reservados`) | controle: os mesmos itens, agora vistos |
+
+Os mesmos itens e os mesmos dias são avaliados pelos dois. O `comparar.py` faz a comparação **item a item** nos
+reservados: a diferença entre `c_sem` e `c_todos` é o custo de o item ter ficado fora do treino. A diferença entre duas
+sementes do controle mostra o tamanho do ruído.
+
+**Parte B: itens fora da seleção.** Uma segunda base, com uma amostra dos itens que a seleção do treino deixa de fora
+(RN15, RN02: equipamentos de reino, commodities pouco negociadas, itens com histórico curto), normalizada **como a
+versão do modelo** (`--normalizacao-de`). O `prever.py` passa essas janelas pelo modelo já treinado, como o sistema
+fará com um item qualquer. O `avaliar.py` separa o resultado por grupo (commodity, apto pela RN15, líquido pela RN02) e
+pela idade do item no dia da previsão (`por_idade`), que serve para definir o histórico mínimo. Uma diferença em
+relação ao sistema: na base `fora2c`, a variação do índice da subclasse (variável 6) é calculada só com os itens dessa
+base, e não com o mercado inteiro.
+
+Os comandos estão em `pedido-etapa2c.md`. Tudo na validação: o teste continua reservado ao CU11 (RN25).
 
 ## RN03: EMA só com os preços aceitos
 
@@ -185,6 +239,6 @@ dias passam a ser descartados, e o treino perde amostras. Por isso ficou a de 7 
 
 - **Atributos fixos do item.** O backend grava classe, subclasse, qualidade, nível e preço de venda ao vendedor em `items.metadata_info` (`populate_item_details`; 99,4% dos itens em 2026-10-06). Os itens que a API da Blizzard não tem ficam com `atributos_indisponiveis` e as variáveis 6, 7, 15, 16 e 17 como "desconhecidas". O log mostra a cobertura de cada atributo e quantos itens são commodities.
 - **Memória.** A preparação usa cerca de 0,8 KB por linha (item × dia). Com 10 milhões de linhas, isso dá uns 8 GB. Para os primeiros testes, use `--max-itens`.
-- **Valores a confirmar.** Estão em `config.py`: janela de 30 dias, horizonte de 7, padronização de 90 dias, MAPE de 15% da RN10, antecedência de 14 dias e os parâmetros da RN03 (confirmação de 7 dias; salto absurdo de 1.000× com 28 dias).
-- **Alvos não observados no treino.** O `treinar.py` ainda não usa a máscara `obs_1..obs_7`: dias descartados ou preenchidos entram na perda com o último preço válido repetido.
+- **Valores a confirmar.** Estão em `config.py`: janela de 30 dias, horizonte de 7, padronização de 90 dias, antecedência de 14 dias e os parâmetros da RN03 (confirmação de 7 dias; salto absurdo de 1.000× com 28 dias).
+- **Alvos não observados no treino.** Por padrão, dias descartados ou preenchidos entram na perda com o último preço válido repetido. A máscara (`--mascara`) foi testada e piorou levemente o resultado (etapa 2b).
 - **Dados sintéticos.** Os resultados com eles só servem para testar o código. Não dizem nada sobre o mercado real.
