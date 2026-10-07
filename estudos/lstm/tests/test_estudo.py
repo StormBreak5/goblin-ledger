@@ -592,3 +592,37 @@ def test_transicao_separa_a_expansao_que_sai() -> None:
     assert t.loc[("troca", ANTERIORES, "todos"), "itens"] == 1
     assert t.loc[("resto", ENTRA, "todos"), "itens"] == 1                         # item 3: 49 dias depois
     assert t.loc[("troca", "todos", "h7"), "alvos"] == 2
+
+
+# ------------------------------------------------------------------------- etapa 2e: perda MAE e taxa
+def test_perda_mae_mascarada() -> None:
+    keras = pytest.importorskip("keras")
+    from treinar import criar_perdas
+
+    perda, _ = criar_perdas("mae", 3)
+    y_pred = np.array([[0.1, 0.5, -2.0]], dtype="float32")
+    y = np.array([[0.0, 0.4, 1.0]], dtype="float32")
+    m = np.array([[1, 1, 0]], dtype="float32")
+    assert float(np.asarray(perda(np.concatenate([y, m], 1), y_pred))[0]) == pytest.approx(0.1, rel=1e-4)
+    um = np.ones_like(y)
+    ref = float(np.asarray(keras.losses.MeanAbsoluteError(reduction=None)(y, y_pred))[0])
+    assert float(np.asarray(perda(np.concatenate([y, um], 1), y_pred))[0]) == pytest.approx(ref, rel=1e-5)
+    with pytest.raises(ValueError):
+        criar_perdas("quantil", 3)
+
+
+def test_treino_curto_com_mae_e_reducao_da_taxa(preparado: tuple[Resultado, Path]) -> None:
+    pytest.importorskip("keras")
+    import json
+
+    from treinar import main
+
+    _, pasta = preparado
+    assert main(["--pasta", str(pasta), "--nome", "t2e", "--perda", "mae", "--reduzir-taxa", "--paciencia-taxa", "1",
+                 "--fator-taxa", "0.5", "--epocas", "4", "--paciencia", "4", "--unidades", "4", "--lote", "64",
+                 "--amostras-por-epoca", "256", "--amostras-validacao", "256", "--semente", "1"]) == 0
+    destino = pasta / "modelos" / "t2e"
+    info = json.loads((destino / "treino.json").read_text(encoding="utf-8"))
+    assert info["parametros"]["perda"] == "mae" and info["parametros"]["reduzir_taxa"] is True
+    assert info["taxa_final"] <= 1e-3 + 1e-9
+    assert (destino / "previsoes_validacao.parquet").exists()

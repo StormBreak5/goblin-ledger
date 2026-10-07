@@ -158,6 +158,22 @@ Foram comparadas 4 configurações, com 3 sementes cada, na validação (`docs/r
 
 Ficam de fora (limitações): a rotação mensal do Posto de Troca (cosmética), o reinício semanal (coberto pelo dia da semana) e os eventos de bônus que se alternam, como Caminhadas Temporais e Provação do Estilo, que não estão no `evento_jogo`.
 
+## Ajuste da rede (etapa 2e)
+
+Até a etapa 2d, só a entrada do modelo foi testada (máscara, eventos, variáveis 19 e 20). A rede continuava com os
+valores iniciais: perda Huber, LSTM de 64 unidades e taxa de aprendizado fixa de 0,001. A etapa 2e testa três ajustes,
+cada um sozinho contra a configuração da etapa 2b, com 3 sementes:
+
+| Ajuste | Opção do `treinar.py` | Por quê |
+|---|---|---|
+| Perda pelo erro absoluto | `--perda mae` | A RN10 mede a mediana do erro absoluto (MdAPE). O erro absoluto leva o modelo a prever a mediana; a Huber trata os erros pequenos como quadráticos e é puxada pelos picos de preço. |
+| Redução da taxa de aprendizado | `--reduzir-taxa` (`--fator-taxa 0.5`, `--paciencia-taxa 3`, `--taxa-minima 1e-5`) | Os treinos param entre as épocas 20 e 40 com a taxa fixa. Reduzir a taxa quando a validação estaciona costuma refinar os pesos. A taxa de cada época fica no `historico.csv` e a final, no `treino.json`. |
+| LSTM de 128 unidades | `--unidades 128` | Mais capacidade para 6.500 itens com comportamentos diferentes. |
+
+A janela de 60 dias ficou de fora de propósito: ela subiria o histórico mínimo de um item novo de uns 60 para uns 90
+dias, o contrário do que se quer com a previsão de itens novos (etapa 2c). A regra de decisão e os comandos estão em
+`pedido-etapa2e.md`. Depois dela, a configuração congela.
+
 ## Generalização para itens fora do treino (etapa 2c)
 
 **Pergunta.** O modelo não recebe nenhum identificador do item: só a janela de 30 dias, já em escala relativa ao

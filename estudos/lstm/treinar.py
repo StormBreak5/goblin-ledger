@@ -10,6 +10,8 @@
   historico.csv e previsoes_validacao.parquet (com id_amostra, pronto para o avaliar.py).
 - O período de teste só é previsto com --prever-teste (junto com o treino) ou com --apenas-prever-teste (usa o modelo
   já gravado em modelos/<nome>). Use uma única vez, com a configuração já escolhida (RN25).
+- Etapa 2e: `--perda mae` treina pelo erro absoluto (o modelo passa a mirar a mediana, como o MdAPE da RN10) e
+  `--reduzir-taxa` divide a taxa de aprendizado quando a validação para de melhorar (ReduceLROnPlateau).
 - Etapa 2c: numa base preparada com --reservar-itens, as amostras dos itens reservados ficam fora do treino e da
   parada antecipada (o modelo nunca as vê), mas são previstas na validação, para medir o erro em itens não vistos.
   Com --incluir-reservados, treina com todos os itens (o controle do experimento).
@@ -39,7 +41,11 @@ from dataset import DadosPreparados
 
 def criar_perdas(tipo: str, horizonte: int, delta: float = 1.0):  # type: ignore[no-untyped-def]
     """Perda e métrica mascaradas. y_true chega como [y_1..y_H, obs_1..obs_H]; os dias com obs = 0 não contam.
-    Com todos os obs = 1, a perda é igual à Huber (ou MSE) do Keras sobre os H dias."""
+    Com todos os obs = 1, a perda é igual à Huber, à MSE ou à MAE do Keras sobre os H dias. A MAE (etapa 2e) leva o
+    modelo a prever a mediana, que é o que a RN10 mede (MdAPE); a Huber trata os erros pequenos como quadráticos e é
+    puxada pelos picos."""
+    if tipo not in ("huber", "mse", "mae"):
+        raise ValueError(f"perda desconhecida: {tipo}")
     from keras import ops
 
     def _separar(y_true, y_pred):  # type: ignore[no-untyped-def]
@@ -51,6 +57,8 @@ def criar_perdas(tipo: str, horizonte: int, delta: float = 1.0):  # type: ignore
         if tipo == "huber":
             a = ops.abs(e)
             elem = ops.where(a <= delta, 0.5 * e * e, delta * (a - 0.5 * delta))
+        elif tipo == "mae":
+            elem = ops.abs(e)
         else:
             elem = e * e
         return ops.sum(elem * m, axis=-1) / n
@@ -150,7 +158,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--amostras-por-epoca", type=int, default=400_000, help="sorteadas do treino a cada época; 0 = todas")
     ap.add_argument("--amostras-validacao", type=int, default=200_000,
                     help="amostra fixa da validação para a parada antecipada; 0 = todas")
-    ap.add_argument("--perda", choices=["huber", "mse"], default="huber")
+    ap.add_argument("--perda", choices=["huber", "mse", "mae"], default="huber")
+    ap.add_argument("--reduzir-taxa", action="store_true",
+                    help="etapa 2e: multiplica a taxa por --fator-taxa após --paciencia-taxa épocas sem melhora")
+    ap.add_argument("--fator-taxa", type=float, default=0.5)
+    ap.add_argument("--paciencia-taxa", type=int, default=3)
+    ap.add_argument("--taxa-minima", type=float, default=1e-5)
     ap.add_argument("--unidades", type=int, default=64)
     ap.add_argument("--dropout", type=float, default=0.2)
     ap.add_argument("--taxa", type=float, default=1e-3, help="taxa de aprendizado do Adam")
@@ -204,7 +217,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda)
     modelo.summary(print_fn=lambda s, **_: print(s))
-    callbacks = [
+    callbacks = []
+    if args.reduzir_taxa:  # antes do CSVLogger, para a taxa de cada época ir para o historico.csv
+        callbacks.append(keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=args.fator_taxa,
+                                                           patience=args.paciencia_taxa, min_lr=args.taxa_minima))
+    callbacks += [
         keras.callbacks.EarlyStopping(monitor="val_loss", patience=args.paciencia, restore_best_weights=True),
         keras.callbacks.CSVLogger(str(destino / "historico.csv")),
         keras.callbacks.TerminateOnNaN(),
@@ -238,12 +255,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         "amostras": {"treino": len(jan_tr), "validacao": len(jan_va), "validacao_parada_antecipada": len(va_es)},
         "reserva": reserva,
         "versoes": {"tensorflow": tf.__version__, "keras": keras.__version__},
+        "taxa_final": float(keras.ops.convert_to_numpy(modelo.optimizer.learning_rate)),
         "previu_teste": bool(args.prever_teste),
         "mascara": bool(args.mascara),
         "variaveis_sequencia": len(dados.var_seq),
     }
     (destino / "treino.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(json.dumps({k: info[k] for k in ("epocas_executadas", "melhor_epoca", "melhor_val_loss", "segundos_por_epoca")},
+    print(json.dumps({k: info[k] for k in ("epocas_executadas", "melhor_epoca", "melhor_val_loss", "segundos_por_epoca",
+                                           "taxa_final")},
                      ensure_ascii=False))
     print(f"\nModelo em {destino}. Próximo passo:\n  python avaliar.py --pasta {args.pasta} --periodo validacao "
           f"--previsoes {destino / 'previsoes_validacao.parquet'} --rotulo {nome}")

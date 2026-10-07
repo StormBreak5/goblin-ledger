@@ -1,6 +1,6 @@
 # Pedido ao Claude Code: implementar o CU11, Cenário 01 (treinamento inicial)
 
-> **Ainda não use este pedido.** Ele espera as etapas 2c e 2d (`pedido-etapa2c.md` e `pedido-etapa2d.md`) e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`: a separação entre os itens que treinam o modelo e os que recebem projeção, e as variáveis do ciclo do item.
+> **Ainda não use este pedido.** Ele espera as etapas 2c, 2d e 2e (`pedido-etapa2c.md`, `pedido-etapa2d.md` e `pedido-etapa2e.md`) e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`: a separação entre os itens que treinam o modelo e os que recebem projeção, e a configuração final da rede.
 
 Esta é a **etapa 3 de `estudos/lstm/ROTEIRO.md`**. As etapas 1 (preparação), 2 e 2b (treino e escolha da configuração no estudo) já foram feitas.
 

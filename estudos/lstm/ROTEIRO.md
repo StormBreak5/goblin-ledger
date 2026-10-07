@@ -7,6 +7,7 @@
 | 2. **Primeiro treino da rede neural** | você ou o Claude Code (comandos abaixo) | LSTM treinada e comparada com o ingênuo e a regressão linear |
 | 2c. **Itens fora do treino** | Claude Code (`pedido-etapa2c.md`) | erro do modelo em itens que ele nunca viu e em itens fora da seleção |
 | 2d. **Ciclo de vida do item** | Claude Code (`pedido-etapa2d.md`) | variáveis 19 (item da expansão vigente) e 20 (idade do item) testadas |
+| 2e. **Ajuste da rede** | Claude Code (`pedido-etapa2e.md`) | perda, taxa de aprendizado e tamanho da LSTM decididos; configuração congelada |
 | 3. Levar para o sistema (CU11) | Claude Code (pedidos 2, 3 e 4) | treinamento pela tela do Admin, retreino semanal, previsões diárias |
 | 4. Escrever no TC | você (com o Claude no Cowork) | texto do CU11 com o comportamento e os números reais |
 
@@ -146,9 +147,24 @@ Na etapa 2c, a troca para Midnight mostrou que o modelo não sabe a que expansã
 
 ---
 
+## Etapa 2e: ajuste da rede
+
+A etapa 2d manteve a configuração da etapa 2b (sem as variáveis 19 e 20). A 2e testa três ajustes da própria rede, cada um contra essa configuração, com 3 sementes: perda pelo erro absoluto, redução da taxa de aprendizado e LSTM de 128 unidades. Os ajustes aprovados pela regra são combinados num último treino. **Depois disso, a configuração congela.**
+
+1. Cole no Claude Code:
+
+   ```
+   Leia estudos/lstm/pedido-etapa2e.md e siga.
+   ```
+
+2. São 9 treinos, mais 3 se houver combinação: de 4 a 6 horas. Dá para deixar rodando à noite.
+3. Traga o `docs/relatorio-etapa2e.md` para o Claude no Cowork.
+
+---
+
 ## Etapa 3: levar para o sistema (CU11)
 
-> **Aguarde as etapas 2c e 2d** e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`. O fluxo de seleção e liberação dos itens e o quadro de variáveis podem mudar.
+> **Aguarde as etapas 2c, 2d e 2e** e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`. O fluxo de seleção e liberação dos itens e a configuração da rede vão mudar.
 
 1. **Pedido 2: Cenário 01, treinamento inicial.** Os resultados das etapas 1 e 2 já estão em `docs/relatorio-etapa1.md`, `docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`. Cole no Claude Code:
 
