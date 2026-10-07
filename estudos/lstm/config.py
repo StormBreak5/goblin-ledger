@@ -49,6 +49,17 @@ class Config:
     # agregados foram melhores que os detalhados, com e sem máscara (docs/relatorio-etapa2b.md).
     eventos_detalhados: bool = False
 
+    # Variáveis 19 e 20 (etapa 2d): ciclo de vida do item. Desligadas por padrão até o resultado da etapa 2d.
+    # 19 f_item_expansao_vigente: 1 quando o item é da expansão vigente no dia (a expansão do item é a do último
+    #    lançamento até o primeiro registro dele, com folga para o acesso antecipado). Sem ela, o modelo sabe que uma
+    #    expansão está chegando, mas não sabe quais itens vão ficar obsoletos (RN17).
+    # 20 f_idade_item: dias desde o primeiro registro do item, limitados a `idade_limite_dias` e divididos por ele.
+    # Itens que já existiam quando os dados começam têm a expansão desconhecida (19 = 0) e idade máxima (20 = 1).
+    variavel_expansao_item: bool = False
+    variavel_idade_item: bool = False
+    acesso_antecipado_dias: int = 7      # itens de uma expansão aparecem no leilão alguns dias antes do lançamento
+    idade_limite_dias: int = 180
+
     # RN25 - integridade temporal
     proporcao_treino: float = 0.70     # 70/20/10 por data de calendário, igual para todos os itens
     proporcao_validacao: float = 0.20  # o teste fica com o restante (10%)
@@ -98,6 +109,10 @@ VARIAVEIS_SEQUENCIA: list[str] = [
 PREFIXO_FESTIVAL: str = "f_festival_"
 VARIAVEL_FEIRA: str = "f_feira_negrilua"
 SUFIXO_PROXIMOS: str = "_prox"
+
+# Variáveis 19 e 20 (só com as chaves da etapa 2d): entram no fim da sequência.
+VARIAVEL_EXPANSAO_ITEM: str = "f_item_expansao_vigente"
+VARIAVEL_IDADE_ITEM: str = "f_idade_item"
 
 # Atributos fixos do item: entram uma vez por amostra, juntados à saída da LSTM.
 VARIAVEIS_ESTATICAS: list[str] = [

@@ -6,6 +6,7 @@
 | 1. Preparação | Claude Code (pedido 1) | atributos no banco, dados conferidos, primeiras referências |
 | 2. **Primeiro treino da rede neural** | você ou o Claude Code (comandos abaixo) | LSTM treinada e comparada com o ingênuo e a regressão linear |
 | 2c. **Itens fora do treino** | Claude Code (`pedido-etapa2c.md`) | erro do modelo em itens que ele nunca viu e em itens fora da seleção |
+| 2d. **Ciclo de vida do item** | Claude Code (`pedido-etapa2d.md`) | variáveis 19 (item da expansão vigente) e 20 (idade do item) testadas |
 | 3. Levar para o sistema (CU11) | Claude Code (pedidos 2, 3 e 4) | treinamento pela tela do Admin, retreino semanal, previsões diárias |
 | 4. Escrever no TC | você (com o Claude no Cowork) | texto do CU11 com o comportamento e os números reais |
 
@@ -130,9 +131,24 @@ A rede foi pensada para prever **qualquer item** com histórico, não só os do 
 
 ---
 
+## Etapa 2d: o item é da expansão vigente?
+
+Na etapa 2c, a troca para Midnight mostrou que o modelo não sabe a que expansão cada item pertence, e por isso não antecipa a queda dos itens da expansão que sai. A etapa 2d testa duas variáveis novas: item da expansão vigente (19) e idade do item (20).
+
+1. Cole no Claude Code:
+
+   ```
+   Leia estudos/lstm/pedido-etapa2d.md e siga.
+   ```
+
+2. São 6 treinos, mais duas preparações: umas 2 h 30 min no total.
+3. Traga o `docs/relatorio-etapa2d.md` para o Claude no Cowork. Com ele, decidimos se as variáveis entram no quadro do TC.
+
+---
+
 ## Etapa 3: levar para o sistema (CU11)
 
-> **Aguarde a etapa 2c** e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`. O fluxo de seleção e liberação dos itens vai mudar.
+> **Aguarde as etapas 2c e 2d** e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`. O fluxo de seleção e liberação dos itens e o quadro de variáveis podem mudar.
 
 1. **Pedido 2: Cenário 01, treinamento inicial.** Os resultados das etapas 1 e 2 já estão em `docs/relatorio-etapa1.md`, `docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`. Cole no Claude Code:
 

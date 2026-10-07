@@ -58,6 +58,8 @@ Opções úteis de `preparar_dados.py`:
 | `--reservar-itens` | Etapa 2c: sorteia uma fração dos itens (ex.: 0.2, pela `--semente`, estratificado pela classe) e os deixa fora de tudo o que o modelo aprende. |
 | `--normalizacao-de` | Etapa 2c: aplica a normalização de outra base (a de uma versão do modelo), sem recalcular nada. |
 | `--excluir-itens-de` | Etapa 2c: não seleciona os itens que já estão em outra base. |
+| `--variavel-expansao-item` | Etapa 2d: variável 19, item da expansão vigente no dia. |
+| `--variavel-idade-item` | Etapa 2d: variável 20, idade do item (dias desde o primeiro registro, até 180). |
 
 ## O que acontece, na ordem
 
@@ -132,6 +134,8 @@ Os dias preenchidos e os descartados pela RN03 não entram no cálculo do erro, 
 | 16 | `f_qualidade`, `f_nivel_item` | Qualidade ÷ 5; nível pelo mínimo e máximo do treino |
 | 17 | `f_tem_piso` | Tem preço de venda ao vendedor |
 | 18 | `f_commodity` | Commodity: `source_region` do item é o id de commodities da região (32512 nos EUA) |
+| 19 (etapa 2d) | `f_item_expansao_vigente` | 1 quando o item é da expansão vigente no dia. A expansão do item é a do último lançamento até o primeiro registro dele, com 7 dias de folga (acesso antecipado). **Desligada por padrão**; liga com `--variavel-expansao-item`. |
+| 20 (etapa 2d) | `f_idade_item` | Dias desde o primeiro registro do item, limitados a 180 e divididos por 180. **Desligada por padrão**; liga com `--variavel-idade-item`. |
 
 Saída: 7 log-retornos ln(pₜ₊ₕ ÷ pₜ), com média e desvio próprios por horizonte, calculados no treino.
 
@@ -182,6 +186,30 @@ relação ao sistema: na base `fora2c`, a variação do índice da subclasse (va
 base, e não com o mercado inteiro.
 
 Os comandos estão em `pedido-etapa2c.md`. Tudo na validação: o teste continua reservado ao CU11 (RN25).
+
+## Ciclo de vida do item (etapa 2d)
+
+**Problema.** As variáveis 10 a 13 dizem ao modelo **quando** vem um patch ou uma expansão, mas nenhuma diz **a que
+expansão o item pertence**. Uma erva de Dragonflight e uma de The War Within chegam iguais ao modelo. Na troca para
+Midnight (validação), o modelo perdeu a vantagem sobre o ingênuo justamente nos itens da expansão que estava saindo
+(razão de 0,98 contra 0,86 a 0,94 nos demais) e previu, a 7 dias, preços 8% acima do real: ele não antecipa a
+obsolescência que a RN17 quer separar das flutuações normais.
+
+**Variáveis candidatas** (calculadas por item e por dia, só com o que se sabe no dia, RN25):
+
+- **19, item da expansão vigente:** a expansão do item é a do último lançamento até o primeiro registro dele (7 dias de
+  folga para o acesso antecipado; os itens de Midnight apareceram em 27/02/2026). A variável vale 1 enquanto essa
+  expansão é a vigente. Junto com a variável 12 (expansão nos próximos 14 dias), o modelo pode aprender "item da
+  expansão vigente + expansão nova chegando = queda".
+- **20, idade do item:** dias desde o primeiro registro, até 180. Os itens novos costumam cair nas semanas seguintes ao
+  lançamento, e o modelo subestimava essa queda.
+
+**Limitações.** Os itens que já existiam quando os dados começam (09/2022) têm a expansão desconhecida (variável 19 = 0)
+e a idade máxima (variável 20 = 1). Um item antigo que só aparece no leilão anos depois seria contado como da expansão
+daquele momento; nas commodities, que são negociadas o tempo todo, isso é raro.
+
+O `transicao.py` mede o erro por grupo (expansão que sai, que entra, anteriores) na janela da troca e fora dela. Os
+comandos e a regra de decisão estão em `pedido-etapa2d.md`.
 
 ## RN03: EMA só com os preços aceitos
 

@@ -519,3 +519,76 @@ def test_comparacao_pareada_item_a_item() -> None:
     assert r["mdape"]["mediana_da_diferenca"] == pytest.approx(0.005)
     assert r["mdape"]["itens_a_pior_que_b"] == 1 and r["mdape"]["itens_com_diferenca_ate_1pp"] == 1
     assert r["rn10"] == {"liberados_a": 1, "liberados_b": 1, "liberados_nos_dois": 1, "so_a": 0, "so_b": 0}
+
+
+# ------------------------------------------------------------------- etapa 2d: ciclo de vida do item (19 e 20)
+LANCAMENTOS = np.array(["2022-11-28", "2024-08-26", "2026-03-02"], dtype="datetime64[D]")
+
+
+def test_item_da_expansao_vigente_e_idade_do_item() -> None:
+    from preparar_dados import expansao_do_item, variaveis_do_ciclo_do_item
+
+    inicio = np.datetime64("2022-09-04")
+    # já existia (censurado) · acesso antecipado da 2ª · lançado no meio da 2ª · acesso antecipado da 3ª
+    primeiro = np.array(["2022-09-04", "2024-08-23", "2025-02-25", "2026-02-27"], dtype="datetime64[D]")
+    assert expansao_do_item(primeiro, LANCAMENTOS, inicio, 7).tolist() == [-1, 1, 1, 2]
+
+    def em(data: str) -> tuple[list[float], list[float]]:
+        d = np.full(4, np.datetime64(data))
+        f_vig, f_idade = variaveis_do_ciclo_do_item(np.maximum(d, primeiro), primeiro, LANCAMENTOS, inicio, CFG)
+        return f_vig.tolist(), f_idade.tolist()
+
+    assert em("2024-08-24")[0][:2] == [0, 0]     # acesso antecipado: a expansão do item ainda não é a vigente
+    assert em("2025-06-01")[0] == [0, 1, 1, 0]    # (o 4º item é avaliado em 27/02/2026, antes do lançamento)
+    assert em("2026-03-02")[0] == [0, 0, 0, 1]   # a troca: a 2ª deixa de ser vigente no dia do lançamento da 3ª
+    idade = em("2026-04-27")[1]                   # 3ª expansão: 59 dias de idade
+    assert idade[0] == 1.0 and idade[1] == 1.0 and idade[3] == pytest.approx(59 / CFG.idade_limite_dias)
+
+
+def test_variaveis_do_ciclo_nao_mudam_as_amostras(sinteticos: dict[str, pd.DataFrame],
+                                                  preparado: tuple[Resultado, Path]) -> None:
+    """As variáveis 19 e 20 entram no fim da sequência e não mudam nenhuma amostra nem a normalização das demais."""
+    from config import VARIAVEL_EXPANSAO_ITEM, VARIAVEL_IDADE_ITEM
+
+    base, _ = preparado
+    cfg = replace(CFG, variavel_expansao_item=True, variavel_idade_item=True)
+    res = preparar(entrada_de(sinteticos), cfg, filtro_liquidez=False, **CORTES)
+    seq = res.normalizacao["variaveis"]["sequencia"]
+    assert seq == base.normalizacao["variaveis"]["sequencia"] + [VARIAVEL_EXPANSAO_ITEM, VARIAVEL_IDADE_ITEM]
+    pd.testing.assert_frame_equal(res.janelas, base.janelas)
+    assert res.normalizacao["constantes"] == base.normalizacao["constantes"]
+    n = res.linhas_normalizadas
+    assert set(n[VARIAVEL_EXPANSAO_ITEM].unique()) == {0.0, 1.0}
+    assert n[VARIAVEL_IDADE_ITEM].between(0, 1).all()
+    ciclo = res.normalizacao["ciclo_do_item"]
+    assert ciclo["expansoes"] == ["Expansão A", "Expansão B", "Expansão C"]
+    # itens que já existiam no início dos dados: expansão desconhecida, nunca "vigente", idade máxima
+    velhos = set(res.itens.loc[res.itens["expansao"] == "anterior aos dados ou desconhecida", "item_id"])
+    assert velhos and (n.loc[n["item_id"].isin(velhos), VARIAVEL_EXPANSAO_ITEM] == 0).all()
+    assert (n.loc[n["item_id"].isin(velhos), VARIAVEL_IDADE_ITEM] == 1).all()
+    # a mesma normalização aplicada de novo (caminho do prever.py) reproduz as variáveis
+    res_b = preparar(entrada_de(sinteticos), cfg, filtro_liquidez=False, normalizacao_base=res.normalizacao)
+    pd.testing.assert_frame_equal(res.linhas_normalizadas, res_b.linhas_normalizadas)
+
+
+def test_transicao_separa_a_expansao_que_sai() -> None:
+    from transicao import ANTERIORES, ENTRA, SAI, analisar
+
+    lanc = ["2024-08-26", "2026-03-02"]
+    det = pd.DataFrame({
+        "item_id": [1, 1, 2, 2, 3],
+        "data_origem": pd.to_datetime(["2026-02-20", "2025-10-01", "2026-02-25", "2025-10-01", "2026-04-20"]),
+        "h": [7, 7, 7, 7, 7],
+        "preco_real": [80.0, 100, 90, 100, 50], "preco_previsto": [100, 100, 95, 101, 50], "preco_base": [100] * 4 + [55],
+        "avaliavel": [True] * 5,
+    })
+    det["erro_pct"] = (det["preco_previsto"] - det["preco_real"]).abs() / det["preco_real"]
+    det["erro_pct_ingenuo"] = (det["preco_base"] - det["preco_real"]).abs() / det["preco_real"]
+    exp = pd.Series({1: "B", 2: "A", 3: "C"})
+    t = analisar(det, exp, ["B", "C"], lanc, pd.Timestamp("2026-03-02"), antes=21, depois=30).set_index(
+        ["janela", "grupo", "horizonte"])
+    assert t.loc[("troca", SAI, "todos"), "itens"] == 1 and t.loc[("troca", SAI, "todos"), "expansao"] == "B"
+    assert t.loc[("troca", SAI, "todos"), "vies_mediano"] == pytest.approx(0.25)   # previu 100, foi 80
+    assert t.loc[("troca", ANTERIORES, "todos"), "itens"] == 1
+    assert t.loc[("resto", ENTRA, "todos"), "itens"] == 1                         # item 3: 49 dias depois
+    assert t.loc[("troca", "todos", "h7"), "alvos"] == 2

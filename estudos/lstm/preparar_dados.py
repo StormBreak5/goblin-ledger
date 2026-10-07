@@ -26,6 +26,10 @@ Generalização para itens fora do treino (etapa 2c)
                            variáveis), sem recalcular nada. É o caminho da previsão de um item qualquer com um modelo
                            já treinado. Use com --excluir-itens-de P para pegar só itens que não estão em P.
 
+Ciclo de vida do item (etapa 2d, desligadas por padrão)
+    --variavel-expansao-item   variável 19: o item é da expansão vigente no dia?
+    --variavel-idade-item      variável 20: idade do item (dias desde o primeiro registro, até 180)
+
 Uso
     python preparar_dados.py --banco --regiao US --saida saida/estudo01 [--max-itens 500]
     python preparar_dados.py --csv dados_sinteticos --saida saida/sintetico
@@ -49,7 +53,7 @@ import numpy as np
 import pandas as pd
 
 from config import (PERIODOS, PREFIXO_FESTIVAL, SUFIXO_PROXIMOS, VARIAVEIS_CATEGORICAS, VARIAVEIS_ESTATICAS,
-                    VARIAVEIS_SEQUENCIA, VARIAVEL_FEIRA, Config)
+                    VARIAVEIS_SEQUENCIA, VARIAVEL_EXPANSAO_ITEM, VARIAVEL_FEIRA, VARIAVEL_IDADE_ITEM, Config)
 from dataset import assinatura_normalizacao
 from io_dados import Entrada, carregar_banco, carregar_csv, url_do_banco
 
@@ -460,8 +464,50 @@ def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg:
     return out
 
 
+# =============================================================================== variáveis 19 e 20: ciclo do item
+SEM_EXPANSAO = "anterior aos dados ou desconhecida"
+
+
+def lancamentos_de_expansao(eventos: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
+    """Datas de lançamento das expansões (evento EXPANSAO), em ordem, com o nome de cada uma."""
+    ex = eventos[eventos["tipo"] == "EXPANSAO"].dropna(subset=["data_inicio"]).sort_values("data_inicio")
+    ex = ex.drop_duplicates("data_inicio")
+    return ex["data_inicio"].values.astype("datetime64[D]"), [str(n) for n in ex["nome"]]
+
+
+def expansao_do_item(primeiro: np.ndarray, lancamentos: np.ndarray, inicio_dados: np.datetime64,
+                     tolerancia_dias: int) -> np.ndarray:
+    """Índice (em `lancamentos`) da expansão de cada item: a do último lançamento até o primeiro registro do item,
+    com `tolerancia_dias` de folga para o acesso antecipado. -1 = desconhecida: o item já existia quando os dados
+    começam (não dá para saber de que expansão ele é) ou é anterior a todos os lançamentos registrados."""
+    tol = np.timedelta64(tolerancia_dias, "D")
+    primeiro = primeiro.astype("datetime64[D]")
+    idx = np.searchsorted(lancamentos, primeiro + tol, side="right") - 1
+    idx[(primeiro <= np.datetime64(inicio_dados, "D") + tol) | np.isnat(primeiro)] = -1
+    return idx
+
+
+def variaveis_do_ciclo_do_item(datas: np.ndarray, primeiro: np.ndarray, lancamentos: np.ndarray,
+                               inicio_dados: np.datetime64, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    """Variáveis 19 e 20, por linha (item × dia). Só usam o que se sabe no dia (RN25): o item já tem o seu primeiro
+    registro e os lançamentos considerados são os que já aconteceram.
+    19: 1 se a expansão do item é a vigente no dia (último lançamento até o dia), senão 0.
+    20: idade do item em dias, limitada a `idade_limite_dias` e dividida por ele; 1 para itens que já existiam."""
+    d = datas.astype("datetime64[D]")
+    exp_item = expansao_do_item(primeiro, lancamentos, inicio_dados, cfg.acesso_antecipado_dias)
+    vigente = np.searchsorted(lancamentos, d, side="right") - 1
+    f_vig = ((exp_item >= 0) & (exp_item == vigente)).astype("float32")
+    lim = cfg.idade_limite_dias
+    idade = (d - primeiro.astype("datetime64[D]")) / np.timedelta64(1, "D")
+    censurado = primeiro.astype("datetime64[D]") <= np.datetime64(inicio_dados, "D") + np.timedelta64(
+        cfg.acesso_antecipado_dias, "D")
+    f_idade = np.where(censurado, 1.0, np.clip(idade, 0, lim) / lim).astype("float32")
+    return f_vig, f_idade
+
+
 def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Config,
-                              festivais: Optional[dict[str, str]] = None) -> pd.DataFrame:
+                              festivais: Optional[dict[str, str]] = None,
+                              ciclo: Optional[dict[str, Any]] = None) -> pd.DataFrame:
     """Variáveis antes das constantes globais. Tudo que usa shift/rolling/EMA é feito por série (groupby)."""
     chave = linhas["serie_idx"]
     linhas["log_preco"] = np.log(linhas["preco"])
@@ -495,6 +541,17 @@ def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Confi
     linhas["f_tem_piso"] = tem_piso.astype("float32")
     linhas["log_preco_npc"] = (linhas["log_preco"] - np.log(linhas["preco_npc"].where(tem_piso))).where(tem_piso)
     linhas["log_return"] = linhas["log_return"].astype("float32")
+
+    # Variáveis 19 e 20 (etapa 2d), por item e dia.
+    if ciclo is not None and (cfg.variavel_expansao_item or cfg.variavel_idade_item):
+        primeiro = linhas.groupby("serie_idx", sort=False)["data"].transform("min").to_numpy()
+        f_vig, f_idade = variaveis_do_ciclo_do_item(linhas["data"].to_numpy(), primeiro, ciclo["lancamentos"],
+                                                    ciclo["inicio_dados"], cfg)
+        if cfg.variavel_expansao_item:
+            linhas[VARIAVEL_EXPANSAO_ITEM] = f_vig
+        if cfg.variavel_idade_item:
+            linhas[VARIAVEL_IDADE_ITEM] = f_idade
+        del primeiro, f_vig, f_idade
 
     # Variáveis 9 a 14: calculadas uma vez por região e dia e copiadas para as linhas (sem merge, que duplicaria o quadro).
     regioes = linhas["regiao"].astype(str).to_numpy()
@@ -682,19 +739,37 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
     linhas = montar_calendario(precos)
     logger.info("%d séries, %d linhas (série × dia).", linhas["serie_idx"].nunique(), len(linhas))
     linhas = higienizar(linhas, cfg)
+    regioes_usadas = set(linhas["regiao"].astype(str).unique()) | {"GLOBAL"}
+    eventos_usados = entrada.eventos[entrada.eventos["regiao"].isin(regioes_usadas)]
     if normalizacao_base is None:
         # O mesmo conjunto de festivais para todas as regiões (as colunas precisam ser as mesmas em todas as linhas).
-        regioes_usadas = set(linhas["regiao"].astype(str).unique()) | {"GLOBAL"}
-        festivais = festivais_do_calendario(entrada.eventos[entrada.eventos["regiao"].isin(regioes_usadas)])
+        festivais = festivais_do_calendario(eventos_usados)
     else:  # as mesmas colunas de festival da versão do modelo
         festivais = {c: n for c, n in normalizacao_base["eventos_detalhados"]["colunas"].items() if c != VARIAVEL_FEIRA}
-    linhas = calcular_variaveis_brutas(linhas, entrada, cfg, festivais)
 
-    # Registro por item: atributos, critérios de seleção e reserva (itens.parquet).
+    # Ciclo do item (variáveis 19 e 20): lançamentos das expansões e início dos dados (da versão do modelo, se houver).
+    criterios = criterios_dos_itens(entrada, cfg, regiao)
+    base_ciclo = (normalizacao_base or {}).get("ciclo_do_item")
+    if base_ciclo:
+        lancamentos = np.array(base_ciclo["lancamentos"], dtype="datetime64[D]")
+        expansoes = list(base_ciclo["expansoes"])
+        inicio_dados = np.datetime64(base_ciclo["inicio_dos_dados"], "D")
+    else:
+        lancamentos, expansoes = lancamentos_de_expansao(eventos_usados)
+        inicio_dados = np.datetime64(criterios["primeiro_registro"].min() if len(criterios) else linhas["data"].min(), "D")
+    ciclo = {"lancamentos": lancamentos, "inicio_dados": inicio_dados}
+    linhas = calcular_variaveis_brutas(linhas, entrada, cfg, festivais, ciclo)
+
+    # Registro por item: atributos, critérios de seleção, expansão e reserva (itens.parquet).
     itens = (linhas.drop_duplicates("serie_idx")[["serie", "item_id", "classe_id", "subclasse_id", "commodity"]]
              .astype({"serie": str}).reset_index(drop=True))
-    criterios = criterios_dos_itens(entrada, cfg, regiao)
     itens = itens.merge(criterios, on=["serie", "item_id"], how="left")
+    idx_exp = expansao_do_item(itens["primeiro_registro"].to_numpy(dtype="datetime64[ns]"), lancamentos, inicio_dados,
+                               cfg.acesso_antecipado_dias)
+    itens["expansao"] = [expansoes[i] if i >= 0 else SEM_EXPANSAO for i in idx_exp]
+    itens_por_expansao = {str(k): int(v) for k, v in itens["expansao"].value_counts().items()}
+    if cfg.variavel_expansao_item or cfg.variavel_idade_item:
+        logger.info("Etapa 2d: itens por expansão (pelo primeiro registro): %s", itens_por_expansao)
     reservados: set[int] = set()
     if reservar_itens:
         reservados = sortear_reservados(itens, reservar_itens, semente)
@@ -745,6 +820,8 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
             if ignorados:
                 logger.info("Eventos sem nenhum dia ativo no treino (fora das variáveis): %s", ignorados)
         variaveis_seq = VARIAVEIS_SEQUENCIA + extras
+        variaveis_seq += [VARIAVEL_EXPANSAO_ITEM] if cfg.variavel_expansao_item else []
+        variaveis_seq += [VARIAVEL_IDADE_ITEM] if cfg.variavel_idade_item else []
     variaveis = variaveis_seq + VARIAVEIS_ESTATICAS
     linhas["apta"] = linhas["preco"].notna() & np.isfinite(linhas[variaveis].to_numpy(dtype="float32")).all(axis=1)
     jan = montar_janelas(linhas, cortes, cfg)
@@ -785,6 +862,11 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
                       "categoricas": VARIAVEIS_CATEGORICAS},
         "eventos_detalhados": {"colunas": festivais_usados, "sem_ocorrencia_no_treino": ignorados},
         "contagens": contagens,
+    }
+    normalizacao["ciclo_do_item"] = {
+        "lancamentos": [str(d) for d in lancamentos], "expansoes": expansoes,
+        "inicio_dos_dados": str(inicio_dados), "acesso_antecipado_dias": cfg.acesso_antecipado_dias,
+        "idade_limite_dias": cfg.idade_limite_dias, "itens_por_expansao": itens_por_expansao,
     }
     normalizacao["reserva"] = ({"fracao": reservar_itens, "semente": semente, "estratificada_por": "classe_id",
                                 "itens": sorted(reservados)} if reservados else None)
@@ -837,6 +919,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--rn03-confirmacao", type=int, help="preços seguidos fora da faixa que confirmam um novo patamar")
     ap.add_argument("--rn03-ema-bruta", action="store_true",
                     help="RN03 com a EMA de todos os preços do banco (comportamento anterior, para comparação)")
+    ap.add_argument("--variavel-expansao-item", action="store_true",
+                    help="etapa 2d: variável 19, item da expansão vigente no dia")
+    ap.add_argument("--variavel-idade-item", action="store_true",
+                    help="etapa 2d: variável 20, idade do item (dias desde o primeiro registro)")
     ap.add_argument("--reservar-itens", type=float, default=0.0,
                     help="etapa 2c: fração dos itens (ex.: 0.2) sorteada para ficar fora do treino, pela --semente")
     ap.add_argument("--normalizacao-de", type=Path,
@@ -852,7 +938,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                                     ("--eventos-detalhados", args.eventos_detalhados),
                                     ("--rn03-confirmacao", args.rn03_confirmacao),
                                     ("--rn03-ema-bruta", args.rn03_ema_bruta), ("--corte-validacao", args.corte_validacao),
-                                    ("--corte-teste", args.corte_teste), ("--reservar-itens", args.reservar_itens)) if v]
+                                    ("--corte-teste", args.corte_teste), ("--reservar-itens", args.reservar_itens),
+                                    ("--variavel-expansao-item", args.variavel_expansao_item),
+                                    ("--variavel-idade-item", args.variavel_idade_item)) if v]
         if conflitos:
             ap.error(f"com --normalizacao-de, a configuração vem da outra base; tire {', '.join(conflitos)}")
         base = json.loads((args.normalizacao_de / "normalizacao.json").read_text(encoding="utf-8"))
@@ -875,6 +963,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg = replace(cfg, rn03_ema_so_aceitos=False)
     if args.eventos_detalhados:
         cfg = replace(cfg, eventos_detalhados=True)
+    if args.variavel_expansao_item:
+        cfg = replace(cfg, variavel_expansao_item=True)
+    if args.variavel_idade_item:
+        cfg = replace(cfg, variavel_idade_item=True)
 
     if args.banco:
         if args.env_arquivo:
