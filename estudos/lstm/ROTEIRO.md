@@ -8,6 +8,7 @@
 | 2c. **Itens fora do treino** | Claude Code (`pedido-etapa2c.md`) | erro do modelo em itens que ele nunca viu e em itens fora da seleção |
 | 2d. **Ciclo de vida do item** | Claude Code (`pedido-etapa2d.md`) | variáveis 19 (item da expansão vigente) e 20 (idade do item) testadas |
 | 2e. **Ajuste da rede** | Claude Code (`pedido-etapa2e.md`) | perda, taxa de aprendizado e tamanho da LSTM decididos; configuração congelada |
+| 2f. **Generalização com a configuração final** | Claude Code (`pedido-etapa2f.md`) | a etapa 2c medida de novo com a perda MAE, para os números do TC |
 | 3. Levar para o sistema (CU11) | Claude Code (pedidos 2, 3 e 4) | treinamento pela tela do Admin, retreino semanal, previsões diárias |
 | 4. Escrever no TC | você (com o Claude no Cowork) | texto do CU11 com o comportamento e os números reais |
 
@@ -162,22 +163,37 @@ A etapa 2d manteve a configuração da etapa 2b (sem as variáveis 19 e 20). A 2
 
 ---
 
+## Etapa 2f: generalização com a configuração final
+
+A etapa 2e aprovou a perda MAE, e a configuração congelou. A 2f repete o experimento da 2c (itens não vistos e itens fora da seleção) com a perda MAE, só para medir: assim todos os números do TC vêm do mesmo modelo. Ela também mede o efeito do mínimo de 30 dias de avaliação na RN10.
+
+1. Cole no Claude Code:
+
+   ```
+   Leia estudos/lstm/pedido-etapa2f.md e siga.
+   ```
+
+2. São 4 treinos, sem base nova: umas 2 horas.
+3. Traga o `docs/relatorio-etapa2f.md` para o Claude no Cowork.
+
+---
+
 ## Etapa 3: levar para o sistema (CU11)
 
-> **Aguarde as etapas 2c, 2d e 2e** e a atualização do `docs/casos-de-uso/CU11-treinar-modelo.md`. O fluxo de seleção e liberação dos itens e a configuração da rede vão mudar.
+> **Faça antes a etapa 2f.** O `docs/casos-de-uso/CU11-treinar-modelo.md` já traz a v4 do documento de alterações: a separação entre os itens que treinam o modelo e os que recebem projeção, a RN27 (60 dias de histórico), o mínimo de 30 dias avaliados na RN10 e a configuração final da rede (perda MAE). Os diagramas de atividades estão em `docs/diagramas-atualizados/cu11c01.png` a `cu11c03.png`.
 
-1. **Pedido 2: Cenário 01, treinamento inicial.** Os resultados das etapas 1 e 2 já estão em `docs/relatorio-etapa1.md`, `docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`. Cole no Claude Code:
+1. **Pedido 2: Cenário 01, treinamento inicial.** Os resultados das etapas 1 a 2f estão em `docs/relatorio-etapa1.md` a `docs/relatorio-etapa2f.md`. Cole no Claude Code:
 
    ```
    Leia estudos/lstm/pedido-cu11-c1.md e siga, começando pelo plano.
    ```
 
-   - No plano, ele vai perguntar as decisões pendentes. As recomendações estão no próprio CU11: serviço `modelo` separado, a configuração da etapa 2b (perda Huber, sem máscara, eventos agregados) e a RN07 desligada até você definir o nível.
+   - No plano, ele vai perguntar as decisões pendentes. As recomendações estão no próprio CU11: serviço `modelo` separado e a RN07 desligada até você definir o nível. A configuração da rede (perda MAE, sem máscara, eventos agregados) já está decidida.
    - Depois de pronto, **dispare o treinamento inicial pela tela do Admin**. Esse é o treino oficial da rede, com o teste de verdade.
 2. **Pedido 3: Cenário 02, retreinamento semanal.** Cole:
 
    ```
-   Implemente o CU11 Cenário 02 (retreinar o modelo periodicamente) conforme docs/casos-de-uso/CU11-treinar-modelo.md, nas mesmas regras do pedido do C1: plano primeiro, um teste por fluxo, mensagens exatas, valores configuráveis. Commit: feat(CU11): retreinamento semanal (C2).
+   Implemente o CU11 Cenário 02 (retreinar o modelo periodicamente) conforme docs/casos-de-uso/CU11-treinar-modelo.md, nas mesmas regras do pedido do C1: plano primeiro, um teste por fluxo, mensagens exatas, valores configuráveis. A cada retreino, a situação de todos os itens elegíveis é recalculada com o modelo que ficar vigente (RN10 com o mínimo de dias avaliados). Commit: feat(CU11): retreinamento semanal (C2).
    ```
 
 3. **Pedido 4: Cenário 03, consolidação diária.** Cole:
@@ -191,5 +207,5 @@ A etapa 2d manteve a configuração da etapa 2b (sem as variáveis 19 e 20). A 2
 ## Etapa 4: escrever no TC
 
 1. Traga para o Claude no Cowork os resumos finais dos três cenários, com as decisões tomadas e as pendências.
-2. Atualizamos o documento de alterações (v2) com o que mudou na implementação e os números reais. Depois você cola no TC.
+2. Atualizamos o documento de alterações (v5) com o que mudou na implementação e os números reais do teste. Depois você cola no TC.
 3. Por fim, reexportamos o `docs/` a partir do TC. Aí o CU11 deixa de ser provisório.

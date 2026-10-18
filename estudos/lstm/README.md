@@ -141,6 +141,35 @@ Saída: 7 log-retornos ln(pₜ₊ₕ ÷ pₜ), com média e desvio próprios por
 
 No treino (`treinar.py`), a opção `--mascara` faz o erro de cada amostra contar só os dias previstos com preço observado (`obs_1..obs_7`). **O padrão é sem máscara.**
 
+## Configuração final (congelada depois da etapa 2e)
+
+É o padrão dos scripts. Cada escolha foi feita na validação, com 3 sementes e uma regra de decisão definida antes do
+experimento; o período de teste continua intocado e fica para o CU11 (RN25).
+
+| Parte | Configuração | Etapa |
+|---|---|---|
+| Entrada | Variáveis 1 a 18, com a 14 agregada ("algum festival ativo"); janela de 30 dias | 2b, 2d |
+| Rede | LSTM(64) → Dropout(0,2) → junta atributos fixos e embeddings (classe 4, subclasse 8) → Dense(32, relu) → Dense(7) | 2 |
+| Treino | **Perda MAE**, sem máscara; Adam com taxa fixa de 0,001; lote de 512; 400.000 amostras por época; parada antecipada com paciência de 10 épocas | 2b, 2e |
+| Liberação | RN10: MdAPE do item ≤ 15% e menor que o do ingênuo | 2b |
+
+Resultado na validação (6.484 itens, média de 3 sementes):
+
+| Medida | Configuração da 2b (Huber) | **Final (MAE)** | Ingênuo |
+|---|---|---|---|
+| Mediana do MdAPE por item | 22,67% | **20,62%** | 24,17% |
+| Mediana do MAPE por item | 38,66% | **37,92%** | 47,19% |
+| Itens em que o modelo erra menos que o ingênuo (MAE) | 5.345 | **5.849** | — |
+| Itens liberados pela RN10 | 603 | **1.090** | — |
+| MAPE médio por item | 59,68% | 61,44% | 76,31% |
+
+A MAE leva o modelo a prever a mediana (Hyndman e Athanasopoulos, 2018, seção 3.4; Gneiting, 2011), a mesma coisa que
+a RN10 mede. O preço disso é previsível: as medidas que dão peso aos erros grandes (MAPE médio, MAPE a 7 dias, RMSE)
+pioram um pouco.
+
+**Testado e reprovado:** máscara nos alvos (2b), eventos detalhados por festival (2b), item da expansão vigente e idade
+do item (2d), redução da taxa de aprendizado e LSTM de 128 unidades (2e). O código continua no estudo, desligado.
+
 ## Configuração escolhida (etapa 2b)
 
 Foram comparadas 4 configurações, com 3 sementes cada, na validação (`docs/relatorio-etapa2b.md`). A escolhida é **eventos agregados, sem máscara**, que é o padrão dos scripts:
@@ -169,6 +198,10 @@ cada um sozinho contra a configuração da etapa 2b, com 3 sementes:
 | Perda pelo erro absoluto | `--perda mae` | A RN10 mede a mediana do erro absoluto (MdAPE). O erro absoluto leva o modelo a prever a mediana; a Huber trata os erros pequenos como quadráticos e é puxada pelos picos de preço. |
 | Redução da taxa de aprendizado | `--reduzir-taxa` (`--fator-taxa 0.5`, `--paciencia-taxa 3`, `--taxa-minima 1e-5`) | Os treinos param entre as épocas 20 e 40 com a taxa fixa. Reduzir a taxa quando a validação estaciona costuma refinar os pesos. A taxa de cada época fica no `historico.csv` e a final, no `treino.json`. |
 | LSTM de 128 unidades | `--unidades 128` | Mais capacidade para 6.500 itens com comportamentos diferentes. |
+
+**Resultado (`docs/relatorio-etapa2e.md`):** só a perda MAE foi aprovada (mediana do MdAPE por item de 22,67% para
+20,62%, com desvio de 0,09 a 0,15 ponto entre sementes; itens liberados pela RN10 de 603 para 1.090). A redução da taxa e
+as 128 unidades pioraram a medida principal. Com um só aprovado, não houve combinação, e a configuração congelou.
 
 A janela de 60 dias ficou de fora de propósito: ela subiria o histórico mínimo de um item novo de uns 60 para uns 90
 dias, o contrário do que se quer com a previsão de itens novos (etapa 2c). A regra de decisão e os comandos estão em
@@ -202,6 +235,23 @@ relação ao sistema: na base `fora2c`, a variação do índice da subclasse (va
 base, e não com o mercado inteiro.
 
 Os comandos estão em `pedido-etapa2c.md`. Tudo na validação: o teste continua reservado ao CU11 (RN25).
+
+**Resultado (`docs/relatorio-etapa2c.md`, perda Huber).** Nos itens reservados, o erro do modelo que nunca os viu ficou
+do tamanho da diferença entre duas sementes. Os 755 itens sem nenhuma amostra de treino (quase todos da expansão nova)
+foram previstos melhor que pelo ingênuo em 62% a 69% dos casos. Fora da seleção, o modelo perdeu para o ingênuo, mas
+porque esses itens são ilíquidos: com a mesma liquidez, itens do treino e de fora dele se comportam igual. A fronteira de
+uso do modelo é a liquidez (RN02), não o item ter entrado no treino.
+
+**Análises de apoio** (`generalizacao.py`, a partir das avaliações gravadas):
+
+- `liquidez`: erro por faixa de quantidade média ofertada, em uma ou mais bases;
+- `novos`: itens sem nenhuma amostra de treino contra os demais.
+
+A etapa 2f (`pedido-etapa2f.md`) repete a 2c com a configuração final (perda MAE), só para medir.
+
+**RN10 com mínimo de dias.** O `avaliar.py` só libera um item com pelo menos `minimo_dias_rn10` (30) dias de previsões
+avaliadas; abaixo disso, a situação é "Bloqueada" com o motivo "avaliação insuficiente" (`--minimo-dias 0` desliga). Na
+etapa 2d, itens novos eram liberados com uns 8 dias de avaliação.
 
 ## Ciclo de vida do item (etapa 2d)
 

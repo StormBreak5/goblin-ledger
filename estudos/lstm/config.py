@@ -74,6 +74,10 @@ class Config:
     # explodem a média (MAPE). Decidido pelo autor após a etapa 2b; limiar mantido em 15%.
     metrica_rn10: str = "mdape"      # "mdape" ou "mape"
     limiar_rn10: float = 0.15
+    # Mínimo de dias com previsões avaliadas para a RN10 decidir. Sem ele, um item novo com uma semana de avaliação podia
+    # ser liberado por sorte (etapa 2d: itens do Midnight liberados com ~8 dias). Abaixo do mínimo, o item fica
+    # bloqueado por "avaliação insuficiente" até a próxima avaliação. (A CONFIRMAR)
+    minimo_dias_rn10: int = 30
 
     # Ids convencionados das commodities de cada região (src/services/ingestao_config.py)
     commodities_por_regiao: dict[str, int] = field(default_factory=lambda: {"US": 32512, "EU": 32513})

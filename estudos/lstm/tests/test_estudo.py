@@ -373,7 +373,7 @@ def test_rn10_libera_por_mdape_quem_supera_o_ingenuo(preparado: tuple[Resultado,
     jan = dados.janelas("validacao")
     perfeito = jan[dados.colunas_alvo()].to_numpy("float64")  # o próprio y: erro ~0
     av = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), perfeito)
-    assert av.resumo["rn10"] == {"metrica": "mdape", "limiar": 0.15}
+    assert av.resumo["rn10"] == {"metrica": "mdape", "limiar": 0.15, "minimo_dias": 30}
     esperado = av.por_item["mdape_ingenuo"] > av.por_item["mdape"]
     assert ((av.por_item["situacao"] == "Liberada") == esperado).all()
     # a regra antiga continua disponível para comparação
@@ -626,3 +626,50 @@ def test_treino_curto_com_mae_e_reducao_da_taxa(preparado: tuple[Resultado, Path
     assert info["parametros"]["perda"] == "mae" and info["parametros"]["reduzir_taxa"] is True
     assert info["taxa_final"] <= 1e-3 + 1e-9
     assert (destino / "previsoes_validacao.parquet").exists()
+
+
+def test_rn10_exige_minimo_de_dias_avaliados(preparado: tuple[Resultado, Path]) -> None:
+    """Um item com menos de 30 dias de previsões avaliadas fica bloqueado por avaliação insuficiente, mesmo perfeito."""
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    item = jan["item_id"].iloc[0]
+    curto = jan[jan["item_id"] == item].sort_values("data_origem").head(20)   # 20 dias desse item
+    resto = jan[jan["item_id"] != item]
+    sel = pd.concat([curto, resto])
+    perfeito = sel[dados.colunas_alvo()].to_numpy("float64")
+    av = avaliar(dados, "validacao", sel["id_amostra"].to_numpy(), perfeito)
+    linha = av.por_item.set_index("item_id").loc[item]
+    assert linha["dias_avaliados"] == 20
+    assert linha["situacao"] == "Bloqueada" and linha["motivo_bloqueio"] == "avaliação insuficiente"
+    assert av.resumo["itens_com_avaliacao_insuficiente"] == 1
+    sem = avaliar(dados, "validacao", sel["id_amostra"].to_numpy(), perfeito, minimo_dias=0)
+    assert sem.resumo["itens_liberados_rn10"] == av.resumo["itens_liberados_rn10_sem_minimo_de_dias"]
+    assert set(av.por_item["motivo_bloqueio"]) <= {"", "avaliação insuficiente", "acima do limiar", "não supera o ingênuo"}
+
+
+# ------------------------------------------------------------------------- etapa 2f: análises da generalização
+def test_generalizacao_por_liquidez_e_por_novidade(com_reserva: tuple[Resultado, Path], tmp_path: Path) -> None:
+    from avaliar import gravar
+    from generalizacao import FAIXAS_LIQUIDEZ, main, por_novidade
+
+    _, pasta = com_reserva
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    av = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), jan[dados.colunas_alvo()].to_numpy("float64"))
+    gravar(av, pasta, "g2f")
+    arq = pasta / "avaliacao_validacao_g2f_itens.csv"
+
+    saida = tmp_path / "liq.csv"
+    assert main(["liquidez", "--avaliacao", str(arq), "--saida", str(saida)]) == 0
+    liq = pd.read_csv(saida)
+    assert liq["itens"].sum() == av.resumo["itens"]                       # cada item cai em uma faixa
+    assert set(liq["faixa"]) <= {f[2] for f in FAIXAS_LIQUIDEZ} | {"sem quantidade"}
+
+    com_treino = set(dados.janelas("treino")["item_id"])
+    tab = por_novidade(pd.read_csv(arq), com_treino)
+    total = tab[tab["tem_amostra_de_treino"] == "todos"].iloc[0]
+    assert total["itens"] == av.resumo["itens"]
+    sem = set(av.por_item["item_id"]) - com_treino
+    linhas_sem = tab[tab["tem_amostra_de_treino"].astype(str) == "False"]
+    assert int(linhas_sem["itens"].sum()) == len(sem)

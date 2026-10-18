@@ -10,8 +10,9 @@
   historico.csv e previsoes_validacao.parquet (com id_amostra, pronto para o avaliar.py).
 - O período de teste só é previsto com --prever-teste (junto com o treino) ou com --apenas-prever-teste (usa o modelo
   já gravado em modelos/<nome>). Use uma única vez, com a configuração já escolhida (RN25).
-- Etapa 2e: `--perda mae` treina pelo erro absoluto (o modelo passa a mirar a mediana, como o MdAPE da RN10) e
-  `--reduzir-taxa` divide a taxa de aprendizado quando a validação para de melhorar (ReduceLROnPlateau).
+- Perda: o padrão é a MAE (erro absoluto), aprovada na etapa 2e: o modelo passa a mirar a mediana, a mesma coisa
+  que a RN10 mede (MdAPE), e a mediana do MdAPE por item caiu de 22,67% para 20,62% (docs/relatorio-etapa2e.md).
+  `--perda huber` repete a configuração anterior. `--reduzir-taxa` (ReduceLROnPlateau) foi testada e reprovada.
 - Etapa 2c: numa base preparada com --reservar-itens, as amostras dos itens reservados ficam fora do treino e da
   parada antecipada (o modelo nunca as vê), mas são previstas na validação, para medir o erro em itens não vistos.
   Com --incluir-reservados, treina com todos os itens (o controle do experimento).
@@ -158,7 +159,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--amostras-por-epoca", type=int, default=400_000, help="sorteadas do treino a cada época; 0 = todas")
     ap.add_argument("--amostras-validacao", type=int, default=200_000,
                     help="amostra fixa da validação para a parada antecipada; 0 = todas")
-    ap.add_argument("--perda", choices=["huber", "mse", "mae"], default="huber")
+    ap.add_argument("--perda", choices=["huber", "mse", "mae"], default="mae",
+                    help="padrão: mae (etapa 2e); huber = configuração das etapas 2 a 2d")
     ap.add_argument("--reduzir-taxa", action="store_true",
                     help="etapa 2e: multiplica a taxa por --fator-taxa após --paciencia-taxa épocas sem melhora")
     ap.add_argument("--fator-taxa", type=float, default=0.5)

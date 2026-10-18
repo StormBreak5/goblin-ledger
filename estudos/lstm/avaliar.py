@@ -63,12 +63,14 @@ def para_cobre(preco_base: np.ndarray, log_retorno: np.ndarray) -> np.ndarray:
 
 
 def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: np.ndarray,
-            limiar: Optional[float] = None, metrica: Optional[str] = None) -> Avaliacao:
+            limiar: Optional[float] = None, metrica: Optional[str] = None,
+            minimo_dias: Optional[int] = None) -> Avaliacao:
     H = dados.horizonte
     cfg = dados.normalizacao["config"]
     # Bases preparadas antes da decisão da RN10 só têm "limiar_mape"; a regra nova vale para elas também.
     limiar = float(limiar if limiar is not None else cfg.get("limiar_rn10", cfg.get("limiar_mape", 0.15)))
     metrica = metrica or cfg.get("metrica_rn10", "mdape")
+    minimo_dias = int(minimo_dias if minimo_dias is not None else cfg.get("minimo_dias_rn10", 30))
     if metrica not in ("mdape", "mape"):
         raise ValueError("metrica deve ser 'mdape' ou 'mape'")
     jan = dados.janelas(periodo).set_index("id_amostra")
@@ -115,6 +117,7 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
     ok = det[det["avaliavel"]]
     por_item = ok.groupby(["serie", "item_id"]).agg(
         n=("erro_pct", "size"),
+        dias_avaliados=("data_origem", "nunique"),
         mape=("erro_pct", "mean"),
         mape_ingenuo=("erro_pct_ingenuo", "mean"),
         mdape=("erro_pct", "median"),
@@ -129,9 +132,16 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
         por_item["mae_ingenuo_ouro"] > 0)
     # Mantido como no relatório da etapa 2: o item "supera o ingênuo" quando o MAPE é menor que o do ingênuo.
     por_item["supera_ingenuo"] = por_item["mape"] < por_item["mape_ingenuo"]
-    # RN10: projeção liberada se a métrica do item (MdAPE por padrão) ficar no limiar e abaixo da do modelo ingênuo.
+    # RN10: projeção liberada se a métrica do item (MdAPE por padrão) ficar no limiar e abaixo da do modelo ingênuo,
+    # com pelo menos `minimo_dias` dias de previsões avaliadas.
     supera_na_metrica = por_item[metrica] < por_item[f"{metrica}_ingenuo"]
-    por_item["situacao"] = np.where((por_item[metrica] <= limiar) & supera_na_metrica, "Liberada", "Bloqueada")
+    no_limiar = por_item[metrica] <= limiar
+    suficiente = por_item["dias_avaliados"] >= minimo_dias
+    aprovado = no_limiar & supera_na_metrica
+    por_item["situacao"] = np.where(aprovado & suficiente, "Liberada", "Bloqueada")
+    por_item["motivo_bloqueio"] = np.select(
+        [~suficiente, ~no_limiar, ~supera_na_metrica],
+        ["avaliação insuficiente", "acima do limiar", "não supera o ingênuo"], default="")
     por_item = juntar_info_dos_itens(por_item, dados.itens)
 
     por_h = ok.groupby("h").agg(n=("erro_pct", "size"), mape=("erro_pct", "mean"),
@@ -147,8 +157,10 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
         "mape_ingenuo_medio_por_item": float(por_item["mape_ingenuo"].mean()) if len(por_item) else None,
         "mape_geral": float(ok["erro_pct"].mean()) if len(ok) else None,
         "itens_que_superam_ingenuo": int(por_item["supera_ingenuo"].sum()),
-        "rn10": {"metrica": metrica, "limiar": limiar},
+        "rn10": {"metrica": metrica, "limiar": limiar, "minimo_dias": minimo_dias},
         "itens_liberados_rn10": int((por_item["situacao"] == "Liberada").sum()),
+        "itens_liberados_rn10_sem_minimo_de_dias": int(aprovado.sum()),
+        "itens_com_avaliacao_insuficiente": int((~suficiente).sum()),
         "mediana_mape_por_item": float(por_item["mape"].median()) if len(por_item) else None,
         "mediana_mdape_por_item": float(por_item["mdape"].median()) if len(por_item) else None,
         "mediana_erro_relativo_ingenuo": float(por_item["erro_relativo_ingenuo"].median()) if len(por_item) else None,
@@ -262,6 +274,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--limiar", "--limiar-mape", dest="limiar", type=float,
                     help="RN10; padrão: o de normalizacao.json (15%%)")
     ap.add_argument("--metrica", choices=["mdape", "mape"], help="RN10; padrão: mdape")
+    ap.add_argument("--minimo-dias", type=int, help="RN10: dias mínimos de previsões avaliadas; padrão: 30 (0 = sem mínimo)")
     ap.add_argument("--rotulo", help="sufixo dos arquivos de saída")
     args = ap.parse_args(argv)
 
@@ -281,7 +294,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         yhat = jan[dados.colunas_alvo()].to_numpy(dtype=np.float64)
         rotulo = args.rotulo or "verificacao"
 
-    av = avaliar(dados, args.periodo, ids, yhat, args.limiar, args.metrica)
+    av = avaliar(dados, args.periodo, ids, yhat, args.limiar, args.metrica, args.minimo_dias)
     gravar(av, args.pasta, rotulo)
     print(json.dumps(av.resumo, indent=2, ensure_ascii=False))
     print(av.por_horizonte.to_string(index=False))
