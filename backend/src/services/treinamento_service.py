@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from src.models.modelo import (DISPARO_ADMIN, DISPARO_AGENDADO, ETAPA_BANCO, ETAPA_INTERNA, ETAPA_SELECAO,
                                ETAPA_TREINO, STATUS_AGUARDANDO, STATUS_EM_ANDAMENTO, STATUS_EXECUTANDO, STATUS_FALHA,
-                               TIPO_INICIAL, TIPO_RETREINAMENTO, ExecucaoTreinamento, ModeloPreditivo)
+                               STATUS_SUCESSO, TIPO_INICIAL, TIPO_RETREINAMENTO, ExecucaoTreinamento, ModeloPreditivo)
 from src.models.usuario import REGIOES_VALIDAS
 from src.services import mensagens, security, validacao
 from src.services.erros import RegiaoInvalidaError, TreinamentoEmAndamentoError, TreinamentoNaoEncontradoError
@@ -215,6 +215,23 @@ class TreinamentoService:
             registros.append(RegistroDoRetreinamento(regiao, execucao.id))
         self.session.commit()
         return registros
+
+    def registrar_retreinamentos_perdidos(self, desde: datetime) -> list[RegistroDoRetreinamento]:
+        """CU11-C2 passo 1, ao iniciar o serviço `modelo`: com o computador desligado no horário do agendador, o
+        disparo é perdido (o APScheduler não o guarda). Cada região com modelo vigente que não tem nenhuma execução
+        concluída (de qualquer tipo) solicitada desde `desde`, o último disparo do cron, recebe o retreinamento agora,
+        uma vez. Uma região com execução aguardando ou em andamento não recebe outra."""
+        vigentes = sorted(r for (r,) in self.session.query(ModeloPreditivo.regiao)
+                          .filter(ModeloPreditivo.vigente.is_(True)))
+        concluidas = {r for (r,) in self.session.query(ExecucaoTreinamento.regiao).filter(
+            ExecucaoTreinamento.status == STATUS_SUCESSO, ExecucaoTreinamento.solicitado_em >= desde)}
+        perdidas = [regiao for regiao in vigentes if regiao not in concluidas]
+        self.session.rollback()
+        if not perdidas:
+            return []
+        logger.warning("CU11-C2: o retreinamento agendado de %s não rodou (serviço desligado no horário de %s): "
+                       "registrando agora.", ", ".join(perdidas), desde.isoformat())
+        return self.registrar_retreinamentos(perdidas)
 
     def encerrar_em_execucao(self) -> int:
         """Serviço `modelo`, ao iniciar: um treinamento que constava em execução parou junto com o processo anterior

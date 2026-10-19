@@ -27,6 +27,7 @@ scheduler = None
 INGESTAO_JOB_ID = "ingestao_job"
 VIGIA_JOB_ID = "vigia_ingestao_job"
 IMPORTACAO_DIARIA_JOB_ID = "importacao_diaria_job"
+IMPORTACAO_DIARIA_PERDIDA_JOB_ID = "importacao_diaria_perdida_job"
 # CU10-C1, importação diária: todo dia às 02:00 UTC (HISTORICO_IMPORTACAO_DIARIA_CRON, formato crontab; "off" desliga).
 HORARIO_PADRAO_DA_IMPORTACAO_DIARIA = "0 2 * * *"
 
@@ -112,17 +113,53 @@ def job_importacao_diaria():
     finally:
         session.close()
 
-def agendar_importacao_diaria(agendador) -> bool:
-    """Agenda a importação diária pelo cron de HISTORICO_IMPORTACAO_DIARIA_CRON, em UTC. Devolve False se desligada."""
+def gatilho_da_importacao_diaria():
+    """O cron de HISTORICO_IMPORTACAO_DIARIA_CRON, em UTC; None se desligada ("off")."""
     expressao = os.getenv("HISTORICO_IMPORTACAO_DIARIA_CRON", "").strip() or HORARIO_PADRAO_DA_IMPORTACAO_DIARIA
-    if expressao.lower() == "off":
+    return None if expressao.lower() == "off" else CronTrigger.from_crontab(expressao, timezone=timezone.utc)
+
+def importacao_diaria_perdida(gatilho, agora=None, session=None) -> bool:
+    """Computador desligado no horário: o último disparo do cron não tem importação incremental concluída depois dele.
+    Uma falha ao conferir não impede o worker de iniciar (a importação seguinte acontece no horário)."""
+    from src.services.agendamento import ultimo_disparo
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    anterior = ultimo_disparo(gatilho, agora or datetime.now(timezone.utc))
+    if anterior is None:
+        return False
+    propria = session is None
+    session = session or get_session()
+    try:
+        ultima = ImportacaoHistoricoService(session).ultima_importacao_incremental_concluida()
+        return ultima is None or ultima < anterior
+    except Exception:
+        logger.warning("Não foi possível conferir se a importação diária foi perdida.", exc_info=True)
+        return False
+    finally:
+        if propria:
+            session.close()
+
+def agendar_importacao_diaria(agendador) -> bool:
+    """Agenda a importação diária pelo cron de HISTORICO_IMPORTACAO_DIARIA_CRON, em UTC. Devolve False se desligada.
+
+    Computador dormindo no horário: o disparo atrasado roda ao acordar, uma vez só (coalesce, sem limite de atraso).
+    Desligado no horário: o APScheduler não guarda o disparo perdido, então ele é reconhecido aqui, ao iniciar, e roda
+    agora, uma vez."""
+    gatilho = gatilho_da_importacao_diaria()
+    if gatilho is None:
         logger.info("Importação diária do histórico desligada (HISTORICO_IMPORTACAO_DIARIA_CRON=off).")
         return False
     agendador.add_job(
-        job_importacao_diaria, CronTrigger.from_crontab(expressao, timezone=timezone.utc), id=IMPORTACAO_DIARIA_JOB_ID,
+        job_importacao_diaria, gatilho, id=IMPORTACAO_DIARIA_JOB_ID,
         replace_existing=True, coalesce=True, misfire_grace_time=ATRASO_MAXIMO_DA_RODADA,
     )
-    logger.info("Importação diária do histórico agendada (%s, UTC).", expressao)
+    logger.info("Importação diária do histórico agendada (%s, UTC).", gatilho)
+    if importacao_diaria_perdida(gatilho):
+        logger.warning("A última importação diária agendada não rodou (worker desligado no horário): roda agora.")
+        agendador.add_job(
+            job_importacao_diaria, 'date', run_date=datetime.now(timezone.utc), id=IMPORTACAO_DIARIA_PERDIDA_JOB_ID,
+            replace_existing=True, misfire_grace_time=ATRASO_MAXIMO_DA_RODADA,
+        )
     return True
 
 def job_ingestao_de_mercado():

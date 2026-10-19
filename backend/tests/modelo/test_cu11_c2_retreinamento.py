@@ -258,3 +258,61 @@ def test_cu11_c2_comando_retreinar_registra_pelo_mesmo_caminho(pg_engine, db_ses
     execucoes = db_session.query(ExecucaoTreinamento).all()
     assert [(e.tipo, e.disparo, e.regiao, e.status) for e in execucoes] == [
         ("RETREINAMENTO", "AGENDADO", "US", "AGUARDANDO")]
+
+
+def test_cu11_c2_retreinamento_dormindo_roda_ao_acordar_uma_vez(mocker):
+    """Computador suspenso por duas terças (dois disparos perdidos): ao acordar, o retreinamento é registrado uma vez só
+    (coalesce, sem limite de atraso), e o próximo disparo volta ao horário."""
+    import threading
+    import time
+    from datetime import timedelta
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    from src import modelo_worker
+
+    registros: list[int] = []
+    rodou = threading.Event()
+    mocker.patch.object(modelo_worker, "registrar_retreinamentos",
+                        lambda *_args, **_kw: (registros.append(1), rodou.set()))
+    agendador = BackgroundScheduler(timezone=timezone.utc)
+    agendador.start(paused=True)
+    try:
+        assert modelo_worker.agendar_retreinamento(agendador, MagicMock())
+        job = agendador.get_job(modelo_worker.RETREINO_JOB_ID)
+        assert job.coalesce and job.misfire_grace_time is None
+        agora = datetime.now(timezone.utc)
+        agendador.modify_job(modelo_worker.RETREINO_JOB_ID, next_run_time=agora - timedelta(days=15))
+        agendador.resume()
+
+        assert rodou.wait(timeout=5)
+        time.sleep(0.5)
+        assert registros == [1]
+        assert agendador.get_job(modelo_worker.RETREINO_JOB_ID).next_run_time > agora
+    finally:
+        agendador.shutdown()
+
+
+def test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_roda_ao_iniciar(pg_engine, db_session, monkeypatch):
+    """Ligado na quarta 21/10 às 09:00: o disparo de terça às 18:00 foi perdido (o APScheduler não o guarda). Ao iniciar,
+    o serviço registra o retreinamento da região com modelo vigente, uma vez; ao reiniciar de novo, não duplica."""
+    from src import modelo_worker
+
+    monkeypatch.delenv("MODELO_RETREINO_CRON", raising=False)
+    db_session.add(ModeloPreditivo(
+        regiao="US", treinado_em=DIA_DO_C1, data_inicio=date(2024, 1, 1), corte_validacao=date(2025, 12, 7),
+        corte_teste=date(2026, 6, 26), data_fim=date(2026, 10, 5), itens_elegiveis=1, itens_treino=1,
+        itens_avaliados=1, amostras_treino=1, amostras_validacao=1, amostras_teste=1, epocas=1, melhor_epoca=1,
+        segundos_por_epoca=1.0, duracao_segundos=1.0, caminho_artefatos="v1", assinatura_normalizacao="a",
+        vigente=True))
+    db_session.commit()
+    SessionLocal = sessionmaker(bind=pg_engine)
+    quarta = datetime(2026, 10, 21, 9, 0, tzinfo=timezone.utc)
+
+    primeira = modelo_worker.registrar_retreinamentos_perdidos(SessionLocal, quarta)
+    segunda = modelo_worker.registrar_retreinamentos_perdidos(SessionLocal, quarta)
+
+    assert [(r.regiao, r.id_execucao is not None) for r in primeira] == [("US", True)]
+    assert [r.id_execucao for r in segunda] == [None]
+    execucoes = db_session.query(ExecucaoTreinamento).all()
+    assert [(e.tipo, e.disparo, e.status) for e in execucoes] == [("RETREINAMENTO", "AGENDADO", "AGUARDANDO")]

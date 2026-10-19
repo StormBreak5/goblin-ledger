@@ -14,7 +14,7 @@ import argparse
 import logging
 import os
 import time
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Sequence
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -28,6 +28,7 @@ from src.ml.treinamento_inicial import TreinamentoInicial, preencher_liberados_s
 from src.models.modelo import (ETAPA_INTERNA, STATUS_EM_ANDAMENTO, STATUS_FALHA, TIPO_INICIAL, TIPO_RETREINAMENTO,
                                ExecucaoTreinamento)
 from src.repositories.database import init_db
+from src.services.agendamento import ultimo_disparo
 from src.services.security import agora
 from src.services.treinamento_service import RegistroDoRetreinamento, TreinamentoService
 
@@ -52,12 +53,33 @@ def registrar_retreinamentos(SessionLocal: Callable[[], Any],
         return TreinamentoService(sessao).registrar_retreinamentos(regioes)
 
 
-def agendar_retreinamento(agendador: Any, SessionLocal: Callable[[], Any]) -> bool:
-    """Agenda o retreinamento semanal pelo cron de MODELO_RETREINO_CRON, em UTC. Devolve False se desligado ("off")."""
+def gatilho_do_retreino() -> Optional[CronTrigger]:
+    """O cron de MODELO_RETREINO_CRON, em UTC; None se desligado ("off")."""
     expressao = os.getenv("MODELO_RETREINO_CRON", "").strip() or HORARIO_PADRAO_DO_RETREINO
-    if expressao.lower() == "off":
+    return None if expressao.lower() == "off" else CronTrigger.from_crontab(expressao, timezone=timezone.utc)
+
+
+def registrar_retreinamentos_perdidos(SessionLocal: Callable[[], Any],
+                                      agora: Optional[datetime] = None) -> list[RegistroDoRetreinamento]:
+    """Ao iniciar: o retreinamento do último disparo do cron que não rodou porque o serviço estava desligado no horário
+    é registrado agora, uma vez (o APScheduler não guarda o disparo perdido)."""
+    gatilho = gatilho_do_retreino()
+    anterior = None if gatilho is None else ultimo_disparo(gatilho, agora or datetime.now(timezone.utc))
+    if anterior is None:
+        return []
+    with SessionLocal() as sessao:
+        return TreinamentoService(sessao).registrar_retreinamentos_perdidos(anterior)
+
+
+def agendar_retreinamento(agendador: Any, SessionLocal: Callable[[], Any]) -> bool:
+    """Agenda o retreinamento semanal pelo cron de MODELO_RETREINO_CRON, em UTC. Devolve False se desligado ("off").
+    Com o computador dormindo no horário, o disparo atrasado roda ao acordar, uma vez só (coalesce, sem limite de
+    atraso); desligado, quem o recupera é `registrar_retreinamentos_perdidos`, ao iniciar."""
+    gatilho = gatilho_do_retreino()
+    if gatilho is None:
         logger.info("Retreinamento agendado desligado (MODELO_RETREINO_CRON=off).")
         return False
+    expressao = os.getenv("MODELO_RETREINO_CRON", "").strip() or HORARIO_PADRAO_DO_RETREINO
 
     def disparar() -> None:
         try:
@@ -65,8 +87,8 @@ def agendar_retreinamento(agendador: Any, SessionLocal: Callable[[], Any]) -> bo
         except Exception:
             logger.exception("CU11-C2: não foi possível registrar o retreinamento agendado.")
 
-    agendador.add_job(disparar, CronTrigger.from_crontab(expressao, timezone=timezone.utc), id=RETREINO_JOB_ID,
-                      replace_existing=True, coalesce=True, misfire_grace_time=None)
+    agendador.add_job(disparar, gatilho, id=RETREINO_JOB_ID, replace_existing=True, coalesce=True,
+                      misfire_grace_time=None)
     logger.info("Retreinamento agendado (%s, UTC).", expressao)
     return True
 
@@ -125,6 +147,10 @@ def servico(SessionLocal: Callable[[], Any], cfg: ConfigModelo) -> None:
     agendador = BackgroundScheduler(timezone=timezone.utc)
     agendar_retreinamento(agendador, SessionLocal)
     agendador.start()
+    try:
+        registrar_retreinamentos_perdidos(SessionLocal)
+    except Exception:
+        logger.exception("CU11-C2: não foi possível conferir se o retreinamento agendado foi perdido.")
     logger.info("Serviço modelo pronto: fila a cada %.0f s, artefatos em %s, RN07 %s.", intervalo_da_fila(),
                 pasta.resolve(), "desligada" if cfg.ilvl_minimo is None else f"com nível mínimo {cfg.ilvl_minimo}")
     while True:

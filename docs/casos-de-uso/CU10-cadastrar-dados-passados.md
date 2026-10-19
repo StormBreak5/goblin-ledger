@@ -181,6 +181,7 @@ Decisões já implementadas (com a variável de ambiente que as controla) e o qu
   - a recomposição de 48 horas (CU09-C1 FA3) é incremental e usa o ETag.
   - a importação diária (`HISTORICO_IMPORTACAO_DIARIA_CRON`, padrão `0 2 * * *`, em UTC; `off` desliga) é incremental como a recomposição e regrava o agregado diário que mudou na fonte dentro da janela incremental. Ela não conta para a regra das 48 horas;
   - nenhum modo grava o agregado diário da data UTC corrente (só dias encerrados).
+  - disparo perdido da importação diária: com o computador dormindo no horário, ela roda ao acordar, uma vez só (coalesce, sem limite de atraso, como o ciclo do worker). Desligado, o APScheduler não guarda o disparo; ao iniciar, o worker confere se o último disparo do cron tem importação incremental concluída depois dele e, se não tem, roda a importação na hora, uma vez.
 - RN16: cada ponto tem `granularidade` (`DIARIA` = dia inteiro em UTC; `HORARIA` = instante) e `origem`.
 - O arquivo de um item que só é commodity é um stub de 45 bytes sem preços. Ele é tratado como "sem dados", e a busca segue para o arquivo das commodities.
 - C1-FA1: no TC, a mensagem aparece com um espaço depois da aspa (`" Região ou item inválido…`). O texto correto, que é o do código, não tem esse espaço: "Região ou item inválido. Verifique os dados informados".

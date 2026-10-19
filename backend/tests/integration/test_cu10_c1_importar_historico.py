@@ -405,3 +405,31 @@ def test_cu10_c1_importacao_diaria_nao_roda_com_outra_importacao_em_andamento(db
 
     assert db_session.query(HistoricalItemPrice).count() == 0 and fonte_falsa.chamadas == []
     assert db_session.query(ScraperExecutionLog).count() == 1
+
+
+def test_cu10_c1_importacao_diaria_perdida_e_reconhecida_pelo_ultimo_disparo(db_session):
+    """Ligado às 08:00 de 20/10: o disparo das 02:00 foi perdido se nenhuma importação incremental (diária ou
+    recuperação) concluiu depois dele. A importação do Admin, que pode cobrir poucos itens, não conta."""
+    from datetime import datetime, timezone
+
+    from apscheduler.triggers.cron import CronTrigger
+
+    from src import worker
+
+    gatilho = CronTrigger.from_crontab("0 2 * * *", timezone=timezone.utc)
+    agora = datetime(2026, 10, 20, 8, 0, tzinfo=timezone.utc)
+
+    def log(inicio: datetime, disparo: str, status=ExecutionStatus.SUCCESS) -> None:
+        db_session.add(ScraperExecutionLog(execution_start=inicio, execution_end=inicio, status=status,
+                                           triggered_by=disparo, region=REGIAO))
+        db_session.commit()
+
+    assert worker.importacao_diaria_perdida(gatilho, agora, db_session)  # nenhuma importação
+    log(datetime(2026, 10, 19, 2, 0, 5), "DIARIA")  # a de ontem
+    log(datetime(2026, 10, 20, 3, 0), "ADMIN")
+    log(datetime(2026, 10, 20, 2, 0, 5), "DIARIA", ExecutionStatus.FAILED)
+    assert worker.importacao_diaria_perdida(gatilho, agora, db_session)
+
+    log(datetime(2026, 10, 20, 2, 0, 5), "DIARIA")
+    assert not worker.importacao_diaria_perdida(gatilho, agora, db_session)
+    assert not worker.importacao_diaria_perdida(gatilho, datetime(2026, 10, 20, 1, 0, tzinfo=timezone.utc), db_session)

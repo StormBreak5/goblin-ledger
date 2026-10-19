@@ -100,3 +100,27 @@ def test_cu11_c2_resumo_do_retreinamento(admin_client, db_session, relogio):
     mensagens = {r["id_execucao"]: r["mensagem"] for r in
                  admin_client.get("/api/admin/model-training", headers=cabecalho(token)).json()}
     assert mensagens[falha_do_c2.id] is None and mensagens[falha_do_c1.id] == FE1
+
+
+def test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_e_registrado_uma_vez(db_session, relogio):
+    """Ao iniciar o serviço `modelo` depois do horário do agendador (computador desligado na terça às 18:00), cada região
+    com modelo vigente e sem execução concluída desde aquele disparo recebe o retreinamento, uma vez."""
+    from datetime import timedelta
+
+    _modelo(db_session, relogio, "US")
+    _modelo(db_session, relogio, "EU")
+    disparo_perdido = relogio() - timedelta(days=1)
+    db_session.add(ExecucaoTreinamento(tipo="RETREINAMENTO", disparo="AGENDADO", regiao="EU", status="SUCESSO",
+                                       solicitado_em=disparo_perdido + timedelta(minutes=1)))  # a EU rodou
+    db_session.add(ExecucaoTreinamento(tipo="RETREINAMENTO", disparo="AGENDADO", regiao="US", status="SUCESSO",
+                                       solicitado_em=disparo_perdido - timedelta(days=7)))  # a da semana anterior
+    db_session.commit()
+    servico = TreinamentoService(db_session, relogio)
+
+    registros = servico.registrar_retreinamentos_perdidos(disparo_perdido)
+
+    assert [(r.regiao, r.id_execucao is not None) for r in registros] == [("US", True)]
+    assert servico.registrar_retreinamentos_perdidos(disparo_perdido)[0].motivo == \
+        "já existe uma execução aguardando ou em andamento"  # reiniciou de novo: não duplica
+    assert [e for e in _execucoes(db_session) if e[3] == "AGUARDANDO"] == [
+        ("RETREINAMENTO", "AGENDADO", "US", "AGUARDANDO")]

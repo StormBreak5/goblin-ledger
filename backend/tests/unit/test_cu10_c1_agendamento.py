@@ -33,3 +33,52 @@ def test_cu10_c1_worker_agenda_a_importacao_diaria(mocker, monkeypatch):
 
     monkeypatch.setenv("HISTORICO_IMPORTACAO_DIARIA_CRON", "off")
     assert "importacao_diaria_job" not in _agendar_worker(mocker)
+
+
+def test_cu10_c1_importacao_diaria_dormindo_roda_ao_acordar_uma_vez(mocker):
+    """Computador suspenso por 2,5 dias (três disparos das 02:00 perdidos): ao acordar, a importação diária roda uma vez
+    só (coalesce, sem limite de atraso), e o próximo disparo volta ao horário."""
+    import threading
+    import time
+    from datetime import timedelta
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    execucoes: list[int] = []
+    rodou = threading.Event()
+    mocker.patch.object(worker, "job_importacao_diaria", lambda: (execucoes.append(1), rodou.set()))
+    mocker.patch.object(worker, "importacao_diaria_perdida", return_value=False)
+    agendador = BackgroundScheduler(timezone=timezone.utc)
+    agendador.start(paused=True)
+    try:
+        worker.agendar_importacao_diaria(agendador)
+        agora = datetime.now(timezone.utc)
+        agendador.modify_job(worker.IMPORTACAO_DIARIA_JOB_ID, next_run_time=agora - timedelta(days=2, hours=12))
+        agendador.resume()
+
+        assert rodou.wait(timeout=5)
+        time.sleep(0.5)
+        assert execucoes == [1]
+        assert agendador.get_job(worker.IMPORTACAO_DIARIA_JOB_ID).next_run_time > agora
+    finally:
+        agendador.shutdown()
+
+
+def test_cu10_c1_importacao_diaria_perdida_com_o_computador_desligado_roda_ao_iniciar(mocker):
+    """Desligado no horário, o APScheduler não guarda o disparo: ao iniciar, o worker agenda a importação para agora,
+    uma vez, se o último disparo do cron não tem importação concluída depois dele (a regra está no teste de integração
+    test_cu10_c1_importacao_diaria_perdida_e_reconhecida_pelo_ultimo_disparo)."""
+    agendador = MagicMock()
+    mocker.patch.object(worker, "importacao_diaria_perdida", return_value=True)
+    worker.agendar_importacao_diaria(agendador)
+    jobs = {chamada.kwargs["id"]: chamada for chamada in agendador.add_job.call_args_list}
+
+    perdida = jobs["importacao_diaria_perdida_job"]
+    assert perdida.args[:2] == (worker.job_importacao_diaria, "date")
+    assert perdida.kwargs["misfire_grace_time"] is None
+    assert set(jobs) == {"importacao_diaria_job", "importacao_diaria_perdida_job"}
+
+    agendador = MagicMock()
+    mocker.patch.object(worker, "importacao_diaria_perdida", return_value=False)
+    worker.agendar_importacao_diaria(agendador)
+    assert [c.kwargs["id"] for c in agendador.add_job.call_args_list] == ["importacao_diaria_job"]

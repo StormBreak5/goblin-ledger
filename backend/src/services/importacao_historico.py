@@ -1,10 +1,10 @@
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional, Sequence
 
 import psycopg2
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -258,6 +258,17 @@ class ImportacaoHistoricoService:
         dia, para a série diária da Undermine não parar de crescer com o worker no ar (o CU11-C2 retreina e o C3
         confere as predições com ela). Só grava dias encerrados e regrava o último dia se a fonte o completou."""
         return self._importar_incrementalmente(DISPARO_DIARIA)
+
+    def ultima_importacao_incremental_concluida(self) -> Optional[datetime]:
+        """Início (UTC) da última importação incremental concluída (diária ou recuperação): a referência para o worker
+        saber, ao iniciar, se perdeu a importação diária com o computador desligado."""
+        inicio = (
+            self.session.query(func.max(ScraperExecutionLog.execution_start))
+            .filter(ScraperExecutionLog.status == ExecutionStatus.SUCCESS,
+                    ScraperExecutionLog.triggered_by.in_((DISPARO_DIARIA, DISPARO_RECUPERACAO)))
+            .scalar()
+        )
+        return None if inicio is None else inicio.replace(tzinfo=timezone.utc)  # gravado em UTC, sem fuso
 
     def _importar_incrementalmente(self, disparo: str) -> list[ResumoDaImportacao]:
         """Importação incremental dos itens ativos de cada reino monitorado. Uma importação por vez (a trava de

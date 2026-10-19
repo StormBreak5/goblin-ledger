@@ -4,8 +4,8 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 289 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 86 do CU10 e 46 do CU11). A suíte
-> completa tem 379 testes: 314 no backend (`pytest`, no host), 33 do pipeline do modelo no container do serviço
+> Os testes com identificador de fluxo ou de regra somam 295 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 89 do CU10 e 49 do CU11). A suíte
+> completa tem 385 testes: 318 no backend (`pytest`, no host), 35 do pipeline do modelo no container do serviço
 > `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
@@ -268,7 +268,7 @@
 | regra | `test_cu10_migracao_4_marca_os_pontos_da_blizzard_como_horarios_rn16` | `backend/tests/integration/test_migracoes.py` |
 | regra | `test_cu10_migracao_5_corrige_a_granularidade_dos_pontos_do_ciclo_horario_rn16` | `backend/tests/integration/test_migracoes.py` |
 
-#### CU10 – Cenário 1 (39 testes)
+#### CU10 – Cenário 1 (42 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -297,8 +297,11 @@
 | regra | `test_cu10_c1_arquivo_sem_dados_reconhece_o_stub_e_so_ele` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_etag_mescla_metadata_sem_apagar_atributos` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_etag_sem_origem_registrada_nao_e_reaproveitado_na_recuperacao` | `backend/tests/scraper/test_backfill.py` |
+| regra | `test_cu10_c1_importacao_diaria_dormindo_roda_ao_acordar_uma_vez` | `backend/tests/unit/test_cu10_c1_agendamento.py` |
 | regra | `test_cu10_c1_importacao_diaria_grava_so_dias_encerrados` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_importacao_diaria_nao_roda_com_outra_importacao_em_andamento` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
+| regra | `test_cu10_c1_importacao_diaria_perdida_com_o_computador_desligado_roda_ao_iniciar` | `backend/tests/unit/test_cu10_c1_agendamento.py` |
+| regra | `test_cu10_c1_importacao_diaria_perdida_e_reconhecida_pelo_ultimo_disparo` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_importacao_incremental_regrava_o_dia_gravado_antes_de_terminar` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_lista_as_importacoes_mais_recentes_e_recusa_id_desconhecido` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_o_ritmo_entre_requisicoes_e_configuravel_rn23` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
@@ -398,7 +401,7 @@
 | regra | `test_cu11_c1_restrito_ao_admin` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 | regra | `test_cu11_c1_resumo_do_treinamento` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 
-#### CU11 – Cenário 2 (12 testes)
+#### CU11 – Cenário 2 (15 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -414,6 +417,9 @@
 | regra | `test_cu11_c2_compara_os_dois_modelos_no_mesmo_periodo_com_as_constantes_de_cada_versao` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
 | regra | `test_cu11_c2_item_novo_liberado_ao_atingir_o_minimo_de_dias` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
 | regra | `test_cu11_c2_resumo_do_retreinamento` | `backend/tests/integration/test_cu11_c2_agendador.py` |
+| regra | `test_cu11_c2_retreinamento_dormindo_roda_ao_acordar_uma_vez` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_e_registrado_uma_vez` | `backend/tests/integration/test_cu11_c2_agendador.py` |
+| regra | `test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_roda_ao_iniciar` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
 
 #### CU11 – Regras do modelo (RN03, RN10, RN24, RN25, RN27) (13 testes)
 

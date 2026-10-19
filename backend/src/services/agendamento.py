@@ -51,3 +51,16 @@ def proximo_disparo(agora: datetime, ultimas_requisicoes: Mapping[str, Optional[
     liberacoes = [ultima + INTERVALO_MINIMO for ultima in ultimas_requisicoes.values() if ultima is not None]
     alvo = min(liberacoes) + MARGEM_DO_DISPARO if liberacoes else agora
     return max(alvo, agora + ESPERA_MINIMA)
+
+
+def ultimo_disparo(gatilho, agora: datetime, janela: timedelta = timedelta(days=35)) -> Optional[datetime]:  # type: ignore[no-untyped-def]
+    """O disparo mais recente de um gatilho do APScheduler (o cron da importação diária do CU10-C1 ou do retreinamento
+    do CU11-C2) até `agora`, procurado nos últimos `janela` dias. O APScheduler guarda os horários só na memória: se o
+    computador estava desligado no horário, ao iniciar ele agenda o próximo e o perdido nunca roda. Com o disparo
+    anterior, o serviço reconhece o que foi perdido e o executa uma vez."""
+    ultimo: Optional[datetime] = None
+    proximo = gatilho.get_next_fire_time(None, agora - janela)
+    while proximo is not None and proximo <= agora:
+        ultimo = proximo
+        proximo = gatilho.get_next_fire_time(proximo, proximo + timedelta(microseconds=1))
+    return ultimo
