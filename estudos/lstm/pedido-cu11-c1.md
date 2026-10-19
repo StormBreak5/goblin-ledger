@@ -1,14 +1,19 @@
 # Pedido ao Claude Code: implementar o CU11, Cenário 01 (treinamento inicial)
 
-> **Antes de usar este pedido,** confira se a etapa 2f (`pedido-etapa2f.md`) já foi feita e se `docs/relatorio-etapa2f.md` existe. Se ela ainda não foi feita, faça-a primeiro: é a última medição do estudo.
-
 Esta é a **etapa 3 de `estudos/lstm/ROTEIRO.md`**. As etapas 1 (preparação) e 2 a 2f (treino, escolha da configuração e generalização, no estudo) já foram feitas. A configuração da rede está congelada (seção "Configuração final" do `estudos/lstm/README.md`).
 
 ## Autorização do autor
 
 O CU11 já está no documento do TC (seção 6.4.11), mas o TC ainda não tem as mudanças da v4 do documento de alterações (`docs/Alterações do TC - modelo global (para colar) v4.docx`). A v4 separa os itens que treinam o modelo dos itens que recebem projeção, cria a RN27 e põe o mínimo de 30 dias avaliados na RN10. **Decidi implementar o CU11 com o texto da v4 antes de reexportar o `docs/`.** A especificação está em `docs/casos-de-uso/CU11-treinar-modelo.md`, que já traz a v4.
 
-Antes do plano, faça estes três ajustes:
+Antes do plano, faça o commit da documentação do CU11 que ficou fora dos commits da etapa 2f, na raiz do repositório:
+
+```bash
+git add "docs/Alterações do TC - modelo global (para colar) v4.docx" docs/casos-de-uso/CU11-treinar-modelo.md docs/diagramas-atualizados/cu11c01.* docs/diagramas-atualizados/cu11c02.* docs/diagramas-atualizados/cu11c03.* estudos/lstm/README.md estudos/lstm/pedido-cu11-c1.md
+git commit -m "docs: v4 das alterações do TC, CU11 com a separação dos itens e diagramas de atividades"
+```
+
+Depois, faça estes três ajustes:
 
 1. No `CLAUDE.md`, inclua o CU11 na regra 1 com a observação "provisório: especificado em `docs/casos-de-uso/CU11-treinar-modelo.md`, com a v4 do documento de alterações; as RNs desse arquivo prevalecem sobre `docs/regras-de-negocio.md` e `docs/requisitos.md`". Tire o CU11 da lista dos não especificados.
 2. Ainda no `CLAUDE.md`, acrescente "→ CU11 (C1 → C2 → C3)" na "Ordem sugerida".

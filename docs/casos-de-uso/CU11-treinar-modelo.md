@@ -1,46 +1,63 @@
 # CU11 – Treinar Modelo
 
-> **PROVISÓRIO.** Este caso de uso ainda **não está no documento do TC**. O autor decidiu implementá-lo e testá-lo antes de escrevê-lo. O conteúdo vem do arquivo `docs/Alterações do TC - modelo global (para colar) v3.docx`. Enquanto o TC não for atualizado, as regras de negócio deste arquivo prevalecem sobre as versões antigas em `docs/regras-de-negocio.md`. Qualquer divergência encontrada na implementação deve ser avisada ao autor, para que o texto do TC saia corrigido.
+> **PROVISÓRIO.** O CU11 já está no TC (seção 6.4.11), mas o TC ainda não tem as mudanças de `docs/Alterações do TC - modelo global (para colar) v4.docx`, que separam os itens que treinam o modelo dos itens que recebem projeção. Este arquivo já traz o texto com a v4. Enquanto o TC e o `docs/` não forem reexportados, as regras deste arquivo prevalecem sobre `docs/regras-de-negocio.md` e sobre `docs/requisitos.md`. Qualquer divergência encontrada na implementação deve ser avisada ao autor, para que o texto do TC saia corrigido.
 
-**Situação no código (07/10/2026):** Não implementado no sistema. A implementação de referência do pipeline de dados, da normalização, da separação dos períodos, do treino e da avaliação está em `estudos/lstm/`, com testes (`README.md` de lá), já com a configuração escolhida. Os pré-requisitos foram feitos na etapa 1 (`docs/relatorio-etapa1.md`), e o modelo foi treinado e comparado no estudo nas etapas 2 e 2b (`docs/relatorio-etapa2.md` e `docs/relatorio-etapa2b.md`).
+**Situação no código (18/10/2026):** não implementado no sistema. A implementação de referência do pipeline (variáveis, normalização, divisão dos períodos, treino, avaliação e previsão de itens fora do treino) está em `estudos/lstm/`, com testes e com a configuração final como padrão. Os relatórios das etapas 1 a 2f estão em `docs/relatorio-etapa*.md`.
 
 ## Descrição
 
-Este caso de uso tem como principal função preparar o histórico consolidado dos itens selecionados, treinar o modelo preditivo global de preços e avaliá-lo individualmente para cada item, liberando a projeção somente para os itens em que o modelo atinge o limiar mínimo de acurácia, além de mantê-lo atualizado por meio de retreinamentos periódicos e de registrar diariamente as predições e o seu desempenho para fins de auditoria.
+Este caso de uso tem como principal função preparar o histórico consolidado dos itens, treinar o modelo preditivo global de preços com os itens do conjunto de treinamento e avaliá-lo individualmente para cada item elegível à projeção, inclusive os que não participaram do treinamento, liberando a projeção somente para os itens em que o modelo atinge o limiar mínimo de acurácia, além de mantê-lo atualizado por meio de retreinamentos periódicos e de registrar diariamente as predições e o seu desempenho para fins de auditoria.
 
 - **Requisitos associados:** RF08 – Retreinamento do Modelo; RF12 – Treinamento Inicial
 - **Cenários:**
   - Cenário 01 – Executar treinamento inicial
   - Cenário 02 – Retreinar o modelo periodicamente
   - Cenário 03 – Consolidar predições diárias
+- **Diagramas de atividades:** `docs/diagramas-atualizados/cu11c01.svg`, `cu11c02.svg` e `cu11c03.svg`.
 
 ## Regras de negócio
 
-Regras **alteradas** em relação a `docs/regras-de-negocio.md`:
+Texto do TC atual, com as mudanças da v4 (RN10 e RN15 alteradas; RN27 nova).
 
-- **RN02 – Filtro de Liquidez para Modelagem Preditiva:** Os algoritmos de *Machine Learning* só devem processar e gerar projeções preditivas para itens que possuam quantidade média ofertada superior a 50 unidades nos últimos 7 dias. A quantidade ofertada é utilizada como indicador de liquidez, pois a API oficial não informa as vendas realizadas. Itens com baixa liquidez não possuem dados estatísticos suficientes para inferências estocásticas confiáveis, devendo exibir apenas o histórico gráfico (sem a linha de tendência). Na prática, o critério restringe a projeção às *commodities*, negociadas em grande volume em toda a região; os equipamentos, vendidos em poucas unidades por reino, exibem apenas o histórico.
-- **RN03 – Mitigação de *Outliers* e *Market Spoofing*:** Para evitar que o treinamento do modelo preditivo seja corrompido por manipulações de mercado (jogadores que postam itens a preços absurdamente altos para inflacionar médias), o *pipeline* de dados (Python) deve descartar registros cujo preço diário seja 300% superior ou 90% inferior à Média Móvel Exponencial (EMA) de 14 dias do referido item, calculada somente com os registros anteriores já aceitos. Quando o preço permanecer fora dessa faixa, do mesmo lado, por 7 registros seguidos, considera-se uma mudança real de patamar: os registros próximos da mediana dessa sequência são aceitos e a EMA recomeça a partir deles. Se a mudança for de 1.000 vezes ou mais em relação ao patamar anterior, são exigidos 28 registros seguidos. No início da série, o primeiro patamar só é considerado confirmado depois de 7 registros aceitos.
-- **RN07 – Relevância de Equipamento (iLvl):** O modelo de *Machine Learning* deve somente processar equipamentos (armas e armaduras) se forem relevantes para o *endgame*, ou seja, se o seu nível de item (iLvl) for igual ou superior ao mínimo definido para a temporada vigente. Equipamentos obsoletos têm a predição bloqueada para economizar processamento.
-- **RN10 – Limiar de Precisão Preditiva:** O sistema deve omitir projeções de ML que não atinjam um padrão mínimo de acurácia matemática. A projeção de um item só é exibida se a mediana do erro percentual absoluto (MdAPE) das previsões do modelo para o item, medida no período de teste (RN25) sobre os dias com preço observado, for igual ou inferior a 15% e menor que a do modelo ingênuo, que repete o último preço observado. A mediana é usada no lugar da média (MAPE) porque os erros percentuais crescem muito quando o valor real é pequeno (HYNDMAN; ATHANASOPOULOS, 2018), e o preço diário, por ser o menor anúncio do dia, está sujeito a quedas isoladas que distorceriam a média.
+- **RN02 – Filtro de Liquidez para Modelagem Preditiva:** Os algoritmos de Machine Learning só devem processar e gerar projeções preditivas para itens que possuam quantidade média ofertada superior a 50 unidades nos últimos 7 dias. A quantidade ofertada é utilizada como indicador de liquidez, pois a API oficial não informa as vendas realizadas. Itens com baixa liquidez não possuem dados estatísticos suficientes para inferências estocásticas confiáveis, devendo exibir apenas o histórico gráfico. Na prática, o critério restringe a projeção às commodities, negociadas em grande volume em toda a região; os equipamentos, vendidos em poucas unidades por reino, exibem apenas o histórico.
+- **RN03 – Mitigação de Outliers e Market Spoofing:** Para evitar que o treinamento do modelo preditivo seja corrompido por manipulações de mercado, o pipeline de dados deve descartar registros cujo preço diário seja 300% superior ou 90% inferior à Média Móvel Exponencial (EMA) de 14 dias do referido item, calculada somente com os registros anteriores já aceitos. Quando o preço permanecer fora dessa faixa, do mesmo lado, por 7 registros seguidos, considera-se uma mudança real de patamar: os registros próximos da mediana dessa sequência são aceitos e a EMA recomeça a partir deles. Se a mudança for de 1.000 vezes ou mais em relação ao patamar anterior, são exigidos 28 registros seguidos. No início da série, o primeiro patamar só é considerado confirmado depois de 7 registros aceitos.
+- **RN07 – Relevância de Equipamento (iLvl):** O modelo de Machine Learning deve somente processar equipamentos (armas e armaduras) se forem relevantes para o endgame, ou seja, se o seu nível de item (iLvl) for igual ou superior ao mínimo definido para a temporada vigente. Equipamentos obsoletos têm a predição bloqueada para economizar processamento.
+- **RN10 – Limiar de Precisão Preditiva:** O sistema deve omitir projeções de ML que não atinjam um padrão mínimo de acurácia matemática. A projeção de um item só é exibida se a mediana do erro percentual absoluto (MdAPE) das previsões do modelo para o item, medida no período de teste sobre os dias com preço observado, for igual ou inferior a 15% e menor que a do modelo ingênuo, que repete o último preço observado. A avaliação exige no mínimo 30 dias com previsões avaliadas; o item que ainda não os possui, como um item lançado recentemente, permanece com a projeção bloqueada e é reavaliado no retreinamento seguinte. A mediana é usada no lugar da média (MAPE) porque os erros percentuais crescem muito quando o valor real é pequeno (HYNDMAN; ATHANASOPOULOS, 2018), e o preço diário, por ser o menor anúncio do dia, está sujeito a quedas isoladas que distorceriam a média. *(alterada na v4)*
 - **RN13 – Snapshot de Estado (Auditoria ML):** O sistema deve consolidar diariamente suas predições contra a realidade para fins de auditoria acadêmica, registrando, para cada item com projeção liberada, a data, a versão do modelo, o valor predito, o valor real observado e o erro. Se a mediana do erro percentual dos últimos 7 dias ultrapassar o limiar da RN10, a projeção do item é bloqueada até o próximo retreinamento.
-- **RN16 – Harmonização de Dados de Terceiros:** Dados históricos retroativos obtidos via extração externa (Undermine Exchange, *web scraping*) devem obrigatoriamente ser convertidos, tipados e higienizados para o exato padrão relacional do SGBD do sistema e da padronização de moeda, garantindo a integridade do *dataset* antes do treinamento inicial. Cada registro identifica a sua origem e a sua granularidade (diária ou horária). As séries de origens diferentes não são misturadas no treinamento: o modelo utiliza a série diária da Undermine Exchange, única com histórico contínuo, e a série horária do ciclo da Blizzard (RN06) não é incorporada a ela.
-
-Regras **novas**:
-
-- **RN24 – Normalização das Variáveis do Modelo:** Para o treinamento e a predição, os preços e as quantidades recebem transformação logarítmica e são padronizados pela média e pelo desvio-padrão dos últimos 90 dias do próprio item; as variações de preço e os indicadores derivados são divididos por constantes globais. Em todos os casos, os valores resultantes são limitados ao intervalo entre −1 e 1. O dia da semana é representado por seno e cosseno, as contagens de dias são limitadas a 60 e divididas por 60 (exceto a distância até o próximo patch, limitada à antecedência da RN25), e as categorias do item são representadas por vetores aprendidos (*embeddings*). Dias sem registro são preenchidos com o último valor observado por até 3 dias e marcados como não observados. A saída do modelo é padronizada pela média e pelo desvio-padrão de cada dia do horizonte, calculados no período de treinamento.
-- **RN25 – Integridade Temporal do Treinamento:** Toda variável de entrada do modelo deve ser calculada apenas com informações disponíveis no dia da previsão. Como a data de anúncio dos eventos não é registrada, um patch só é considerado conhecido a partir de 14 dias antes da sua data. O histórico é dividido em ordem cronológica, com as mesmas datas de corte para todos os itens, em 70% para treinamento, 20% para validação e 10% para teste (HYNDMAN; ATHANASOPOULOS, 2018). A validação é usada para interromper o treinamento e escolher a configuração do modelo; o teste é usado uma única vez, para medir o erro final e decidir a liberação da projeção de cada item (RN10). Amostras cujos dias previstos atravessem uma data de corte são descartadas. As constantes de normalização (RN24) são calculadas exclusivamente com os dados do período de treinamento e armazenadas junto com a versão do modelo.
-- **RN26 – Política de Retreinamento:** O modelo preditivo é retreinado semanalmente, após o reinício semanal do jogo, e só substitui o modelo vigente se apresentar erro menor que o dele no mesmo período de teste (RN25); caso contrário, o modelo vigente é mantido.
-
-Regras **sem alteração**, usadas pelo caso de uso:
-
-- **RN15 – Volume Mínimo para Treinamento Inicial:** O modelo preditivo de um item só pode ser processado e ativado (RF12) se a base de dados contiver um período histórico contínuo predeterminado de mínimo 6 meses de registros consolidados para o respectivo ativo. Itens sem histórico mínimo terão a predição bloqueada. O período mínimo corresponde a 180 dias contínuos, e lacunas de até 3 dias sem registros não interrompem a continuidade do período.
+- **RN15 – Volume Mínimo para Treinamento:** Um item só integra o conjunto de treinamento do modelo preditivo se a base de dados contiver um período histórico contínuo predeterminado de mínimo 6 meses de registros consolidados para o respectivo ativo. O período mínimo corresponde a 180 dias contínuos, e lacunas de até 3 dias sem registros não interrompem a continuidade do período. A regra seleciona os itens usados para ajustar o modelo; a projeção de um item que não integra o conjunto de treinamento segue a RN27. *(alterada na v4)*
+- **RN16 – Harmonização de Dados de Terceiros:** Dados históricos retroativos obtidos via extração externa (Undermine Exchange, web scraping) devem obrigatoriamente ser convertidos, tipados e higienizados para o exato padrão relacional do SGBD do sistema e da padronização de moeda, garantindo a integridade do dataset antes do treinamento inicial. Cada registro identifica a sua origem e a sua granularidade (diária ou horária). As séries de origens diferentes não são misturadas no treinamento: o modelo utiliza a série diária da Undermine Exchange, única com histórico contínuo, e a série horária do ciclo da Blizzard não é incorporada a ela.
 - **RN17 – Marcação Estocástica de Eventos:** Datas de grandes atualizações sistêmicas do jogo (patches/expansões) mapeadas no banco histórico devem ser injetadas como variáveis categóricas para o algoritmo. Isso impede que o modelo interprete quedas abruptas de preço causadas por obsolescência de itens como flutuações naturais de mercado. Além de patches e expansões, são registrados como eventos as temporadas, os eventos sazonais e os eventos recorrentes do jogo.
+- **RN24 – Normalização das Variáveis do Modelo:** Para o treinamento e a predição, os preços e as quantidades recebem transformação logarítmica e são padronizados pela média e pelo desvio-padrão dos últimos 90 dias do próprio item; as variações de preço e os indicadores derivados são divididos por constantes globais. Em todos os casos, os valores resultantes são limitados ao intervalo entre −1 e 1. O dia da semana é representado por seno e cosseno, as contagens de dias são limitadas a 60 e divididas por 60 (exceto a distância até o próximo patch), e as categorias do item são representadas por vetores aprendidos (embeddings). Dias sem registro são preenchidos com o último valor observado por até 3 dias e marcados como não observados. A saída do modelo é padronizada pela média e pelo desvio-padrão de cada dia do horizonte, calculados no período de treinamento.
+- **RN25 – Integridade Temporal do Treinamento:** Toda variável de entrada do modelo deve ser calculada apenas com informações disponíveis no dia da previsão. Como a data de anúncio dos eventos não é registrada, um patch só é considerado conhecido a partir de 14 dias antes da sua data. O histórico é dividido em ordem cronológica, com as mesmas datas de corte para todos os itens, em 70% para treinamento, 20% para validação e 10% para teste (HYNDMAN; ATHANASOPOULOS, 2018). A validação é usada para interromper o treinamento e escolher a configuração do modelo; o teste é usado uma única vez, para medir o erro final e decidir a liberação da projeção de cada item. Amostras cujos dias previstos atravessem uma data de corte são descartadas. As constantes de normalização são calculadas exclusivamente com os dados do período de treinamento e armazenadas junto com a versão do modelo.
+- **RN26 – Política de Retreinamento:** O modelo preditivo é retreinado semanalmente, após o reinício semanal do jogo, e só substitui o modelo vigente se apresentar erro menor que o dele no mesmo período de teste; caso contrário, o modelo vigente é mantido.
+- **RN27 – Histórico Mínimo para Projeção:** A projeção de um item, tenha ele integrado ou não o conjunto de treinamento do modelo, só pode ser calculada e avaliada quando o item possuir ao menos 60 dias de histórico diário, necessários para a padronização móvel das variáveis e para compor a janela de entrada do modelo. Itens com histórico inferior exibem apenas o histórico gráfico. *(nova na v4)*
 
-Mapeamento de rastreabilidade (seção 3.6.2):
+Mapeamento de rastreabilidade (seção 3.6.2, com a v4):
 
-- **RF04 (Projeção Preditiva com ML):** Estritamente governado por RN02, RN03, RN07, RN10, RN17.
-- **RF08 (Retreinamento do Modelo):** Validado por RN02, RN03, RN07, RN10, RN13, RN24, RN25, RN26.
-- **RF12 (Treinamento Inicial do Modelo):** Estritamente governado por RN02, RN03, RN07, RN10, RN15, RN16, RN17, RN24, RN25.
+- **RF04 (Projeção Preditiva com ML):** Estritamente governado por RN02, RN03, RN07, RN10, RN17, RN27.
+- **RF08 (Retreinamento do Modelo):** Validado por RN02, RN03, RN07, RN10, RN13, RN15, RN24, RN25, RN26, RN27.
+- **RF11 (Ingestão do Histórico Passado):** Validado por RN11, RN15, RN16, RN17, RN23.
+- **RF12 (Treinamento Inicial do Modelo):** Estritamente governado por RN02, RN03, RN07, RN10, RN15, RN16, RN17, RN24, RN25, RN27.
+
+Termos do glossário (novos na v4):
+
+- **Conjunto de Treinamento:** Itens elegíveis à projeção que também são aptos ao treinamento (RN15), cujo histórico é usado para ajustar os pesos do modelo preditivo.
+- **Item Elegível à Projeção:** Item que atende ao filtro de liquidez (RN02), ao critério de relevância de equipamentos (RN07) e ao histórico mínimo para projeção (RN27), tenha ou não integrado o conjunto de treinamento; a sua projeção é liberada ou bloqueada conforme a RN10.
+
+## Requisito Funcional 04 – [RF 04]: Projeção Preditiva
+
+O sistema deve calcular e exibir no gráfico uma linha de tendência preditiva baseada no modelo de *Machine Learning*.
+
+**Intenção do usuário:** "Quero visualizar a projeção matemática para o preço desse item nos próximos dias para decidir se estoco ou vendo meus materiais agora."
+
+A projeção cobre os próximos 7 dias e só deve ser calculada e renderizada para itens que tenham uma quantidade ofertada aceitável (RN02) e o histórico mínimo para projeção (RN27), tenham ou não sido utilizados no treinamento do modelo. O sistema omitirá a linha preditiva caso a acurácia matemática do modelo para aquele item não atinja o limiar mínimo exigido (RN10).
+
+- **Regras de negócio:** RN02; RN03; RN07; RN10; RN17; RN27
+
+| Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
+| --- | --- | --- | --- | --- |
+| ID do Item | Inteiro | - | Sim | Numérico |
+| Data da Projeção | Data | - | Sim | DD/MM/AAAA |
 
 ## Requisito Funcional 08 – [RF 08]: Retreinamento do Modelo
 
@@ -48,9 +65,9 @@ O sistema deve possuir um trabalho automatizado para retreinar periodicamente os
 
 **Intenção do sistema:** "Atualizar os pesos matemáticos do modelo de *Machine Learning* baseando-se nas últimas flutuações do mercado, para evitar que a linha de tendência fique defasada."
 
-Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja higienizado: descartando valores absurdos (*outliers* gerados por *spoofing*/*market manipulation*), ignorando itens sem quantidade ofertada suficiente e focando em equipamentos que ainda tenham relevância no jogo (iLvl). O retreinamento atualiza o modelo global com os dados mais recentes e só substitui o modelo vigente quando o novo apresenta desempenho superior (RN26).
+Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja higienizado: descartando valores absurdos (*outliers* gerados por *spoofing*/*market manipulation*), ignorando itens sem quantidade ofertada suficiente e focando em equipamentos que ainda tenham relevância no jogo (iLvl). O retreinamento atualiza o modelo global com os dados mais recentes e só substitui o modelo vigente quando o novo apresenta desempenho superior (RN26). A cada retreinamento, a projeção de todos os itens elegíveis, inclusive os que não integram o conjunto de treinamento, é reavaliada (RN10, RN27).
 
-- **Regras de negócio:** RN02; RN03; RN07; RN10; RN13; RN24; RN25; RN26
+- **Regras de negócio:** RN02; RN03; RN07; RN10; RN13; RN15; RN24; RN25; RN26; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -62,13 +79,13 @@ Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja h
 
 ## Requisito Funcional 12 – [RF 12]: Treinamento Inicial
 
-O sistema deve possuir uma rotina dedicada para processar o histórico consolidado de dados (proveniente do RF11) e realizar o treinamento primário dos algoritmos de *Machine Learning*, estabelecendo um modelo preditivo global, treinado com o histórico de todos os itens selecionados e avaliado individualmente para cada item, antes de sua disponibilização no ambiente de produção.
+O sistema deve possuir uma rotina dedicada para processar o histórico consolidado de dados (proveniente do RF11) e realizar o treinamento primário dos algoritmos de *Machine Learning*, estabelecendo um modelo preditivo global, treinado com o histórico dos itens do conjunto de treinamento e avaliado individualmente para cada item elegível à projeção, inclusive os que não participaram do treinamento, antes de sua disponibilização no ambiente de produção.
 
 **Intenção do sistema:** "Preciso analisar todo o histórico de preços já higienizado para gerar o primeiro modelo matemático preditivo, garantindo que o sistema já nasça com inteligência ao entrar em produção."
 
-O treinamento utiliza a base harmonizada e aplica a marcação estocástica de eventos para refinar a precisão. As variáveis de entrada do modelo e a sua normalização estão descritas na seção 5.12.2.
+O treinamento utiliza a base harmonizada e aplica a marcação estocástica de eventos para refinar a precisão. As variáveis de entrada do modelo, a sua normalização e o treinamento estão descritos na seção 5.12.2.
 
-- **Regras de negócio:** RN02; RN03; RN07; RN10; RN15; RN16; RN17; RN24; RN25
+- **Regras de negócio:** RN02; RN03; RN07; RN10; RN15; RN16; RN17; RN24; RN25; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -105,36 +122,40 @@ O quadro a seguir apresenta as variáveis de entrada do modelo preditivo global,
 | 17 | Possui preço de venda ao vendedor | Item (fixa) | 0 ou 1 | Indicador. |
 | 18 | Item do tipo commodity | Item (fixa) | 0 ou 1 | Indicador; commodity é o item cujo histórico vem do arquivo de commodities da região. |
 
-Fundamentação (seção 3.1.2.3, a entrar no TC): modelo global, treinado com as séries de todos os itens (MONTERO-MANSO; HYNDMAN, 2021; SALINAS et al., 2020), com camada LSTM (HOCHREITER; SCHMIDHUBER, 1997); divisão dos períodos conforme HYNDMAN; ATHANASOPOULOS (2018).
+A rede neural é composta por uma camada LSTM de 64 unidades, que recebe a janela de entrada com as variáveis que variam no tempo (variáveis 1 a 14), seguida de uma camada de *dropout* de 20%. A saída da LSTM é combinada aos atributos fixos do item (variáveis 16 a 18) e aos vetores aprendidos da classe e da subclasse (variável 15) e passa por uma camada densa de 32 neurônios até a camada de saída, com um valor para cada dia do horizonte de previsão.
+
+O modelo é treinado com os dados do período de treinamento dos itens do conjunto de treinamento, minimizando o erro absoluto médio (MAE) entre os log-retornos previstos e os observados, com o otimizador Adam e com a interrupção do treinamento quando o erro no período de validação deixa de diminuir (RN25). A minimização do erro absoluto leva o modelo a prever a mediana dos valores futuros, e não a sua média (HYNDMAN; ATHANASOPOULOS, 2018; GNEITING, 2011), o que torna o treinamento coerente com a métrica que decide a liberação da projeção de cada item, a mediana do erro percentual absoluto (RN10).
+
+Fundamentação (seção 3.1.2.3): Quando há um grande número de séries temporais relacionadas, uma alternativa ao treinamento de um modelo por série é o treinamento de um modelo global, ajustado simultaneamente sobre todas as séries. Montero-Manso e Hyndman (2021) demonstram que modelos globais podem alcançar precisão igual ou superior à dos modelos locais, aproveitando padrões compartilhados entre as séries. Salinas et al. (2020) aplicam esse princípio a redes neurais recorrentes LSTM (HOCHREITER; SCHMIDHUBER, 1997) no método DeepAR, treinado sobre milhares de séries de demanda. No Goblin Ledger, o modelo global permite que efeitos raros na história de um único item, como o lançamento de um *patch*, sejam aprendidos a partir de sua ocorrência simultânea em milhares de itens. Além disso, como o modelo não recebe nenhum identificador do item, apenas variáveis em escala relativa ao histórico do próprio item e os seus atributos, ele também pode prever itens que não participaram do treinamento, como os lançados depois dele, desde que possuam histórico suficiente. Em todos os casos, a capacidade preditiva é avaliada individualmente para cada item.
 
 ## CU11 - C1 – Treinar Modelo - Cenário Executar Treinamento Inicial
 
-- **Objetivo:** Gerar o primeiro modelo preditivo global a partir do histórico consolidado dos itens selecionados, liberando a projeção somente para os itens em que o modelo atinge o limiar mínimo de acurácia.
+- **Objetivo:** Gerar o primeiro modelo preditivo global a partir do histórico consolidado dos itens do conjunto de treinamento, liberando a projeção somente para os itens elegíveis em que o modelo atinge o limiar mínimo de acurácia, tenham ou não participado do treinamento.
 - **Pré-condição:** O Admin deve possuir acesso às funções administrativas da plataforma e a cobertura histórica dos itens deve ter sido validada (CU10 - Cenário 03).
-- **Pós-condição:** O modelo global é registrado com as suas métricas, e cada item processado tem a sua projeção classificada como "Liberada" ou "Bloqueada".
+- **Pós-condição:** O modelo global é registrado com as suas métricas, e cada item elegível tem a sua projeção classificada como "Liberada" ou "Bloqueada".
 - **Atores:** Admin
 - **Ativação:** O Admin solicita a execução do treinamento inicial.
 
 ### Fluxo principal
 
 1. O Admin solicita a execução do treinamento inicial, informando a região.
-2. O sistema seleciona os itens classificados como "Apto ao treinamento" (RN15) que atendem ao filtro de liquidez (RN02) e ao critério de relevância de equipamentos (RN07).
-3. O sistema recupera a série histórica diária harmonizada de cada item selecionado (RN16).
-4. O sistema descarta os registros cujo preço seja 300% superior ou 90% inferior à média móvel exponencial de 14 dias do item (RN03).
-5. O sistema calcula as variáveis de entrada de cada item, incluindo as variáveis de calendário e as variáveis categóricas dos eventos do jogo registrados no período (RN17).
-6. O sistema normaliza as variáveis de entrada (RN24).
-7. O sistema separa o histórico em períodos de treinamento, validação e teste, com as mesmas datas de corte para todos os itens e preservando a ordem cronológica dos registros (RN25).
-8. O sistema treina o modelo preditivo global com os dados do período de treinamento de todos os itens selecionados, interrompendo o treinamento quando o erro no período de validação deixa de diminuir.
-9. O sistema avalia o modelo no período de teste de cada item, calculando o erro das predições do item e o erro do modelo ingênuo.
-10. O sistema verifica, para cada item, se o modelo atinge o limiar mínimo de acurácia (RN10).
-11. O sistema registra a versão do modelo, com a data e a hora do treinamento e as métricas obtidas, e libera a projeção dos itens aprovados (CU05).
+2. O sistema seleciona os itens elegíveis à projeção, que atendem ao filtro de liquidez, ao histórico mínimo para projeção e ao critério de relevância de equipamentos, e, entre eles, os itens do conjunto de treinamento, classificados como "Apto ao treinamento".
+3. O sistema recupera a série histórica diária harmonizada de cada item selecionado.
+4. O sistema descarta os registros cujo preço seja 300% superior ou 90% inferior à média móvel exponencial de 14 dias do item.
+5. O sistema calcula as variáveis de entrada de cada item, incluindo as variáveis de calendário e as variáveis categóricas dos eventos do jogo registrados no período.
+6. O sistema normaliza as variáveis de entrada.
+7. O sistema separa o histórico em períodos de treinamento, validação e teste, com as mesmas datas de corte para todos os itens e preservando a ordem cronológica dos registros.
+8. O sistema treina o modelo preditivo global com os dados do período de treinamento dos itens do conjunto de treinamento, interrompendo o treinamento quando o erro no período de validação deixa de diminuir.
+9. O sistema avalia o modelo no período de teste de cada item elegível, inclusive os que não integram o conjunto de treinamento, calculando o erro das predições do item e o erro do modelo ingênuo.
+10. O sistema verifica, para cada item elegível, se o modelo atinge o limiar mínimo de acurácia com o mínimo de dias de previsões avaliadas.
+11. O sistema registra a versão do modelo, com a data e a hora do treinamento e as métricas obtidas, e libera a projeção dos itens aprovados.
 12. O sistema apresenta ao Admin o resumo do treinamento, com a quantidade de itens com projeção liberada, de itens com projeção bloqueada e de itens ignorados.
 
 ### Fluxos alternativos
 
 #### Fluxo Alternativo 1 - Nenhum item apto ao treinamento
 
-- **1.1** No passo 2, o sistema não encontra itens que atendam aos critérios de seleção.
+- **1.1** No passo 2, o sistema não encontra itens para o conjunto de treinamento.
 - **1.2** O sistema exibe a mensagem: "Nenhum item apto ao treinamento. Verifique a validação da cobertura histórica".
 - **1.3** Fim.
 
@@ -146,15 +167,21 @@ Fundamentação (seção 3.1.2.3, a entrar no TC): modelo global, treinado com a
 
 #### Fluxo Alternativo 3 - Série insuficiente após a higienização
 
-- **3.1** No passo 4, o sistema identifica que os registros restantes do item não são suficientes para compor os períodos de treinamento, validação e teste.
-- **3.2** O sistema classifica o item como "Ignorado", registrando o motivo, e o exclui do treinamento.
+- **3.1** No passo 4, o sistema identifica que os registros restantes do item não são suficientes para compor as amostras do modelo.
+- **3.2** O sistema classifica o item como "Ignorado", registrando o motivo, e o exclui do treinamento e da avaliação.
 - **3.3** Retorna ao passo 3 do fluxo principal para os demais itens.
 
 #### Fluxo Alternativo 4 - Projeção do item reprovada na avaliação
 
-- **4.1** No passo 10, o sistema identifica que o modelo não atinge o limiar mínimo de acurácia (RN10) para o item.
+- **4.1** No passo 10, o sistema identifica que o modelo não atinge o limiar mínimo de acurácia para o item.
 - **4.2** O sistema registra as métricas do item e mantém a sua projeção bloqueada.
 - **4.3** Retorna ao passo 10 do fluxo principal para os demais itens.
+
+#### Fluxo Alternativo 5 - Avaliação insuficiente do item
+
+- **5.1** No passo 10, o sistema identifica que o item não possui o mínimo de dias com previsões avaliadas no período de teste.
+- **5.2** O sistema registra o motivo e mantém a projeção do item bloqueada até a sua reavaliação no próximo retreinamento.
+- **5.3** Retorna ao passo 10 do fluxo principal para os demais itens.
 
 ### Fluxos de exceção
 
@@ -183,21 +210,21 @@ Fundamentação (seção 3.1.2.3, a entrar no TC): modelo global, treinado com a
 ### Fluxo principal
 
 1. O agendador de tarefas dispara a rotina de retreinamento.
-2. O sistema seleciona os itens que atendem ao filtro de liquidez (RN02), ao critério de relevância de equipamentos (RN07) e à cobertura histórica mínima (RN15).
-3. O sistema recupera a série histórica de cada item, incluindo os dados ingeridos desde o último treinamento.
+2. O sistema seleciona os itens elegíveis à projeção, que atendem ao filtro de liquidez, ao histórico mínimo para projeção e ao critério de relevância de equipamentos, e, entre eles, os itens do conjunto de treinamento, que atendem à cobertura histórica mínima.
+3. O sistema recupera a série histórica de cada item selecionado, incluindo os dados ingeridos desde o último treinamento.
 4. O sistema higieniza, calcula, normaliza e separa as variáveis conforme os passos 4 a 7 do Cenário 01.
-5. O sistema treina um novo modelo global.
-6. O sistema avalia o novo modelo e o modelo vigente no mesmo período de teste (RN25).
-7. O sistema verifica se o novo modelo apresenta erro menor que o do modelo vigente (RN26).
+5. O sistema treina um novo modelo global com os itens do conjunto de treinamento.
+6. O sistema avalia o novo modelo e o modelo vigente no mesmo período de teste.
+7. O sistema verifica se o novo modelo apresenta erro menor que o do modelo vigente.
 8. O sistema substitui o modelo vigente pelo novo, registrando a versão, a data e a hora do treinamento e as métricas obtidas.
-9. O sistema atualiza a situação da projeção de cada item, liberando os itens que atingem o limiar mínimo de acurácia (RN10) e bloqueando os demais.
+9. O sistema atualiza a situação da projeção de cada item elegível, liberando os itens que atingem o limiar mínimo de acurácia com o mínimo de dias de previsões avaliadas e bloqueando os demais.
 10. O sistema registra em log o resumo do retreinamento.
 
 ### Fluxos alternativos
 
-#### Fluxo Alternativo 1 - Item deixou de atender aos critérios
+#### Fluxo Alternativo 1 - Item deixou de ser elegível à projeção
 
-- **1.1** No passo 2, o sistema identifica que um item com projeção liberada não atende mais aos critérios de seleção.
+- **1.1** No passo 2, o sistema identifica que um item com projeção liberada não é mais elegível à projeção.
 - **1.2** O sistema bloqueia a projeção do item.
 - **1.3** Retorna ao passo 2 do fluxo principal para os demais itens.
 
@@ -271,21 +298,42 @@ Fundamentação (seção 3.1.2.3, a entrar no TC): modelo global, treinado com a
 
 ## Observações para a implementação
 
-Este caso de uso ainda não está implementado no sistema. Abaixo estão as decisões já tomadas no estudo, as sugestões de implementação e o que ainda precisa ser confirmado com o autor (CLAUDE.md, regra 3). Onde houver conflito com o texto acima, vale o que está aqui, e o autor deve ser avisado para corrigir o texto do TC.
+Este caso de uso ainda não está implementado no sistema. Abaixo estão as decisões tomadas no estudo, as sugestões de implementação e o que ainda precisa ser confirmado com o autor (CLAUDE.md, regra 3). Onde houver conflito com o texto acima, vale o que está aqui, e o autor deve ser avisado para corrigir o texto do TC.
 
-### Resultados do estudo (validação, base completa)
+### Resultados do estudo (validação)
 
-São 6.562 séries (6.547 commodities), cerca de 8,07 milhões de linhas e 3,79 milhões de amostras de treino. A configuração escolhida foi a média de 3 sementes (`docs/relatorio-etapa2b.md`):
+A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de linhas e 3,79 milhões de amostras de treino. Todas as escolhas foram feitas na validação, com 3 sementes e regra de decisão definida antes de cada experimento. O teste não foi usado: ele é o do treinamento inicial no sistema (RN25).
 
-| Modelo | Mediana do MAPE por item | MAPE h1 | MAPE h7 | Itens que superam o ingênuo |
-| --- | --- | --- | --- | --- |
-| Ingênuo | 47,19% | 26,64% | 88,98% | — |
-| Regressão linear | 44,51% | 29,64% | 69,43% | 3.949 |
-| **LSTM: eventos agregados, sem máscara** | **38,66% ± 0,19** | **25,36%** | **62,32%** | **5.476 (84%)** |
+| Modelo (6.484 itens, média de 3 sementes) | Mediana do MdAPE por item | Mediana do MAPE por item | Itens liberados (RN10, sem o mínimo de dias) |
+| --- | --- | --- | --- |
+| Ingênuo | 24,17% | 47,19% | — |
+| Regressão linear | 28,02% | 44,51% | — |
+| LSTM, perda Huber (etapa 2b) | 22,67% | 38,66% | 603 |
+| **LSTM, perda MAE (configuração final, etapa 2e)** | **20,62%** | **37,92%** | **1.090** |
 
-- **RN10 (MdAPE ≤ 15% e menor que o do ingênuo):** 592 de 6.484 itens liberados na validação (9,1%). O número oficial sai do teste.
-- **Tempo de treino:** de 10 a 27 minutos na CPU, com 400 mil amostras por época e cerca de 28 s por época.
-- **Alternativas testadas e descartadas:** um indicador por festival e pela Feira de Negrilua (`--eventos-detalhados`) e a máscara dos alvos não observados (`--mascara`). As duas pioraram o resultado.
+- **Configuração final (congelada):** variáveis 1 a 18 com a 14 agregada, sem máscara, perda MAE. Testadas e reprovadas: eventos detalhados e máscara (2b), item da expansão vigente e idade do item (2d), redução da taxa de aprendizado e LSTM de 128 unidades (2e).
+- **Custo da perda MAE:** as medidas que dão peso aos erros grandes pioram um pouco (MAPE médio por item de 59,7% para 61,4%; MAPE h7 de 62,3% para 63,7%). Grave e relate as três medidas (MdAPE, MAPE e RMSE, risco R02).
+- **Generalização (etapa 2f, perda MAE; a 2c mediu o mesmo com a perda Huber):**
+  - itens reservados do treino tiveram o mesmo erro de quando foram vistos: diferença mediana de 0,00 a 0,02 ponto no MdAPE, menor que o ruído entre sementes;
+  - os 755 itens sem nenhuma amostra de treino (quase todos da expansão Midnight) foram previstos melhor que pelo ingênuo em 76% a 81% dos casos;
+  - itens fora da seleção empataram com o ingênuo, mas porque são ilíquidos: com a mesma liquidez, itens do treino e de fora se comportam igual. O modelo supera o ingênuo a partir de umas 20 unidades ofertadas em média, e o limiar de 50 da RN02 é conservador;
+  - o mínimo de 30 dias da RN10 retirou 223 de 1.018 liberações na validação, quase todas de itens novos com só 8 dias avaliados (o corte da validação cai poucas semanas depois da expansão). No período de teste do sistema, esses itens já têm meses de histórico.
+- **Tempo de treino:** de 20 a 35 minutos na CPU com a perda MAE (de 44 a 68 épocas de cerca de 30 s).
+
+### Itens que treinam o modelo e itens que recebem projeção
+
+É a principal mudança da v4.
+
+| Conjunto | Critérios | Uso |
+| --- | --- | --- |
+| **Itens elegíveis à projeção** | RN02 (quantidade média > 50 nos últimos 7 dias), RN07 (equipamentos relevantes) e RN27 (ao menos 60 dias de histórico diário) | são avaliados no período de teste e recebem a situação "Liberada" ou "Bloqueada" (RN10) |
+| **Conjunto de treinamento** | os elegíveis que também são aptos ao treinamento (RN15, tabela `aptidao_treinamento`) | ajustam os pesos e as constantes de normalização |
+
+- **Constantes e vocabulário (RN24 e RN25):** são calculados só com as linhas do período de treinamento do **conjunto de treinamento** e aplicados a todos os itens elegíveis. Uma classe ou subclasse que não existe no treino vira a categoria 0 (desconhecida). É exatamente o que o estudo faz com `preparar_dados.py --normalizacao-de` e `prever.py`.
+- **Avaliação (passos 9 e 10 do C1):** o modelo prevê o período de teste de **todos** os itens elegíveis, inclusive os que não integram o conjunto de treinamento. A situação de cada um sai da RN10.
+- **Variável 6 (índice da subclasse):** calcule-a com todos os itens selecionados no dia, não só com o conjunto de treinamento.
+- **Itens novos:** um item lançado depois do treino entra como elegível quando completa 60 dias de histórico. Ele é avaliado no período de teste do próximo retreinamento e liberado quando tiver os 30 dias avaliados da RN10. Na prática, isso leva uns 3 meses a partir do lançamento, sem retreinar o modelo para isso.
+- **Itens fora do treino no resumo do C1:** informe quantos itens liberados não integram o conjunto de treinamento.
 
 ### Arquitetura
 
@@ -293,26 +341,28 @@ São 6.562 séries (6.547 commodities), cerca de 8,07 milhões de linhas e 3,79 
 
   | Arquivo do estudo | Parte do pipeline |
   | --- | --- |
-  | `preparar_dados.py` | variáveis, normalização e janelas |
-  | `dataset.py` | tensores |
-  | `avaliar.py` | desnormalização e métricas |
-  | `treinar.py` | rede e treino |
+  | `preparar_dados.py` | variáveis, normalização (inclusive a de outra versão do modelo, `--normalizacao-de`) e janelas |
+  | `dataset.py` | tensores e assinatura da normalização |
+  | `treinar.py` | rede e treino (perda MAE por padrão) |
+  | `prever.py` | previsão com uma versão já treinada, que confere a assinatura da normalização |
+  | `avaliar.py` | desnormalização, métricas e RN10 (com o mínimo de dias) |
 
-  Se o estudo e as regras acima divergirem, vale o texto das regras, e o autor deve ser avisado.
+  Os scripts de experimento (`comparar.py`, `transicao.py`, `generalizacao.py`, `regressao_linear.py`) não precisam ir para o sistema. Se o estudo e as regras acima divergirem, vale o texto das regras, e o autor deve ser avisado.
 - **Decisão pendente: onde o TensorFlow roda.** O worker usa a imagem `python:3.11-alpine`, e o TensorFlow não tem pacote para Alpine.
   - Sugestão: criar um serviço novo, `modelo`, no `docker-compose.yml`, com imagem `python:3.11-slim` e `tensorflow-cpu`. Ele acessa o mesmo banco e um volume `modelos/`, tem o seu próprio agendador e roda o treino (C1 e C2) e a consolidação diária (C3).
   - Alternativa: trocar a imagem do worker. Fica mais pesado, e o treino disputa processador com a ingestão.
-- **Artefatos.** Cada versão do modelo fica em `modelos/v{versão}/`, com três arquivos: `modelo.keras`, `normalizacao.json` (constantes e datas de corte, RN25) e `treino.json`. Para prever com uma versão, use sempre as constantes dela.
+- **Artefatos.** Cada versão do modelo fica em `modelos/v{versão}/`, com três arquivos: `modelo.keras`, `normalizacao.json` (constantes, vocabulário, escala do alvo, datas de corte e assinatura, RN25) e `treino.json`. Para prever com uma versão, use sempre as constantes dela.
 - **Tabelas novas, via Alembic** (sugestão, a confirmar no plano):
 
   | Tabela | Conteúdo |
   | --- | --- |
-  | `modelo_preditivo` | versão, região, data e hora do treinamento, datas de corte, MAPE médio do modelo e do ingênuo no teste, caminho dos artefatos, se é a versão vigente |
-  | `execucao_treinamento` | tipo (inicial ou retreinamento), origem (Admin ou agendado), status (`EXECUTANDO`, `SUCESSO`, `FALHA`), início, fim, resumo (liberados, bloqueados, ignorados), erro |
-  | `projecao_item` | item, série/região, versão, MAPE, MAPE do ingênuo, situação (`LIBERADA`, `BLOQUEADA`, `IGNORADO`), motivo, data da atualização |
+  | `modelo_preditivo` | versão, região, data e hora do treinamento, datas de corte, mediana do MdAPE e do MAPE do modelo e do ingênuo no teste, caminho dos artefatos, se é a versão vigente |
+  | `execucao_treinamento` | tipo (inicial ou retreinamento), origem (Admin ou agendado), status (`EXECUTANDO`, `SUCESSO`, `FALHA`), início, fim, resumo (liberados, bloqueados, ignorados e liberados fora do conjunto de treinamento), erro |
+  | `projecao_item` | item, série/região, versão, se integra o conjunto de treinamento, dias avaliados, MdAPE, MdAPE do ingênuo, MAPE, situação (`LIBERADA`, `BLOQUEADA`, `IGNORADO`), motivo, data da atualização |
   | `predicao_diaria` (RN13) | data da previsão, item, série, versão, h (1 a 7), data prevista, preço previsto em Cobre, preço real, erro |
 
   - `execucao_treinamento` atende o C1-FA2. Como no CU10-C1-FA4, uma execução "em andamento" há mais de N horas deixa de bloquear.
+  - Motivos de bloqueio em `projecao_item`: "acima do limiar", "não supera o ingênuo", "avaliação insuficiente" (C1-FA5), "deixou de ser elegível" (C2-FA1) e "degradação" (C3-FA3). Para `IGNORADO`, "série insuficiente" (C1-FA3).
   - Em `predicao_diaria`, preço real e erro nulos correspondem a "N/D". Chave única: (item, série, versão, data da previsão, h).
 - **Mensagens ao usuário:** exatamente as dos cenários.
 
@@ -322,11 +372,10 @@ São 6.562 séries (6.547 commodities), cerca de 8,07 milhões de linhas e 3,79 
   - `POST /admin/model-training`, que responde 202 e roda de forma assíncrona;
   - `GET /admin/model-training/{id}` e `GET /admin/model-training`, para o resumo;
   - tela em `frontend/src/app/admin/treinamento`.
-- **Escopo (RN02):** na prática, só commodities passam pelo filtro de liquidez (6.547 das 6.562 séries). A RN07 fica praticamente sem efeito, mas deve continuar implementada.
-- **Passo 2 (seleção dos itens):**
-  - RN15: pela tabela `aptidao_treinamento`;
-  - RN02: pela quantidade média dos últimos 7 dias;
-  - RN07: usa a classe e o nível do item em `items.metadata_info` (`item_class_id`, `level`), gravados pela Parte 1 de `estudos/lstm/pedido-preparacao-treino.md`.
+- **Passo 2 (seleção):**
+  - elegíveis: RN02 pela quantidade média dos últimos 7 dias; RN27 pelo número de dias desde o primeiro registro diário do item; RN07 pela classe e pelo nível do item em `items.metadata_info` (`item_class_id`, `level`);
+  - conjunto de treinamento: os elegíveis que estão como aptos em `aptidao_treinamento` (RN15);
+  - na prática, só commodities passam pela RN02 (6.547 das 6.562 séries aptas). A RN07 fica praticamente sem efeito, mas deve continuar implementada.
 
   **Decisão pendente:** o nível mínimo da temporada vigente. Deixe configurável (`MODELO_ILVL_MINIMO`), desligado por padrão, e avise no resumo.
 - **Passo 3 (RN16):** só entram registros com `origem = 'UNDERMINE'`, `granularidade = 'DIARIA'` e sem `anomalia`. O preço da Undermine é o menor preço do dia. A série horária da Blizzard (1º quartil, RN06) não entra.
@@ -340,16 +389,20 @@ São 6.562 séries (6.547 commodities), cerca de 8,07 milhões de linhas e 3,79 
   - variáveis 1 a 18, sempre calculadas item a item. A variável 14 é agregada (`f_evento`, "algum festival ativo"). O pré-patch é o primeiro patch de cada versão maior. Commodity é o item com `source_region` igual ao id de commodities da região;
   - preenchimento de até 3 dias;
   - divisão 70/20/10 por data de calendário;
-  - constantes calculadas só com o treino;
+  - constantes calculadas só com o treino do conjunto de treinamento;
   - descarte das amostras cujos dias previstos atravessam uma data de corte.
 - **Passo 8 (rede e treino):**
   - arquitetura: LSTM(64) → Dropout(0,2) → junção com os atributos fixos e os embeddings de classe (4) e subclasse (8) → Dense(32, ReLU) → Dense(7);
-  - otimizador Adam, taxa 0,001;
-  - lotes de 512 montados sob demanda, com as amostras sorteadas a cada época;
-  - EarlyStopping na validação, com paciência 10 e volta para a melhor época;
-  - perda Huber **sem máscara**, decidida na etapa 2b.
-- **Passos 9 e 10 (RN10, decidida):** o erro é calculado por item, no período de teste, só sobre os dias observados (dias preenchidos e descartados pela RN03 não contam). A projeção é liberada se o **MdAPE** for de no máximo 15% e menor que o MdAPE do ingênuo. Grave também o MAPE e o erro relativo ao ingênuo, para o relatório (como no `avaliar.py` do estudo).
-- **FA3:** o item sem amostras suficientes em algum dos três períodos vira `IGNORADO`, com o motivo. Exemplo: item com menos de cerca de 60 dias de histórico antes do corte da validação.
+  - **perda MAE**, sem máscara (decidido nas etapas 2b e 2e);
+  - otimizador Adam, taxa fixa de 0,001;
+  - lotes de 512 montados sob demanda, com 400 mil amostras sorteadas a cada época;
+  - EarlyStopping na validação, com paciência 10 e volta para a melhor época.
+- **Passos 9 e 10 (RN10, decidida):**
+  - o erro é calculado por item, no período de teste, só sobre os dias observados (dias preenchidos e descartados pela RN03 não contam);
+  - a projeção é liberada se o **MdAPE** for de no máximo 15%, menor que o MdAPE do ingênuo e medido em pelo menos **30 dias** com previsões avaliadas (datas de origem distintas, `dias_avaliados` no `avaliar.py`);
+  - abaixo dos 30 dias, a projeção fica bloqueada com o motivo "avaliação insuficiente" (FA5);
+  - grave também o MAPE, o RMSE e o erro relativo ao ingênuo, para o relatório.
+- **FA3:** o item sem amostras suficientes depois da higienização vira `IGNORADO`, com o motivo.
 - **FE1:** cobre treino que produz NaN (TerminateOnNaN) e falta de memória.
 
 ### C2 – Retreinamento
@@ -357,8 +410,9 @@ São 6.562 séries (6.547 commodities), cerca de 8,07 milhões de linhas e 3,79 
 - **Agendamento:** depois do reinício semanal, que nos EUA é na terça-feira. Configurável em `MODELO_RETREINO_CRON`; sugestão: terça, 18:00 UTC.
 - **Novos períodos:** a divisão 70/20/10 é recalculada até a data mais recente.
 - **Comparação (RN26):** o modelo vigente é avaliado no novo período de teste com as suas próprias constantes; o modelo novo, com as dele.
+- **Situação dos itens (passo 9):** é recalculada para **todos** os elegíveis, com o modelo que ficar vigente. É aqui que itens novos passam a ser liberados, quando atingem os 30 dias avaliados.
 - **Resultado:**
-  - modelo novo melhor: vira o vigente, e a situação de cada item é recalculada (RN10);
+  - modelo novo melhor: vira o vigente;
   - modelo novo pior: é descartado, mas os artefatos e as métricas ficam registrados.
 
 ### C3 – Consolidação diária
@@ -378,16 +432,18 @@ Os valores marcados como decididos já foram fixados pelo autor. Os demais são 
 | `MODELO_JANELA_DIAS` | 30 | RF12 |
 | `MODELO_HORIZONTE_DIAS` | 7 | RF04 |
 | `MODELO_ZSCORE_DIAS` | 90 | RN24 |
+| `MODELO_HISTORICO_MINIMO_DIAS` | 60 | RN27 |
 | `MODELO_PROPORCAO_TREINO` / `MODELO_PROPORCAO_VALIDACAO` | 0,70 / 0,20 (decidido) | RN25 |
 | `MODELO_ANTECEDENCIA_PATCH_DIAS` | 14 | RN25 |
 | `MODELO_METRICA_RN10` / `MODELO_LIMIAR_RN10` | mdape / 0,15 (decidido) | RN10 |
+| `MODELO_MINIMO_DIAS_RN10` | 30 | RN10 |
 | `MODELO_RN03_CONFIRMACAO` / `MODELO_RN03_SALTO_ABSURDO` / `MODELO_RN03_CONFIRMACAO_ABSURDO` | 7 / 1000 / 28 (decidido) | RN03 |
 | `MODELO_DEGRADACAO_DIAS` | 7 | RN13 |
 | `MODELO_DEGRADACAO_GERAL` | 0,20 | C3-FA4 |
 | `MODELO_ILVL_MINIMO` | vazio (desligado) | RN07 |
 | `MODELO_EPOCAS_MAX` / `MODELO_PACIENCIA` / `MODELO_LOTE` | 100 / 10 / 512 | treino |
 | `MODELO_AMOSTRAS_POR_EPOCA` | 400000 | treino |
-| `MODELO_PERDA` / `MODELO_MASCARA` | huber / false (decidido) | treino |
+| `MODELO_PERDA` / `MODELO_MASCARA` | mae / false (decidido) | treino |
 | `MODELO_EVENTOS_DETALHADOS` | false (decidido) | variável 14 |
 
 ### Testes (um por fluxo)
@@ -395,16 +451,17 @@ Os valores marcados como decididos já foram fixados pelo autor. Os demais são 
 Use dados sintéticos (`estudos/lstm/gerar_sinteticos.py`) e um modelo mínimo nos testes, por exemplo LSTM de 4 unidades e 1 época, para a suíte continuar rápida.
 
 - C1:
-  - `test_cu11_c1_fluxo_principal_treina_e_libera_itens`
+  - `test_cu11_c1_fluxo_principal_treina_e_libera_itens` (inclua um item elegível fora do conjunto de treinamento e confira que ele é avaliado)
   - `test_cu11_c1_fa1_nenhum_item_apto`
   - `test_cu11_c1_fa2_treinamento_em_andamento`
   - `test_cu11_c1_fa3_serie_insuficiente_item_ignorado`
   - `test_cu11_c1_fa4_projecao_reprovada_rn10`
+  - `test_cu11_c1_fa5_avaliacao_insuficiente_rn10`
   - `test_cu11_c1_fe1_falha_no_treinamento`
   - `test_cu11_c1_fe2_falha_no_banco`
 - C2:
   - `test_cu11_c2_fluxo_principal_substitui_modelo_rn26`
-  - `test_cu11_c2_fa1_item_deixou_de_atender`
+  - `test_cu11_c2_fa1_item_deixou_de_ser_elegivel`
   - `test_cu11_c2_fa2_novo_modelo_inferior_mantem_vigente`
   - `test_cu11_c2_fe1_falha_mantem_vigente`
 - C3:
@@ -417,6 +474,7 @@ Use dados sintéticos (`estudos/lstm/gerar_sinteticos.py`) e um modelo mínimo n
 - Regras (portados de `estudos/lstm/tests`):
   - `test_rn24_ida_e_volta_recupera_o_preco`
   - `test_rn24_calculos_por_item`
+  - `test_rn24_normalizacao_de_outra_versao_em_itens_fora_do_treino`
   - `test_rn25_sem_vazamento_do_futuro`
   - `test_rn25_janelas_respeitam_os_cortes`
   - `test_rn25_dias_ate_patch_respeita_antecedencia`
@@ -424,10 +482,13 @@ Use dados sintéticos (`estudos/lstm/gerar_sinteticos.py`) e um modelo mínimo n
   - `test_rn03_confirma_novo_patamar_em_7_dias`
   - `test_rn03_salto_absurdo_exige_28_dias`
   - `test_rn10_libera_por_mdape_quem_supera_o_ingenuo`
+  - `test_rn10_exige_minimo_de_dias_avaliados`
+  - `test_rn27_historico_minimo_para_projecao`
 
 ### Limitações conhecidas
 
-- Itens novos só recebem previsão depois de cerca de 60 dias de histórico: 30 para a padronização e 30 para a janela.
-- A RN03 pode descartar movimentos reais no lançamento de expansões. O pedido de preparação mede isso.
-- A Undermine não tem dados de 28/06 a 01/07/2024.
-- O preço da Undermine é o menor preço do dia, mais ruidoso que o valor de mercado.
+- **Itens novos:** só recebem projeção depois de uns 3 meses: 60 dias de histórico (RN27) e 30 dias avaliados (RN10), com a reavaliação semanal do C2.
+- **Itens ilíquidos e equipamentos:** ficam sem projeção (RN02). Abaixo de umas 20 unidades ofertadas em média, o modelo empata com o ingênuo (etapa 2f).
+- **Troca de expansão:** nos itens da expansão que sai, o modelo quase empata com o ingênuo (razão de 0,93 a 0,96 a 7 dias). Só há uma troca no período de treino, e as duas trocas observadas tiveram comportamentos opostos (etapa 2d).
+- **RN03:** pode descartar movimentos reais no lançamento de expansões.
+- **Dados:** a Undermine não tem dados de 28/06 a 01/07/2024, e o seu preço é o menor preço do dia, mais ruidoso que o valor de mercado.

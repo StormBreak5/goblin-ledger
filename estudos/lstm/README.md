@@ -247,7 +247,20 @@ uso do modelo é a liquidez (RN02), não o item ter entrado no treino.
 - `liquidez`: erro por faixa de quantidade média ofertada, em uma ou mais bases;
 - `novos`: itens sem nenhuma amostra de treino contra os demais.
 
-A etapa 2f (`pedido-etapa2f.md`) repete a 2c com a configuração final (perda MAE), só para medir.
+**Resultado com a configuração final (`docs/relatorio-etapa2f.md`, perda MAE).** A 2f repetiu a 2c com a perda MAE. Os
+números do TC vêm daqui.
+
+- **Itens não vistos:** o erro de quem nunca foi visto ficou igual ao de quem foi. A diferença mediana no MdAPE foi de
+  +0,00 e −0,02 ponto, contra 0,03 ponto de ruído entre sementes. Cerca de 71% dos reservados ficaram a até 1 ponto
+  (na 2c, 56% a 61%).
+- **Itens novos:** os 755 itens sem nenhuma amostra de treino superaram o ingênuo em 76% a 81% dos casos (na 2c, 62% a
+  69%), com erro relativo mediano de 0,82 a 0,85.
+- **Liquidez:** o modelo empata com o ingênuo na faixa de 5 a 20 unidades ofertadas em média e o supera a partir de
+  20, nas duas bases. O limiar de 50 da RN02 é conservador.
+- **Fora da seleção:** a mediana do erro relativo caiu de 1,05–1,08 para 1,00–1,01; o modelo empata com o ingênuo.
+- **Mínimo de 30 dias na RN10:** retirou 223 das 1.018 liberações (`m_todos_s42`), 222 delas de itens novos. Esses
+  itens têm só 8 dias avaliados na validação (mediana), porque o corte da validação cai poucas semanas depois da
+  expansão Midnight. No teste do sistema (de maio a outubro de 2026), os mesmos itens têm meses de histórico.
 
 **RN10 com mínimo de dias.** O `avaliar.py` só libera um item com pelo menos `minimo_dias_rn10` (30) dias de previsões
 avaliadas; abaixo disso, a situação é "Bloqueada" com o motivo "avaliação insuficiente" (`--minimo-dias 0` desliga). Na
