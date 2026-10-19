@@ -147,3 +147,43 @@ def avaliar(dados: DadosPreparados, periodo: str, id_amostra: np.ndarray, yhat: 
         "mediana_erro_relativo_ingenuo": mediana("erro_relativo_ingenuo"),
     }
     return Avaliacao(det, por_item, resumo)
+
+
+@dataclass
+class Comparacao:
+    """CU11-C2 passos 6 e 7 (RN26): o modelo novo e o vigente no mesmo período de teste, nos mesmos itens e dias."""
+    metrica: str
+    itens_comparados: int
+    mediana_novo: Optional[float]
+    mediana_vigente: Optional[float]
+    por_item: pd.DataFrame
+
+    @property
+    def novo_e_melhor(self) -> bool:
+        """RN26: o novo substitui o vigente só se a mediana for estritamente menor."""
+        return self.mediana_novo is not None and self.mediana_vigente is not None and             self.mediana_novo < self.mediana_vigente
+
+    def como_dict(self) -> dict[str, Any]:
+        return {"metrica": self.metrica, "itens_comparados": self.itens_comparados,
+                "mediana_novo": self.mediana_novo, "mediana_vigente": self.mediana_vigente,
+                "novo_e_melhor": self.novo_e_melhor}
+
+
+def comparar_modelos(novo: Avaliacao, vigente: Avaliacao, metrica: str = "mdape") -> Comparacao:
+    """CU11-C2 passos 6 e 7 / RN26: a métrica da RN10 por item (MdAPE por padrão), calculada só nos alvos avaliados
+    pelos dois modelos (mesmo item, mesmo dia de origem, mesmo dia do horizonte), e a mediana dela entre os itens."""
+    chaves = ["serie", "item_id", "data_origem", "h"]
+    a = novo.detalhe.loc[novo.detalhe["avaliavel"], chaves + ["erro_pct"]]
+    b = vigente.detalhe.loc[vigente.detalhe["avaliavel"], chaves + ["erro_pct"]]
+    comuns = a.merge(b, on=chaves, suffixes=("_novo", "_vigente"))
+    funcao = "median" if metrica == "mdape" else "mean"
+    por_item = comuns.groupby(["serie", "item_id"]).agg(
+        alvos=("erro_pct_novo", "size"), novo=("erro_pct_novo", funcao), vigente=("erro_pct_vigente", funcao),
+    ).reset_index()
+    vazio = por_item.empty
+    return Comparacao(
+        metrica=metrica, itens_comparados=int(len(por_item)),
+        mediana_novo=None if vazio else float(por_item["novo"].median()),
+        mediana_vigente=None if vazio else float(por_item["vigente"].median()),
+        por_item=por_item,
+    )

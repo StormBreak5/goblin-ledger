@@ -1,15 +1,18 @@
 # Plano de testes por fluxo (apêndice para o TC)
 
-> Gerado em 29/09/2026 a partir dos nomes dos testes do repositório. Cada linha é um fluxo do documento (principal, alternativo FA
+> Gerado em 19/10/2026 a partir dos nomes dos testes do repositório. Cada linha é um fluxo do documento (principal, alternativo FA
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
-> (`test_cuXX_cY_...`), como pede o `CLAUDE.md`.
+> (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo somam 238 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09 e 81 do CU10). A suíte
-> completa tem 322 testes: 290 no backend (`pytest`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
+> Os testes com identificador de fluxo ou de regra somam 289 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 86 do CU10 e 46 do CU11). A suíte
+> completa tem 379 testes: 314 no backend (`pytest`, no host), 33 do pipeline do modelo no container do serviço
+> `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
-> Para rodar: `pytest` a partir de `backend/` (usando `.venv`) e `npm test` a partir de `frontend/`. Os testes de backend usam um
-> PostgreSQL temporário, com o esquema criado pelas migrações; nenhum acessa a internet nem o banco real.
+> Para rodar: `pytest` a partir de `backend/` (usando `.venv`), `docker compose run --rm modelo-testes` a partir de `backend/` e
+> `npm test` a partir de `frontend/`. Os testes de backend usam um PostgreSQL temporário, com o esquema criado pelas migrações;
+> nenhum acessa a internet nem o banco real. No host, os testes de `backend/tests/modelo/` aparecem como ignorados (precisam do
+> TensorFlow, que só existe na imagem do serviço `modelo`).
 
 #### CU01 – Cenário 1 (4 testes)
 
@@ -265,7 +268,7 @@
 | regra | `test_cu10_migracao_4_marca_os_pontos_da_blizzard_como_horarios_rn16` | `backend/tests/integration/test_migracoes.py` |
 | regra | `test_cu10_migracao_5_corrige_a_granularidade_dos_pontos_do_ciclo_horario_rn16` | `backend/tests/integration/test_migracoes.py` |
 
-#### CU10 – Cenário 1 (34 testes)
+#### CU10 – Cenário 1 (39 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -292,7 +295,11 @@
 | regra | `test_cu10_c1_a_importacao_do_admin_nao_conta_como_recuperacao_do_historico` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_a_recuperacao_do_worker_importa_incrementalmente_os_itens_ativos` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_arquivo_sem_dados_reconhece_o_stub_e_so_ele` | `backend/tests/scraper/test_backfill.py` |
+| regra | `test_cu10_c1_etag_mescla_metadata_sem_apagar_atributos` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_etag_sem_origem_registrada_nao_e_reaproveitado_na_recuperacao` | `backend/tests/scraper/test_backfill.py` |
+| regra | `test_cu10_c1_importacao_diaria_grava_so_dias_encerrados` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
+| regra | `test_cu10_c1_importacao_diaria_nao_roda_com_outra_importacao_em_andamento` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
+| regra | `test_cu10_c1_importacao_incremental_regrava_o_dia_gravado_antes_de_terminar` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_lista_as_importacoes_mais_recentes_e_recusa_id_desconhecido` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_o_ritmo_entre_requisicoes_e_configuravel_rn23` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_os_pontos_da_blizzard_nao_escondem_o_historico_ainda_nao_importado` | `backend/tests/scraper/test_backfill.py` |
@@ -303,6 +310,7 @@
 | regra | `test_cu10_c1_so_o_admin_importa_e_consulta` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_so_uma_importacao_roda_por_vez` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_um_arquivo_ilegivel_isolado_nao_e_formato_alterado` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
+| regra | `test_cu10_c1_worker_agenda_a_importacao_diaria` | `backend/tests/unit/test_cu10_c1_agendamento.py` |
 
 #### CU10 – Cenário 2 (31 testes)
 
@@ -358,3 +366,69 @@
 | regra | `test_cu10_c3_so_o_admin_valida_e_consulta` | `backend/tests/integration/test_cu10_c3_cobertura.py` |
 | regra | `test_cu10_c3_so_os_itens_ativos_do_wow_sao_avaliados_e_a_ficha_fica_de_fora` | `backend/tests/integration/test_cu10_c3_cobertura.py` |
 | regra | `test_cu10_c3_validar_de_novo_substitui_o_resultado_anterior` | `backend/tests/integration/test_cu10_c3_cobertura.py` |
+
+#### CU11 – Regras gerais do caso de uso (3 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| regra | `test_cu11_conjunto_de_treinamento_nao_entra_nas_constantes` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_cu11_migracao_8_situacao_ignorada` | `backend/tests/integration/test_migracoes.py` |
+| regra | `test_cu11_uma_versao_vigente_por_regiao` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+
+#### CU11 – Cenário 1 (18 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu11_c1_fluxo_principal_treina_e_libera_itens` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| FA1 | `test_cu11_c1_fa1_nenhum_item_apto` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| FA2 | `test_cu11_c1_fa2_reinicio_do_servico_libera_a_fila` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| FA2 | `test_cu11_c1_fa2_treinamento_em_andamento` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| FA3 | `test_cu11_c1_fa3_serie_insuficiente_item_ignorado` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| FA4 | `test_cu11_c1_fa4_projecao_reprovada_rn10` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| FA5 | `test_cu11_c1_fa5_avaliacao_insuficiente_rn10` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| FE1 | `test_cu11_c1_fe1_falha_no_treinamento` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| FE2 | `test_cu11_c1_fe2_banco_indisponivel_no_pedido` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| FE2 | `test_cu11_c1_fe2_falha_no_banco` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| regra | `test_cu11_c1_execucao_antiga_recebe_os_liberados_sem_amostra_de_treino` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| regra | `test_cu11_c1_fila_entrega_um_treinamento_por_vez` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| regra | `test_cu11_c1_liberados_sem_amostra_de_treino` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| regra | `test_cu11_c1_passo1_registra_o_pedido_do_admin` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| regra | `test_cu11_c1_passo2_elegiveis_e_conjunto_de_treinamento` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_cu11_c1_regiao_invalida` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| regra | `test_cu11_c1_restrito_ao_admin` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+| regra | `test_cu11_c1_resumo_do_treinamento` | `backend/tests/integration/test_cu11_c1_pedido.py` |
+
+#### CU11 – Cenário 2 (12 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu11_c2_fluxo_principal_substitui_modelo_rn26` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| FA1 | `test_cu11_c2_fa1_item_deixou_de_ser_elegivel` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| FA2 | `test_cu11_c2_fa2_novo_modelo_inferior_mantem_vigente` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| FE1 | `test_cu11_c2_fe1_falha_mantem_vigente` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_agendador_nao_duplica_execucao_em_andamento` | `backend/tests/integration/test_cu11_c2_agendador.py` |
+| regra | `test_cu11_c2_agendador_registra_um_retreinamento_por_regiao_com_modelo_vigente` | `backend/tests/integration/test_cu11_c2_agendador.py` |
+| regra | `test_cu11_c2_agendador_usa_o_horario_configurado` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_aviso_de_serie_diaria_desatualizada` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_comando_retreinar_registra_pelo_mesmo_caminho` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_compara_os_dois_modelos_no_mesmo_periodo_com_as_constantes_de_cada_versao` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_item_novo_liberado_ao_atingir_o_minimo_de_dias` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_resumo_do_retreinamento` | `backend/tests/integration/test_cu11_c2_agendador.py` |
+
+#### CU11 – Regras do modelo (RN03, RN10, RN24, RN25, RN27) (13 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| regra | `test_rn03_confirma_novo_patamar_em_7_dias` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn03_descarta_pico_com_ema_dos_aceitos` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn03_salto_absurdo_exige_28_dias` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn10_exige_minimo_de_dias_avaliados` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn10_libera_por_mdape_quem_supera_o_ingenuo` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn24_calculos_por_item` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn24_ida_e_volta_recupera_o_preco` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn24_normalizacao_de_outra_versao_em_itens_fora_do_treino` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn25_considera_somente_dias_encerrados` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| regra | `test_rn25_dias_ate_patch_respeita_antecedencia` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn25_janelas_respeitam_os_cortes` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn25_sem_vazamento_do_futuro` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn27_historico_minimo_para_projecao` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |

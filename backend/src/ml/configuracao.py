@@ -57,6 +57,9 @@ class ConfigModelo:
     limiar_rn10: float = 0.15
     minimo_dias_rn10: int = 30
 
+    # Aviso no resumo (não bloqueia): o último dia encerrado da série tem mais que estes dias (CU11-C2)
+    serie_desatualizada_dias: int = 3
+
     # Rede e treino (configuração final do estudo, etapa 2e)
     unidades: int = 64
     dropout: float = 0.2
@@ -108,6 +111,7 @@ class ConfigModelo:
             metrica_rn10=os.getenv("MODELO_METRICA_RN10", padrao.metrica_rn10).strip().lower() or padrao.metrica_rn10,
             limiar_rn10=_decimal("MODELO_LIMIAR_RN10", padrao.limiar_rn10),
             minimo_dias_rn10=_inteiro("MODELO_MINIMO_DIAS_RN10", padrao.minimo_dias_rn10),
+            serie_desatualizada_dias=_inteiro("MODELO_SERIE_DESATUALIZADA_DIAS", padrao.serie_desatualizada_dias),
             rn03_confirmacao=_inteiro("MODELO_RN03_CONFIRMACAO", padrao.rn03_confirmacao),
             rn03_salto_absurdo=_decimal("MODELO_RN03_SALTO_ABSURDO", padrao.rn03_salto_absurdo),
             rn03_confirmacao_absurdo=_inteiro("MODELO_RN03_CONFIRMACAO_ABSURDO", padrao.rn03_confirmacao_absurdo),

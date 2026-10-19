@@ -55,7 +55,7 @@ def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     with banco_vazio.connect() as conexao:
         assert set(inspect(conexao).get_table_names()) - {"alembic_version"} == TODAS_AS_TABELAS
         assert conexao.execute(text("SELECT count(*) FROM historical_item_prices")).scalar() == 1  # dados preservados
-        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0008"
+        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0009"
         # linhas antigas ganham os valores padrão das colunas novas, sem reescrever a tabela
         assert conexao.execute(text("SELECT origem, anomalia, granularidade FROM historical_item_prices")).one() == (
             "UNDERMINE", False, "DIARIA",

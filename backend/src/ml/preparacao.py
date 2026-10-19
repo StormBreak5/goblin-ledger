@@ -36,7 +36,7 @@ import pandas as pd
 
 from src.ml.configuracao import PERIODOS, VARIAVEIS_CATEGORICAS, VARIAVEIS_ESTATICAS, VARIAVEIS_SEQUENCIA, ConfigModelo
 from src.ml.dados import Entrada
-from src.ml.dataset import assinatura_normalizacao
+from src.ml.dataset import assinatura_das_constantes, assinatura_normalizacao
 
 logger = logging.getLogger(__name__)
 
@@ -396,34 +396,47 @@ def ajustar(linhas: pd.DataFrame, treino: pd.Series, cfg: ConfigModelo) -> dict[
     return {"constantes": const, "nivel_item": {"min": nmin, "max": nmax}, "vocabulario": vocab}
 
 
-def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: ConfigModelo) -> None:
-    """CU11-C1 passo 6 / RN24: aplica a normalização (desta versão ou de outra versão do modelo) a todas as linhas.
+VARIAVEIS_JA_FINAIS = ("f_nivel_preco", "f_quantidade", "f_tem_piso", "f_dia_sin", "f_dia_cos", "f_dias_desde_patch",
+                       "f_dias_ate_patch", "f_expansao", "f_temporada_ativa", "f_dias_temporada", "f_evento")
+
+
+def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: ConfigModelo,
+            variaveis: Optional[list[str]] = None) -> pd.DataFrame:
+    """CU11-C1 passo 6 / RN24: aplica a normalização (desta versão ou de outra versão do modelo) às linhas e devolve as
+    variáveis normalizadas, sem alterar as brutas (o CU11-C2 aplica duas normalizações às mesmas variáveis brutas).
     Categoria fora do vocabulário, como a de um item de uma subclasse nunca vista no treino, vira 0 (desconhecida)."""
+    norm = pd.DataFrame(index=linhas.index)
     const = ajuste["constantes"]
     for bruto, final, simetrico in CONSTANTES_GLOBAIS:
-        linhas[final] = escalar(linhas[bruto], const[final], simetrico).astype("float32")
+        norm[final] = escalar(linhas[bruto], const[final], simetrico).astype("float32")
     # Sem pares na subclasse no dia, ou item sem preço de venda ao vendedor: 0.
-    linhas["f_retorno_subclasse"] = linhas["f_retorno_subclasse"].fillna(0.0)
-    linhas["f_preco_npc"] = linhas["f_preco_npc"].fillna(0.0)
-    linhas["f_observado"] = linhas["observado"].astype("float32")
+    norm["f_retorno_subclasse"] = norm["f_retorno_subclasse"].fillna(0.0)
+    norm["f_preco_npc"] = norm["f_preco_npc"].fillna(0.0)
+    norm["f_observado"] = linhas["observado"].astype("float32")
 
     qualidade = linhas["qualidade"].clip(0, cfg.qualidade_max) / cfg.qualidade_max
-    linhas["f_qualidade"] = qualidade.fillna(0.0).astype("float32")
+    norm["f_qualidade"] = qualidade.fillna(0.0).astype("float32")
     nmin, nmax = ajuste["nivel_item"]["min"], ajuste["nivel_item"]["max"]
     nivel = ((linhas["nivel_item"] - nmin) / max(nmax - nmin, EPS)).clip(0, 1)
-    linhas["f_nivel_item"] = nivel.fillna(0.0).astype("float32")
-    linhas["f_commodity"] = linhas["commodity"].astype("float32")
+    norm["f_nivel_item"] = nivel.fillna(0.0).astype("float32")
+    norm["f_commodity"] = linhas["commodity"].astype("float32")
+    for col in VARIAVEIS_JA_FINAIS:  # já normalizadas no cálculo (z-score móvel, calendário, indicadores)
+        norm[col] = linhas[col]
 
     for col, idx_col in (("classe_id", "classe_idx"), ("subclasse_id", "subclasse_idx")):
         mapa = {float(v): i for v, i in ajuste["vocabulario"][col].items()}
-        linhas[idx_col] = linhas[col].map(mapa).fillna(0).astype("int32")
-    linhas.drop(columns=["log_return", "log_preco_ema14", "volatilidade_7d", "retorno_subclasse", "log_preco_npc",
-                         "ema14_anterior", "classe_id", "subclasse_id", "qualidade", "nivel_item", "preco_npc",
-                         "commodity"], inplace=True)
+        norm[idx_col] = linhas[col].map(mapa).fillna(0).astype("int32")
+    if variaveis is not None:
+        faltando = [v for v in variaveis if v not in norm]
+        if faltando:
+            raise ValueError(f"variáveis da versão do modelo que esta base não calcula: {faltando}")
+        norm = norm[variaveis + VARIAVEIS_CATEGORICAS]
+    return norm
 
 
 # ============================================================================================== 7. janelas e separação
-def montar_janelas(linhas: pd.DataFrame, cortes: dict[str, pd.Timestamp], cfg: ConfigModelo) -> pd.DataFrame:
+def montar_janelas(linhas: pd.DataFrame, apta: np.ndarray, cortes: dict[str, pd.Timestamp],
+                   cfg: ConfigModelo) -> pd.DataFrame:
     """Uma amostra para cada dia "hoje" (id_linha_origem) com 30 dias de entrada válidos e 7 dias de alvo com preço.
     O período da amostra é o dos seus alvos; amostras cujos alvos atravessam uma data de corte são descartadas (RN25),
     para que nenhum alvo de treino caia na validação (e nenhum da validação, no teste)."""
@@ -433,7 +446,6 @@ def montar_janelas(linhas: pd.DataFrame, cortes: dict[str, pd.Timestamp], cfg: C
                "dias_de_historico", "fora_do_treino"] + [f"{p}_{h}" for h in range(1, H + 1) for p in ("y", "obs")]
     if n < J + H:
         return pd.DataFrame(columns=colunas)
-    apta = linhas["apta"].to_numpy()
     alvo_ok = linhas["preco"].notna().to_numpy()
     sid = linhas["serie_idx"].to_numpy()
     c_apta = np.concatenate([[0], np.cumsum(apta)])
@@ -501,54 +513,80 @@ class SemAmostrasDeTreino(ValueError):
 
 
 # ======================================================================================================= orquestração
-def preparar(entrada: Entrada, precos: pd.DataFrame, cfg: ConfigModelo,
-             fora_do_treino: frozenset[tuple[str, int]] = frozenset(),
-             normalizacao_base: Optional[dict[str, Any]] = None, corte_validacao: Optional[str] = None,
-             corte_teste: Optional[str] = None) -> BasePreparada:
-    """CU11-C1 passos 4 a 7 para os itens de `precos` (os elegíveis à projeção, com a coluna `regiao`).
+@dataclass
+class VariaveisBrutas:
+    """CU11-C1 passos 4, 5 e 7 antes da normalização: calendário, RN03, variáveis brutas, datas de corte e períodos.
+    O CU11-C2 aplica a elas a normalização do modelo novo e a do vigente, sem ler nem higienizar a base duas vezes."""
+    linhas: pd.DataFrame
+    cortes: dict[str, pd.Timestamp]
+    cfg: ConfigModelo
+    series: pd.DataFrame  # serie_idx, serie, item_id
+    fora: np.ndarray      # por série (na ordem de `series`): fora do conjunto de treinamento
+    cobertura: dict[str, float]
+    itens_commodity: int
 
-    `fora_do_treino`: séries (serie, item_id) dos elegíveis que não integram o conjunto de treinamento; ficam fora das
-    constantes, do vocabulário e da escala do alvo (RN24, RN25). `normalizacao_base`: aplica a normalização de outra
-    versão do modelo (cortes, constantes, vocabulário, alvo e configuração) em vez de calculá-la."""
-    if normalizacao_base is not None:
-        cfg = ConfigModelo.de_dict(normalizacao_base["config"])
+
+# Parâmetros que definem as variáveis brutas e as janelas: duas configurações que concordam neles podem dividir as
+# mesmas variáveis brutas (as constantes, o vocabulário e a escala do alvo vêm depois, de cada versão).
+PARAMETROS_DAS_BRUTAS = ("janela", "horizonte", "zscore_janela", "zscore_min_periodos", "zscore_limite", "limite_dias",
+                         "preenchimento_max_dias", "volatilidade_janela", "volatilidade_min_periodos", "qualidade_max",
+                         "ema_span", "rn03_acima", "rn03_abaixo", "rn03_confirmacao", "rn03_salto_absurdo",
+                         "rn03_confirmacao_absurdo", "antecedencia_anuncio_dias", "commodities_por_regiao")
+
+
+def mesmas_brutas(a: ConfigModelo, b: ConfigModelo) -> bool:
+    return all(getattr(a, p) == getattr(b, p) for p in PARAMETROS_DAS_BRUTAS)
+
+
+def preparar_brutas(entrada: Entrada, precos: pd.DataFrame, cfg: ConfigModelo,
+                    fora_do_treino: frozenset[tuple[str, int]] = frozenset(), corte_validacao: Optional[str] = None,
+                    corte_teste: Optional[str] = None) -> VariaveisBrutas:
+    """CU11-C1 passos 4, 5 e 7 para os itens de `precos` (os elegíveis à projeção, com a coluna `regiao`): RN03,
+    variáveis brutas item a item e divisão 70/20/10 do calendário (ou as datas de corte informadas)."""
     if precos.empty:
         raise ValueError("Nenhuma série para preparar.")
     linhas = montar_calendario(precos)
     logger.info("CU11: %d séries, %d linhas (série × dia).", linhas["serie_idx"].nunique(), len(linhas))
-    series = linhas.drop_duplicates("serie_idx")[["serie_idx", "serie", "item_id"]]
+    series = linhas.drop_duplicates("serie_idx")[["serie_idx", "serie", "item_id"]].reset_index(drop=True)
     fora = np.array([(str(s), int(i)) in fora_do_treino for s, i in zip(series["serie"], series["item_id"])],
                     dtype=bool)
     linhas["fora_do_treino"] = fora[linhas["serie_idx"].to_numpy()]
 
     linhas = higienizar(linhas, cfg)
     linhas = calcular_variaveis_brutas(linhas, entrada, cfg)
-
-    if normalizacao_base is None:
-        cortes = calcular_cortes(linhas, cfg, corte_validacao, corte_teste)
-    else:  # mesmas datas de corte da versão do modelo; início e fim são os desta base
-        cortes = {"inicio": linhas["data"].min(), "fim": linhas["data"].max(),
-                  "corte_validacao": pd.Timestamp(normalizacao_base["cortes"]["corte_validacao"]),
-                  "corte_teste": pd.Timestamp(normalizacao_base["cortes"]["corte_teste"])}
+    cortes = calcular_cortes(linhas, cfg, corte_validacao, corte_teste)
     linhas["periodo"] = periodo_da_data(linhas["data"], cortes).astype("category")
-    treino = (linhas["periodo"] == PERIODOS[0]) & ~linhas["fora_do_treino"]
     unicos = linhas.drop_duplicates("item_id")
     cobertura = {c: float(unicos[c].notna().mean())
                  for c in ("classe_id", "subclasse_id", "qualidade", "nivel_item", "preco_npc")}
     itens_commodity = int(unicos["commodity"].sum())
-    del unicos
-    if normalizacao_base is None:
+    return VariaveisBrutas(linhas, cortes, cfg, series, fora, cobertura, itens_commodity)
+
+
+def normalizar(brutas: VariaveisBrutas, versao_de_origem: Optional[dict[str, Any]] = None,
+               somente_teste: bool = False) -> BasePreparada:
+    """CU11-C1 passo 6 e a montagem das amostras. Sem `versao_de_origem`, as constantes, o vocabulário, a faixa do nível
+    de item e a escala do alvo são calculados só com o treino do conjunto de treinamento (RN24, RN25). Com ela (o
+    normalizacao.json de outra versão), são os dela. `somente_teste` guarda só as amostras do período de teste (a
+    avaliação do modelo vigente no CU11-C2)."""
+    linhas, cfg, cortes = brutas.linhas, brutas.cfg, brutas.cortes
+    if versao_de_origem is None:
+        treino = (linhas["periodo"] == PERIODOS[0]) & ~linhas["fora_do_treino"]
         ajuste = ajustar(linhas, treino, cfg)
         variaveis_seq = list(VARIAVEIS_SEQUENCIA)
+        alvo_da_origem = None
     else:
-        ajuste = {k: normalizacao_base[k] for k in ("constantes", "nivel_item", "vocabulario")}
-        variaveis_seq = list(normalizacao_base["variaveis"]["sequencia"])
-    aplicar(linhas, ajuste, cfg)
-
+        ajuste = {k: versao_de_origem[k] for k in ("constantes", "nivel_item", "vocabulario")}
+        variaveis_seq = list(versao_de_origem["variaveis"]["sequencia"])
+        alvo_da_origem = versao_de_origem["alvo"]
     variaveis = variaveis_seq + VARIAVEIS_ESTATICAS
-    linhas["apta"] = linhas["preco"].notna() & np.isfinite(linhas[variaveis].to_numpy(dtype="float32")).all(axis=1)
-    jan = montar_janelas(linhas, cortes, cfg)
-    alvo = normalizar_alvo(jan, cfg, None if normalizacao_base is None else normalizacao_base["alvo"])
+    norm = aplicar(linhas, ajuste, cfg, variaveis)
+
+    apta = (linhas["preco"].notna() & np.isfinite(norm[variaveis].to_numpy(dtype="float32")).all(axis=1)).to_numpy()
+    jan = montar_janelas(linhas, apta, cortes, cfg)
+    if somente_teste and len(jan):
+        jan = jan[jan["periodo"] == PERIODOS[2]].reset_index(drop=True)
+    alvo = normalizar_alvo(jan, cfg, alvo_da_origem)
 
     originais = linhas[["id_linha", "serie", "item_id", "regiao", "data", "periodo", "preco_bruto", "quantidade_bruta",
                         "descartado_rn03", "observado", "preenchido", "preco", "quantidade"]].copy()
@@ -556,12 +594,16 @@ def preparar(entrada: Entrada, precos: pd.DataFrame, cfg: ConfigModelo,
     originais["preco"] = originais["preco"].round().astype("Int64")
     originais = originais.rename(columns={"preco": "preco_cobre"})
 
-    normalizadas = linhas[["id_linha", "serie", "item_id", "data", "periodo", "apta"] + variaveis +
-                          VARIAVEIS_CATEGORICAS].copy()
-    normalizadas[variaveis] = normalizadas[variaveis].astype("float32")
+    normalizadas = linhas[["id_linha", "serie", "item_id", "data", "periodo"]].copy()
+    normalizadas["apta"] = apta
+    for col in variaveis:
+        normalizadas[col] = norm[col].astype("float32")
+    for col in VARIAVEIS_CATEGORICAS:
+        normalizadas[col] = norm[col]
+    del norm
 
-    itens = series[["serie", "item_id"]].astype({"serie": str}).reset_index(drop=True)
-    itens["fora_do_treino"] = fora
+    itens = brutas.series[["serie", "item_id"]].astype({"serie": str}).reset_index(drop=True)
+    itens["fora_do_treino"] = brutas.fora
     por_periodo = (jan.groupby([jan["serie"].astype(str), "item_id", "periodo"]).size().unstack(fill_value=0)
                    if len(jan) else pd.DataFrame())
     itens = itens.merge(por_periodo.reset_index(), on=["serie", "item_id"], how="left") if len(por_periodo) else itens
@@ -570,17 +612,17 @@ def preparar(entrada: Entrada, precos: pd.DataFrame, cfg: ConfigModelo,
 
     regioes = sorted(set(linhas["regiao"].astype(str).unique()))
     contagens: dict[str, Any] = {
-        "series": int(linhas["serie_idx"].nunique()),
-        "series_fora_do_treino": int(fora.sum()),
+        "series": int(len(brutas.series)),
+        "series_fora_do_treino": int(brutas.fora.sum()),
         "linhas": int(len(linhas)),
-        "linhas_aptas": int(linhas["apta"].sum()),
+        "linhas_aptas": int(apta.sum()),
         "descartadas_rn03": int(linhas["descartado_rn03"].sum()),
         "preenchidas": int(linhas["preenchido"].sum()),
         "amostras": {p: int((jan["periodo"] == p).sum()) if len(jan) else 0 for p in PERIODOS},
         "amostras_fora_do_treino": {p: int((jan["fora_do_treino"] & (jan["periodo"] == p)).sum()) if len(jan) else 0
                                     for p in PERIODOS},
-        "cobertura_atributos": cobertura,
-        "itens_commodity": itens_commodity,
+        "cobertura_atributos": brutas.cobertura,
+        "itens_commodity": brutas.itens_commodity,
     }
     normalizacao: dict[str, Any] = {
         "versao_formato": VERSAO_FORMATO,
@@ -594,9 +636,42 @@ def preparar(entrada: Entrada, precos: pd.DataFrame, cfg: ConfigModelo,
                       "categoricas": VARIAVEIS_CATEGORICAS},
         "contagens": contagens,
     }
-    if normalizacao_base is not None:
-        normalizacao["normalizacao_de"] = {"assinatura": assinatura_normalizacao(normalizacao_base)}
+    if versao_de_origem is not None:
+        normalizacao["normalizacao_de"] = {"assinatura": assinatura_normalizacao(versao_de_origem),
+                                           "assinatura_das_constantes": assinatura_das_constantes(versao_de_origem)}
     normalizacao["assinatura"] = assinatura_normalizacao(normalizacao)
-    if normalizacao_base is not None and normalizacao["assinatura"] != normalizacao["normalizacao_de"]["assinatura"]:
-        raise AssertionError("a normalização aplicada difere da versão do modelo de origem")
     return BasePreparada(originais, normalizadas, jan, normalizacao, itens)
+
+
+def preparar(entrada: Entrada, precos: pd.DataFrame, cfg: ConfigModelo,
+             fora_do_treino: frozenset[tuple[str, int]] = frozenset(),
+             normalizacao_base: Optional[dict[str, Any]] = None, corte_validacao: Optional[str] = None,
+             corte_teste: Optional[str] = None) -> BasePreparada:
+    """CU11-C1 passos 4 a 7 para os itens de `precos` (os elegíveis à projeção, com a coluna `regiao`).
+
+    `fora_do_treino`: séries (serie, item_id) dos elegíveis que não integram o conjunto de treinamento; ficam fora das
+    constantes, do vocabulário e da escala do alvo (RN24, RN25). `normalizacao_base`: aplica a normalização de outra
+    versão do modelo inteira, inclusive as datas de corte e a configuração (o caminho da previsão de um item qualquer com
+    uma versão já treinada); a assinatura tem de ser a mesma."""
+    if normalizacao_base is not None:
+        cfg = ConfigModelo.de_dict(normalizacao_base["config"])
+        corte_validacao = normalizacao_base["cortes"]["corte_validacao"]
+        corte_teste = normalizacao_base["cortes"]["corte_teste"]
+    brutas = preparar_brutas(entrada, precos, cfg, fora_do_treino, corte_validacao, corte_teste)
+    base = normalizar(brutas, normalizacao_base)
+    if normalizacao_base is not None and base.normalizacao["assinatura"] != assinatura_normalizacao(normalizacao_base):
+        raise AssertionError("a normalização aplicada difere da versão do modelo de origem")
+    return base
+
+
+def aplicar_versao(brutas: VariaveisBrutas, normalizacao_da_versao: dict[str, Any]) -> BasePreparada:
+    """CU11-C2 passo 6 / RN26: o modelo vigente é avaliado no período de teste novo com as **próprias** constantes,
+    vocabulário, faixa de nível e escala do alvo (o normalizacao.json da versão dele), aplicados às variáveis brutas e
+    às datas de corte novas. Por isso a conferência é só a das constantes (`assinatura_das_constantes`), sem os cortes.
+    Só as amostras do período de teste são guardadas."""
+    if not mesmas_brutas(brutas.cfg, ConfigModelo.de_dict(normalizacao_da_versao["config"])):
+        raise ValueError("as variáveis brutas desta base não correspondem à configuração da versão do modelo")
+    base = normalizar(brutas, normalizacao_da_versao, somente_teste=True)
+    if assinatura_das_constantes(base.normalizacao) != assinatura_das_constantes(normalizacao_da_versao):
+        raise AssertionError("as constantes aplicadas diferem das da versão do modelo")
+    return base

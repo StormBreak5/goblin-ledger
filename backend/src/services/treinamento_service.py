@@ -1,20 +1,22 @@
-"""CU11-C1 – Executar treinamento inicial: o pedido do Admin e a fila de execuções.
+"""CU11-C1 – Executar treinamento inicial (o pedido do Admin) e CU11-C2 passo 1 (o registro do retreinamento
+agendado), com a fila de execuções.
 
 A API (que não tem TensorFlow) só registra o pedido; o serviço `modelo` o retira da fila (`pegar_proximo`) e executa o
-pipeline (src/ml/treinamento_inicial.py). Este módulo não importa pandas nem TensorFlow.
+pipeline (src/ml/treinamento_inicial.py e src/ml/retreinamento.py). Este módulo não importa pandas nem TensorFlow.
 """
 import logging
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from sqlalchemy import func, text, update
 from sqlalchemy.orm import Session
 
-from src.models.modelo import (DISPARO_ADMIN, ETAPA_BANCO, ETAPA_INTERNA, ETAPA_SELECAO, ETAPA_TREINO,
-                               STATUS_AGUARDANDO, STATUS_EM_ANDAMENTO, STATUS_EXECUTANDO, STATUS_FALHA, TIPO_INICIAL,
-                               ExecucaoTreinamento, ModeloPreditivo)
+from src.models.modelo import (DISPARO_ADMIN, DISPARO_AGENDADO, ETAPA_BANCO, ETAPA_INTERNA, ETAPA_SELECAO,
+                               ETAPA_TREINO, STATUS_AGUARDANDO, STATUS_EM_ANDAMENTO, STATUS_EXECUTANDO, STATUS_FALHA,
+                               TIPO_INICIAL, TIPO_RETREINAMENTO, ExecucaoTreinamento, ModeloPreditivo)
+from src.models.usuario import REGIOES_VALIDAS
 from src.services import mensagens, security, validacao
 from src.services.erros import RegiaoInvalidaError, TreinamentoEmAndamentoError, TreinamentoNaoEncontradoError
 
@@ -31,6 +33,19 @@ MENSAGEM_DA_FALHA = {
     ETAPA_BANCO: mensagens.FALHA_NO_TREINAMENTO,  # CU11-C1-FE2
     ETAPA_INTERNA: mensagens.FALHA_NO_TREINAMENTO,
 }
+
+
+# CU11-C2 passo 1: por que o agendador não registrou o retreinamento de uma região (só vai para o log).
+SEM_MODELO_VIGENTE = "sem modelo vigente"
+JA_EM_ANDAMENTO = "já existe uma execução aguardando ou em andamento"
+
+
+@dataclass
+class RegistroDoRetreinamento:
+    """CU11-C2 passo 1: o retreinamento registrado na fila para a região, ou o motivo de não ter sido."""
+    regiao: str
+    id_execucao: Optional[int]
+    motivo: Optional[str] = None
 
 
 @dataclass
@@ -56,6 +71,7 @@ class ResumoDoModelo:
     mediana_mape: Optional[float]
     mediana_mape_ingenuo: Optional[float]
     itens_supera_ingenuo: Optional[int]
+    descartado: bool
 
 
 @dataclass
@@ -82,6 +98,13 @@ class ResumoDoTreinamento:
     liberados_fora_do_treino: Optional[int]
     liberados_sem_amostra_de_treino: Optional[int]
     ultimo_dia: Optional[date]
+    versao_anterior: Optional[int]
+    decisao: Optional[str]
+    mdape_novo: Optional[float]
+    mdape_vigente: Optional[float]
+    itens_comparados: Optional[int]
+    deixaram_de_ser_elegiveis: Optional[int]
+    liberados_que_deixaram_de_ser_elegiveis: Optional[int]
     avisos: Optional[str]
     etapa_da_falha: Optional[str]
     mensagem: Optional[str]
@@ -157,6 +180,42 @@ class TreinamentoService:
         self.session.commit()
         return proximo.id
 
+    def registrar_retreinamentos(self, regioes: Optional[Sequence[str]] = None) -> list[RegistroDoRetreinamento]:
+        """CU11-C2 passo 1: o agendador (ou o comando `--retreinar`) registra na fila um retreinamento `AGENDADO` para
+        cada região com modelo vigente (pré-condição do C2). Região sem modelo vigente não é retreinada, e região que já
+        tem uma execução aguardando ou em andamento não recebe outra; os dois casos só vão para o log. A checagem é por
+        região: a fila executa um treinamento por vez, então US e EU podem esperar juntos."""
+        agora = self.relogio()
+        self.session.execute(text(TRAVA_DO_TREINAMENTO))
+        self._encerrar_interrompidos(agora)
+        vigentes = {r for (r,) in self.session.query(ModeloPreditivo.regiao).filter(ModeloPreditivo.vigente.is_(True))}
+        alvo = [self.validar_regiao(r) for r in regioes] if regioes else sorted(REGIOES_VALIDAS)
+        registros: list[RegistroDoRetreinamento] = []
+        for regiao in alvo:
+            if regiao not in vigentes:
+                logger.info("CU11-C2: região %s sem modelo vigente; retreinamento não registrado.", regiao)
+                registros.append(RegistroDoRetreinamento(regiao, None, SEM_MODELO_VIGENTE))
+                continue
+            em_andamento = (
+                self.session.query(ExecucaoTreinamento.id)
+                .filter(ExecucaoTreinamento.regiao == regiao, ExecucaoTreinamento.status.in_(STATUS_EM_ANDAMENTO))
+                .first()
+            )
+            if em_andamento is not None:
+                logger.info("CU11-C2: a região %s já tem a execução %s aguardando ou em andamento; retreinamento não "
+                            "registrado.", regiao, em_andamento.id)
+                registros.append(RegistroDoRetreinamento(regiao, None, JA_EM_ANDAMENTO))
+                continue
+            execucao = ExecucaoTreinamento(tipo=TIPO_RETREINAMENTO, disparo=DISPARO_AGENDADO, regiao=regiao,
+                                           status=STATUS_AGUARDANDO, solicitado_em=agora,
+                                           andamento="Aguardando o serviço de treinamento")
+            self.session.add(execucao)
+            self.session.flush()
+            logger.info("CU11-C2: retreinamento %s (%s) registrado na fila.", execucao.id, regiao)
+            registros.append(RegistroDoRetreinamento(regiao, execucao.id))
+        self.session.commit()
+        return registros
+
     def encerrar_em_execucao(self) -> int:
         """Serviço `modelo`, ao iniciar: um treinamento que constava em execução parou junto com o processo anterior
         (há um só serviço `modelo`), então é encerrado como falha e deixa de bloquear a fila."""
@@ -195,8 +254,13 @@ class TreinamentoService:
             itens_ignorados=e.itens_ignorados, liberados_fora_do_treino=e.liberados_fora_do_treino,
             liberados_sem_amostra_de_treino=e.liberados_sem_amostra_de_treino, ultimo_dia=e.ultimo_dia, avisos=e.avisos,
             etapa_da_falha=e.etapa_da_falha,
-            mensagem=MENSAGEM_DA_FALHA.get(e.etapa_da_falha) if e.status == STATUS_FALHA else None,
+            # As mensagens são as do C1, que tem o Admin como ator; o C2 (ator: Sistema) só registra a falha em log.
+            mensagem=MENSAGEM_DA_FALHA.get(e.etapa_da_falha) if e.status == STATUS_FALHA and e.tipo == TIPO_INICIAL
+            else None,
             erro=e.erro,
+            versao_anterior=e.versao_anterior, decisao=e.decisao, mdape_novo=e.mdape_novo, mdape_vigente=e.mdape_vigente,
+            itens_comparados=e.itens_comparados, deixaram_de_ser_elegiveis=e.deixaram_de_ser_elegiveis,
+            liberados_que_deixaram_de_ser_elegiveis=e.liberados_que_deixaram_de_ser_elegiveis,
             modelo=None if modelo is None else ResumoDoModelo(
                 versao=modelo.versao, treinado_em=modelo.treinado_em, vigente=modelo.vigente,
                 data_inicio=modelo.data_inicio, corte_validacao=modelo.corte_validacao, corte_teste=modelo.corte_teste,
@@ -206,6 +270,6 @@ class TreinamentoService:
                 segundos_por_epoca=modelo.segundos_por_epoca, duracao_segundos=modelo.duracao_segundos,
                 mediana_mdape=modelo.mediana_mdape, mediana_mdape_ingenuo=modelo.mediana_mdape_ingenuo,
                 mediana_mape=modelo.mediana_mape, mediana_mape_ingenuo=modelo.mediana_mape_ingenuo,
-                itens_supera_ingenuo=modelo.itens_supera_ingenuo,
+                itens_supera_ingenuo=modelo.itens_supera_ingenuo, descartado=modelo.descartado,
             ),
         )

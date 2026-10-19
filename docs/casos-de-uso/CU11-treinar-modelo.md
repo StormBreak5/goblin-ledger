@@ -2,7 +2,7 @@
 
 > **PROVISÓRIO.** O CU11 já está no TC (seção 6.4.11), mas o TC ainda não tem as mudanças de `docs/Alterações do TC - modelo global (para colar) v4.docx`, que separam os itens que treinam o modelo dos itens que recebem projeção. Este arquivo já traz o texto com a v4. Enquanto o TC e o `docs/` não forem reexportados, as regras deste arquivo prevalecem sobre `docs/regras-de-negocio.md` e sobre `docs/requisitos.md`. Qualquer divergência encontrada na implementação deve ser avisada ao autor, para que o texto do TC saia corrigido.
 
-**Situação no código (18/10/2026):** não implementado no sistema. A implementação de referência do pipeline (variáveis, normalização, divisão dos períodos, treino, avaliação e previsão de itens fora do treino) está em `estudos/lstm/`, com testes e com a configuração final como padrão. Os relatórios das etapas 1 a 2f estão em `docs/relatorio-etapa*.md`.
+**Situação no código (19/10/2026):** C1 e C2 implementados; C3 pendente. O pipeline foi portado de `estudos/lstm/` para `backend/src/ml/` e roda no serviço `modelo` do docker-compose (pandas e TensorFlow), que consome a fila de `execucao_treinamento` e agenda o retreinamento. C1: commits `7cf75f2` (treinamento inicial, versão 1 na região US) e `c6816d5` (dias encerrados, situação "Ignorada" e liberados sem amostra de treino). C2: retreinamento semanal. A série diária da Undermine passou a ser atualizada todo dia pelo CU10-C1 (commit `9a2b296`). Testes em `backend/tests/modelo/` (no container: `docker compose run --rm modelo-testes`) e em `backend/tests/integration/test_cu11_*.py`. Os relatórios das etapas 1 a 2f do estudo estão em `docs/relatorio-etapa*.md`.
 
 ## Descrição
 
@@ -417,9 +417,26 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
   - modelo novo melhor: vira o vigente;
   - modelo novo pior: é descartado, mas os artefatos e as métricas ficam registrados.
 
+Decisões da implementação (19/10/2026):
+
+- **Disparo (passo 1):** o agendador do serviço `modelo` (APScheduler, `MODELO_RETREINO_CRON`, padrão `0 18 * * tue`, em UTC) registra uma execução `RETREINAMENTO`/`AGENDADO` na fila para cada região com modelo vigente. Use o nome do dia: no APScheduler 3, o número 2 é quarta-feira, não terça.
+  - Região sem modelo vigente não é retreinada; região que já tem uma execução aguardando ou em andamento não recebe outra. Os dois casos só vão para o log.
+  - A checagem é por região. A fila executa um treinamento por vez, então US e EU podem esperar juntos. O FA2 do pedido do Admin (C1) continua valendo para qualquer região.
+  - O comando `python -m src.modelo_worker --retreinar US` segue o mesmo caminho (sem região: todas com modelo vigente; `--aguardar` espera o fim e mostra o resumo). O C3-FA4 vai usá-lo.
+- **Passos 2 a 5:** os mesmos do C1, com o mesmo código. A série considera só os dias encerrados (RN25), e a divisão 70/20/10 é recalculada até o último deles.
+- **Passo 6 (RN26):** o modelo novo e o vigente preveem as **mesmas** amostras do período de teste novo. O vigente usa as próprias constantes, vocabulário, faixa de nível e escala do alvo (o `normalizacao.json` da versão dele), aplicados às mesmas variáveis brutas e aos cortes novos. A conferência é só a das constantes (a assinatura sem os cortes). A base é lida e higienizada uma vez só; se a configuração das variáveis brutas tiver mudado desde a versão vigente, elas são recalculadas para ela, a partir da mesma leitura.
+- **Passo 7:** a mediana do MdAPE por item (a métrica da RN10), calculada só nos alvos avaliados pelos dois modelos (mesmo item, dia de origem e dia do horizonte). O novo substitui o vigente se a mediana for **estritamente menor**.
+- **Passo 8:** o novo vira o vigente; o anterior recebe `substituido_em`.
+- **FA2:** o modelo novo fica registrado em `modelo_preditivo` com `descartado = true` e as métricas, e os artefatos dele são mantidos (com `avaliacao_teste_vigente.parquet`, a avaliação do vigente no mesmo teste).
+- **Passo 9:** a situação de **todos** os elegíveis é recalculada com o modelo que ficou vigente, na avaliação do período de teste novo (RN10 com o mínimo de 30 dias); os bloqueios por degradação (C3-FA3) caem aqui. Com o vigente mantido, "integra o conjunto de treinamento" e "liberado sem amostra de treino" se referem ao conjunto e ao período de treinamento dele.
+- **FA1:** os itens da região em `projecao_item` que deixaram de ser elegíveis ficam `BLOQUEADA`, "deixou de ser elegível", com as métricas e a versão da última avaliação. O resumo conta quantos deixaram de ser elegíveis nesta execução e quantos deles estavam liberados. O FA1 é decidido no passo 2, mas gravado junto com o passo 9, para uma falha não mexer na situação dos itens.
+- **Passo 10 (resumo, na execução e no log):** versão vigente anterior e versão nova, decisão, mediana do MdAPE de cada modelo e itens comparados, liberados, bloqueados por motivo e ignorados, liberados sem amostra de treino e fora do conjunto de treinamento, itens que deixaram de ser elegíveis e o último dia usado. A tela do Admin mostra o tipo e, no retreinamento, a comparação.
+- **Aviso:** se o último dia encerrado da série tiver mais de 3 dias (`MODELO_SERIE_DESATUALIZADA_DIAS`), o resumo leva "série diária desatualizada". Não bloqueia. O C1 também o mostra.
+- **FE1:** uma falha nos passos 3 a 8 (I/O, banco, NaN ou falta de memória) deixa a execução como `FALHA`. O vigente e `projecao_item` não mudam, e os artefatos do modelo novo são removidos. Um conjunto de treinamento vazio no retreinamento também é tratado como FE1, porque o C2 não tem o FA1 do C1. Como o ator do C2 é o Sistema, não há mensagem ao usuário: o resumo mostra a etapa e o erro do log.
+
 ### C3 – Consolidação diária
 
-- **Decisão pendente:** o passo 2 depende de uma importação incremental **diária** da Undermine (CU10-C1). Hoje o backfill só roda pela regra de 48 horas. Sugestão: agendar, antes da consolidação, a importação incremental dos itens com projeção liberada, respeitando a RN23.
+- **Passo 2:** a importação incremental **diária** da Undermine (CU10-C1) já existe: o worker a roda para todos os itens ativos às 02:00 UTC (`HISTORICO_IMPORTACAO_DIARIA_CRON`), só com dias encerrados. Falta decidir se a consolidação espera por ela ou dispara a sua própria importação dos itens liberados.
 - **Passo 7:** a previsão dos próximos 7 dias de cada item liberado é gravada em `predicao_diaria`, em Cobre (RN01): preço previsto = preço de hoje × exp(log-retorno previsto).
 - **FA3 (RN13):** se a mediana do erro percentual do item nos últimos 7 dias passar do limiar, o item fica `BLOQUEADA` até o próximo retreinamento.
 - **FA4:** se mais de 20% dos itens liberados forem bloqueados no dia, o C2 é antecipado.

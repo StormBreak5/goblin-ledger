@@ -44,6 +44,10 @@ pytest
 docker-compose up --build -d modelo
 docker-compose logs -f modelo
 docker-compose run --rm modelo-testes
+# CU11-C2: retreinamento pelo mesmo caminho do agendador (sem região: todas com modelo vigente); --aguardar espera o fim
+docker-compose exec modelo python -m src.modelo_worker --retreinar US --aguardar
+# CU10-C1: importação diária do histórico da Undermine, uma vez (o worker a agenda em HISTORICO_IMPORTACAO_DIARIA_CRON)
+docker-compose exec worker python src/worker.py --importacao-diaria
 
 # Frontend (a partir de frontend/)
 npm run dev

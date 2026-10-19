@@ -58,6 +58,8 @@ class Treinador(Protocol):
 
     def salvar(self, modelo: Any, caminho: Path) -> None: ...
 
+    def carregar(self, caminho: Path) -> Any: ...
+
 
 def construir_modelo(dados: DadosPreparados, cfg: ConfigModelo):  # type: ignore[no-untyped-def]
     import keras
@@ -180,6 +182,12 @@ class TreinadorKeras:
 
     def salvar(self, modelo: Any, caminho: Path) -> None:
         modelo.save(caminho)
+
+    def carregar(self, caminho: Path) -> Any:
+        """CU11-C2 passo 6: a rede de uma versão já treinada (a vigente), para avaliá-la no período de teste novo."""
+        import keras
+
+        return keras.models.load_model(caminho, compile=False)
 
 
 class _Vigia:

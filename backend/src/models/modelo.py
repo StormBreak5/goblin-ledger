@@ -39,6 +39,10 @@ MOTIVO_AVALIACAO_INSUFICIENTE = "avaliação insuficiente"  # CU11-C1-FA5 (RN10)
 MOTIVO_DEIXOU_DE_SER_ELEGIVEL = "deixou de ser elegível"  # CU11-C2-FA1
 MOTIVO_DEGRADACAO = "degradação"  # CU11-C3-FA3 (RN13)
 MOTIVO_SERIE_INSUFICIENTE = "série insuficiente"  # CU11-C1-FA3
+# CU11-C2 passo 7 (RN26): o modelo novo substitui o vigente ou é descartado (FA2).
+DECISAO_SUBSTITUIDO = "SUBSTITUIDO"
+DECISAO_MANTIDO = "MANTIDO"
+DECISOES = (DECISAO_SUBSTITUIDO, DECISAO_MANTIDO)
 
 
 def _agora() -> datetime:
@@ -84,6 +88,8 @@ class ModeloPreditivo(Base):
     assinatura_normalizacao = Column(String(64), nullable=False)
     vigente = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     substituido_em = Column(DateTime(timezone=True), nullable=True)
+    # CU11-C2-FA2: o modelo novo que não superou o vigente fica registrado, com as métricas e os artefatos.
+    descartado = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     __table_args__ = (
         Index("uq_modelo_preditivo_vigente_por_regiao", "regiao", unique=True, postgresql_where=text("vigente")),
@@ -118,6 +124,14 @@ class ExecucaoTreinamento(Base):
     # lançados depois do fim desse período e não ajustaram os pesos (migração 0008).
     liberados_sem_amostra_de_treino = Column(Integer, nullable=True)
     ultimo_dia = Column(Date, nullable=True)  # RN25: último dia encerrado da série usada
+    # CU11-C2 (migração 0009): a comparação com o vigente no mesmo período de teste (RN26) e o FA1.
+    versao_anterior = Column(Integer, ForeignKey("modelo_preditivo.versao"), nullable=True)
+    decisao = Column(String(12), nullable=True)
+    mdape_novo = Column(Float, nullable=True)
+    mdape_vigente = Column(Float, nullable=True)
+    itens_comparados = Column(Integer, nullable=True)
+    deixaram_de_ser_elegiveis = Column(Integer, nullable=True)
+    liberados_que_deixaram_de_ser_elegiveis = Column(Integer, nullable=True)
     avisos = Column(Text, nullable=True)
     etapa_da_falha = Column(String(10), nullable=True)
     erro = Column(Text, nullable=True)
@@ -127,6 +141,7 @@ class ExecucaoTreinamento(Base):
         CheckConstraint(f"disparo IN ({_lista_sql(DISPAROS)})", name="ck_execucao_treinamento_disparo"),
         CheckConstraint(f"status IN ({_lista_sql(STATUS_DE_EXECUCAO)})", name="ck_execucao_treinamento_status"),
         CheckConstraint(f"etapa_da_falha IN ({_lista_sql(ETAPAS_DE_FALHA)})", name="ck_execucao_treinamento_etapa"),
+        CheckConstraint(f"decisao IN ({_lista_sql(DECISOES)})", name="ck_execucao_treinamento_decisao"),
         Index("ix_execucao_treinamento_status", "status"),
     )
 

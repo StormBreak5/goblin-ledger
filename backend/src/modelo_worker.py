@@ -1,27 +1,43 @@
-"""Serviço `modelo` (CU11): consome a fila de treinamentos registrada pela API e executa um por vez.
+"""Serviço `modelo` (CU11): consome a fila de treinamentos e agenda o retreinamento semanal.
 
-A API registra o pedido do Admin em `execucao_treinamento` (CU11-C1 passo 1); este serviço, que tem pandas e
-TensorFlow, o retira da fila e executa os passos 2 a 12 (src/ml/treinamento_inicial.py). O agendamento do
-retreinamento (C2) e da consolidação diária (C3) entra aqui nos próximos pedidos.
+- A API registra o pedido do Admin (CU11-C1 passo 1); o agendador deste serviço registra o retreinamento (CU11-C2
+  passo 1, `MODELO_RETREINO_CRON`). Este serviço, que tem pandas e TensorFlow, retira as execuções da fila, uma por vez:
+  `INICIAL` → src/ml/treinamento_inicial.py; `RETREINAMENTO` → src/ml/retreinamento.py.
+- A consolidação diária (C3) entra aqui no próximo pedido.
 
-Uso (dentro do container): python -m src.modelo_worker
+Uso (dentro do container):
+    python -m src.modelo_worker                          # o serviço: fila + agendador
+    python -m src.modelo_worker --retreinar US           # CU11-C2 passo 1 pelo mesmo caminho do agendador
+    python -m src.modelo_worker --retreinar --aguardar   # todas as regiões com modelo vigente; espera o fim
 """
+import argparse
 import logging
 import os
 import time
+from datetime import timezone
+from typing import Any, Callable, Optional, Sequence
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.ml.artefatos import pasta_dos_modelos
 from src.ml.configuracao import ConfigModelo
+from src.ml.retreinamento import Retreinamento
 from src.ml.treinamento_inicial import TreinamentoInicial, preencher_liberados_sem_amostra_de_treino
-from src.models.modelo import ETAPA_INTERNA, STATUS_FALHA, TIPO_INICIAL, ExecucaoTreinamento
+from src.models.modelo import (ETAPA_INTERNA, STATUS_EM_ANDAMENTO, STATUS_FALHA, TIPO_INICIAL, TIPO_RETREINAMENTO,
+                               ExecucaoTreinamento)
 from src.repositories.database import init_db
 from src.services.security import agora
-from src.services.treinamento_service import TreinamentoService
+from src.services.treinamento_service import RegistroDoRetreinamento, TreinamentoService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("modelo_worker")
+
+RETREINO_JOB_ID = "retreinamento_job"
+# CU11-C2 passo 1: depois do reinício semanal dos EUA (terça-feira). Use o nome do dia: no APScheduler 3, o dia da
+# semana em número começa na segunda (0), diferente do crontab ("2" seria quarta-feira).
+HORARIO_PADRAO_DO_RETREINO = "0 18 * * tue"
 
 
 def intervalo_da_fila() -> float:
@@ -29,46 +45,118 @@ def intervalo_da_fila() -> float:
     return float(os.getenv("MODELO_INTERVALO_FILA_SEGUNDOS", "").strip() or "10")
 
 
-def atender_um(SessionLocal, treinamento: TreinamentoInicial) -> bool:  # type: ignore[no-untyped-def]
-    """Retira um pedido da fila e o executa. Devolve False se não havia nada a fazer."""
+def registrar_retreinamentos(SessionLocal: Callable[[], Any],
+                             regioes: Optional[Sequence[str]] = None) -> list[RegistroDoRetreinamento]:
+    """CU11-C2 passo 1, o caminho do agendador (e do comando `--retreinar`, que o C3-FA4 também usa)."""
+    with SessionLocal() as sessao:
+        return TreinamentoService(sessao).registrar_retreinamentos(regioes)
+
+
+def agendar_retreinamento(agendador: Any, SessionLocal: Callable[[], Any]) -> bool:
+    """Agenda o retreinamento semanal pelo cron de MODELO_RETREINO_CRON, em UTC. Devolve False se desligado ("off")."""
+    expressao = os.getenv("MODELO_RETREINO_CRON", "").strip() or HORARIO_PADRAO_DO_RETREINO
+    if expressao.lower() == "off":
+        logger.info("Retreinamento agendado desligado (MODELO_RETREINO_CRON=off).")
+        return False
+
+    def disparar() -> None:
+        try:
+            registrar_retreinamentos(SessionLocal)
+        except Exception:
+            logger.exception("CU11-C2: não foi possível registrar o retreinamento agendado.")
+
+    agendador.add_job(disparar, CronTrigger.from_crontab(expressao, timezone=timezone.utc), id=RETREINO_JOB_ID,
+                      replace_existing=True, coalesce=True, misfire_grace_time=None)
+    logger.info("Retreinamento agendado (%s, UTC).", expressao)
+    return True
+
+
+def atender_um(SessionLocal: Callable[[], Any], treinamentos: dict[str, TreinamentoInicial]) -> bool:
+    """Retira um pedido da fila e o executa conforme o tipo. Devolve False se não havia nada a fazer."""
     with SessionLocal() as sessao:
         id_execucao = TreinamentoService(sessao).pegar_proximo()
         tipo = None if id_execucao is None else sessao.get(ExecucaoTreinamento, id_execucao).tipo
     if id_execucao is None:
         return False
-    if tipo != TIPO_INICIAL:  # o retreinamento (C2) ainda não foi implementado
+    treinamento = treinamentos.get(tipo or "")
+    if treinamento is None:
         with SessionLocal() as sessao:
             execucao = sessao.get(ExecucaoTreinamento, id_execucao)
             execucao.status, execucao.etapa_da_falha, execucao.concluido_em = STATUS_FALHA, ETAPA_INTERNA, agora()
             execucao.erro = f"Tipo de treinamento não suportado por este serviço: {tipo}."
             sessao.commit()
         return True
-    logger.info("CU11-C1: iniciando o treinamento %s.", id_execucao)
+    logger.info("%s: iniciando a execução %s.", treinamento.rotulo, id_execucao)
     treinamento.executar(id_execucao)
     return True
 
 
-def main() -> None:
-    cfg = ConfigModelo.do_ambiente()
+def aguardar(SessionLocal: Callable[[], Any], ids: Sequence[int], intervalo: float = 15.0) -> None:
+    """Espera as execuções terminarem e mostra o resumo de cada uma (comando `--aguardar`)."""
+    pendentes = set(ids)
+    while pendentes:
+        with SessionLocal() as sessao:
+            servico = TreinamentoService(sessao)
+            for id_execucao in sorted(pendentes):
+                resumo = servico.resumo(id_execucao)
+                if resumo.status not in STATUS_EM_ANDAMENTO:
+                    print(resumo, flush=True)
+                    pendentes.discard(id_execucao)
+                else:
+                    logger.info("Execução %s: %s.", id_execucao, resumo.andamento)
+        if pendentes:
+            time.sleep(intervalo)
+
+
+def servico(SessionLocal: Callable[[], Any], cfg: ConfigModelo) -> None:
+    """O serviço `modelo`: o agendador do retreinamento e a fila de execuções."""
     pasta = pasta_dos_modelos()
     pasta.mkdir(parents=True, exist_ok=True)
-    SessionLocal = init_db()  # aplica as migrações (com a trava do Alembic, como a API e o worker)
-    treinamento = TreinamentoInicial(SessionLocal.kw["bind"], cfg, pasta)
+    engine = SessionLocal.kw["bind"]
+    treinamentos: dict[str, TreinamentoInicial] = {
+        TIPO_INICIAL: TreinamentoInicial(engine, cfg, pasta),
+        TIPO_RETREINAMENTO: Retreinamento(engine, cfg, pasta),
+    }
     with SessionLocal() as sessao:
         interrompidos = TreinamentoService(sessao).encerrar_em_execucao()
     if interrompidos:
         logger.warning("CU11: %d treinamento(s) interrompido(s) pelo reinício do serviço.", interrompidos)
-    preencher_liberados_sem_amostra_de_treino(SessionLocal.kw["bind"])
+    preencher_liberados_sem_amostra_de_treino(engine)
+    agendador = BackgroundScheduler(timezone=timezone.utc)
+    agendar_retreinamento(agendador, SessionLocal)
+    agendador.start()
     logger.info("Serviço modelo pronto: fila a cada %.0f s, artefatos em %s, RN07 %s.", intervalo_da_fila(),
                 pasta.resolve(), "desligada" if cfg.ilvl_minimo is None else f"com nível mínimo {cfg.ilvl_minimo}")
     while True:
         try:
-            if atender_um(SessionLocal, treinamento):
+            if atender_um(SessionLocal, treinamentos):
                 continue
         except SQLAlchemyError:
             logger.warning("Serviço modelo: banco indisponível ao consultar a fila.", exc_info=True)
         time.sleep(intervalo_da_fila())
 
 
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Serviço modelo do Goblin Ledger (CU11).")
+    parser.add_argument("--retreinar", nargs="*", metavar="REGIAO",
+                        help="registra o retreinamento (CU11-C2) da região, pelo mesmo caminho do agendador; sem "
+                             "região, de todas as que têm modelo vigente")
+    parser.add_argument("--aguardar", action="store_true", help="com --retreinar: espera o fim e mostra o resumo")
+    args = parser.parse_args(argv)
+    cfg = ConfigModelo.do_ambiente()
+    SessionLocal = init_db()  # aplica as migrações (com a trava do Alembic, como a API e o worker)
+    if args.retreinar is None:
+        servico(SessionLocal, cfg)
+        return 0
+    registros = registrar_retreinamentos(SessionLocal, args.retreinar or None)
+    for registro in registros:
+        print(f"{registro.regiao}: " + (f"retreinamento {registro.id_execucao} registrado na fila"
+                                        if registro.id_execucao is not None else f"não registrado ({registro.motivo})"),
+              flush=True)
+    if args.aguardar:
+        aguardar(SessionLocal, [r.id_execucao for r in registros if r.id_execucao is not None])
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

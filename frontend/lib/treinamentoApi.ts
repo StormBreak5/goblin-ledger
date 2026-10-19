@@ -28,6 +28,7 @@ export interface ModeloTreinado {
   mediana_mape: number | null;
   mediana_mape_ingenuo: number | null;
   itens_supera_ingenuo: number | null;
+  descartado: boolean; // CU11-C2-FA2: o modelo novo não superou o vigente
 }
 
 export interface ResumoTreinamento {
@@ -51,6 +52,13 @@ export interface ResumoTreinamento {
   liberados_fora_do_treino: number | null;
   liberados_sem_amostra_de_treino: number | null; // sem nenhuma amostra no período de treinamento
   ultimo_dia: string | null; // AAAA-MM-DD, RN25: último dia encerrado da série usada
+  versao_anterior: number | null; // CU11-C2: a versão vigente antes do retreinamento
+  decisao: "SUBSTITUIDO" | "MANTIDO" | null; // CU11-C2 passo 7 (RN26) ou FA2
+  mdape_novo: number | null; // mediana do MdAPE por item, nos itens e dias avaliados pelos dois modelos
+  mdape_vigente: number | null;
+  itens_comparados: number | null;
+  deixaram_de_ser_elegiveis: number | null; // CU11-C2-FA1
+  liberados_que_deixaram_de_ser_elegiveis: number | null;
   avisos: string | null;
   etapa_da_falha: string | null; // SELECAO (FA1), TREINO (FE1), BANCO (FE2) ou INTERNA
   mensagem: string | null;

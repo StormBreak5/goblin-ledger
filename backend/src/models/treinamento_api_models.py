@@ -31,6 +31,7 @@ class ModeloResponse(BaseModel):
     mediana_mape: Optional[float] = None
     mediana_mape_ingenuo: Optional[float] = None
     itens_supera_ingenuo: Optional[int] = Field(default=None, description="Itens com MdAPE menor que o do ingênuo.")
+    descartado: bool = Field(default=False, description="CU11-C2-FA2: o modelo novo não superou o vigente.")
 
 
 class ResumoTreinamentoResponse(BaseModel):
@@ -56,6 +57,15 @@ class ResumoTreinamentoResponse(BaseModel):
     liberados_sem_amostra_de_treino: Optional[int] = Field(
         default=None, description="Liberados sem nenhuma amostra no período de treinamento (não ajustaram os pesos).")
     ultimo_dia: Optional[date] = Field(default=None, description="RN25: último dia encerrado da série usada.")
+    versao_anterior: Optional[int] = Field(default=None, description="CU11-C2: a versão vigente antes do retreinamento.")
+    decisao: Optional[str] = Field(default=None, description="CU11-C2 passo 7 (RN26): SUBSTITUIDO ou MANTIDO (FA2).")
+    mdape_novo: Optional[float] = Field(
+        default=None, description="Mediana do MdAPE por item do modelo novo, nos itens comparados.")
+    mdape_vigente: Optional[float] = Field(
+        default=None, description="Mediana do MdAPE por item do modelo vigente, nos mesmos itens e dias.")
+    itens_comparados: Optional[int] = Field(default=None, description="Itens avaliados pelos dois modelos.")
+    deixaram_de_ser_elegiveis: Optional[int] = Field(default=None, description="CU11-C2-FA1.")
+    liberados_que_deixaram_de_ser_elegiveis: Optional[int] = None
     avisos: Optional[str] = None
     etapa_da_falha: Optional[str] = Field(default=None, description="SELECAO (FA1), TREINO (FE1), BANCO (FE2) ou INTERNA.")
     mensagem: Optional[str] = Field(default=None, description="Texto do cenário, quando o treinamento não foi concluído.")

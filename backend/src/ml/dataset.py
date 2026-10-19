@@ -36,6 +36,21 @@ def assinatura_normalizacao(normalizacao: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(conteudo, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
+def assinatura_das_constantes(normalizacao: dict[str, Any]) -> str:
+    """CU11-C2 (RN26): a assinatura sem as datas de corte. O modelo vigente é avaliado no período de teste novo com as
+    constantes, o vocabulário, a faixa de nível, a escala do alvo e as variáveis dele; só os cortes mudam."""
+    cfg = normalizacao["config"]
+    conteudo = {
+        "constantes": normalizacao["constantes"],
+        "vocabulario": normalizacao["vocabulario"],
+        "nivel_item": normalizacao["nivel_item"],
+        "alvo": normalizacao["alvo"],
+        "variaveis": normalizacao["variaveis"],
+        "formato": {"janela": cfg["janela"], "horizonte": cfg["horizonte"]},
+    }
+    return hashlib.sha256(json.dumps(conteudo, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
 def conferir_compatibilidade(norm_modelo: dict[str, Any], norm_base: dict[str, Any]) -> None:
     """A base precisa ter sido normalizada exatamente como a versão do modelo (porte de `prever.py`)."""
     a, b = assinatura_normalizacao(norm_modelo), assinatura_normalizacao(norm_base)

@@ -25,6 +25,8 @@ const duracao = (segundos: number) => {
   return minutos > 0 ? `${minutos} min ${Math.round(segundos % 60)} s` : `${segundos.toLocaleString("pt-BR")} s`;
 };
 
+const TIPO: Record<string, string> = { INICIAL: "Treinamento inicial", RETREINAMENTO: "Retreinamento" };
+
 const STATUS: Record<ResumoTreinamento["status"], string> = {
   AGUARDANDO: "Aguardando",
   EXECUTANDO: "Em andamento",
@@ -32,14 +34,38 @@ const STATUS: Record<ResumoTreinamento["status"], string> = {
   FALHA: "Não concluído",
 };
 
-/** CU11-C1 passo 12: resumo do treinamento, com os itens com projeção liberada, bloqueada e ignorados. */
+/** CU11-C2 passos 6 e 7 (RN26): o modelo novo e o vigente no mesmo período de teste, e a decisão. */
+function Comparacao({ execucao }: { execucao: ResumoTreinamento }) {
+  const novo = execucao.modelo?.versao;
+  return (
+    <div className="space-y-1 rounded-md bg-[#1A1525] p-2">
+      <p className="text-[var(--color-text-title)]">
+        {execucao.decisao === "SUBSTITUIDO"
+          ? `O modelo novo (versão ${novo}) substituiu o vigente (versão ${execucao.versao_anterior}).`
+          : `O modelo vigente (versão ${execucao.versao_anterior}) foi mantido; o novo (versão ${novo}) foi descartado.`}
+      </p>
+      <p className="text-[var(--color-text-secondary)]">
+        No mesmo período de teste, nos {inteiro(execucao.itens_comparados)} itens avaliados pelos dois: mediana do MdAPE por
+        item {percentual(execucao.mdape_novo)} no novo e {percentual(execucao.mdape_vigente)} no vigente.
+      </p>
+      <p className="text-[var(--color-text-secondary)]">
+        Deixaram de ser elegíveis: {inteiro(execucao.deixaram_de_ser_elegiveis)} itens (
+        {inteiro(execucao.liberados_que_deixaram_de_ser_elegiveis)} estavam liberados), com a projeção bloqueada.
+      </p>
+    </div>
+  );
+}
+
+/** CU11-C1 passo 12 e CU11-C2 passo 10: resumo do treinamento, com os itens com projeção liberada, bloqueada e
+ * ignorada (e, no retreinamento, a comparação com o modelo vigente). */
 function Resumo({ execucao }: { execucao: ResumoTreinamento }) {
   const modelo = execucao.modelo;
   return (
     <div className="space-y-2 rounded-md border border-[var(--color-border)] p-3 text-sm" aria-live="polite">
       <p className="font-semibold text-[var(--color-text-title)]">
-        Treinamento #{execucao.id_execucao} ({execucao.regiao}): {STATUS[execucao.status]}
+        {TIPO[execucao.tipo] ?? execucao.tipo} #{execucao.id_execucao} ({execucao.regiao}): {STATUS[execucao.status]}
       </p>
+      {execucao.status === "SUCESSO" && execucao.decisao && <Comparacao execucao={execucao} />}
       {emAndamento(execucao) && (
         <p className="text-[var(--color-text-secondary)]">
           {execucao.andamento ?? "Aguardando o serviço de treinamento"}. O treinamento completo leva de 20 a 40 minutos; a tela
@@ -76,7 +102,7 @@ function Resumo({ execucao }: { execucao: ResumoTreinamento }) {
         <div className="space-y-1 text-[var(--color-text-secondary)]">
           <p>
             Versão {modelo.versao}
-            {modelo.vigente ? " (vigente)" : ""}, treinada em {formatarDataHora(modelo.treinado_em)}: {modelo.epocas} épocas
+            {modelo.vigente ? " (vigente)" : modelo.descartado ? " (descartada)" : ""}, treinada em {formatarDataHora(modelo.treinado_em)}: {modelo.epocas} épocas
             (melhor: {modelo.melhor_epoca}), {duracao(modelo.duracao_segundos)} de treino, {modelo.segundos_por_epoca.toLocaleString("pt-BR")} s
             por época.
           </p>
@@ -93,13 +119,21 @@ function Resumo({ execucao }: { execucao: ResumoTreinamento }) {
         </div>
       )}
 
-      {execucao.avisos && <p className="text-[var(--color-text-secondary)]">Aviso: {execucao.avisos}</p>}
+      {execucao.avisos?.split("\n").map((aviso) => (
+        <p key={aviso} className="text-[var(--color-text-secondary)]">
+          Aviso: {aviso}
+        </p>
+      ))}
 
       {execucao.status === "FALHA" && (
         <>
           <p role="alert" className="text-[var(--color-negative)]">
-            {execucao.mensagem}
-            {execucao.etapa_da_falha !== "SELECAO" ? " A versão vigente e a situação dos itens foram mantidas." : ""}
+            {execucao.tipo === "RETREINAMENTO"
+              ? "Retreinamento não concluído: o modelo vigente e a situação dos itens foram mantidos."
+              : execucao.mensagem}
+            {execucao.tipo !== "RETREINAMENTO" && execucao.etapa_da_falha !== "SELECAO"
+              ? " A versão vigente e a situação dos itens foram mantidas."
+              : ""}
           </p>
           {execucao.itens_elegiveis !== null && (
             <p className="text-[var(--color-text-secondary)]">
@@ -221,9 +255,11 @@ function TreinamentoDoModelo({ token }: { token: string }) {
               <thead className="text-[var(--color-text-secondary)]">
                 <tr>
                   <th className="py-1 pr-3 font-normal">Pedido</th>
+                  <th className="py-1 pr-3 font-normal">Tipo</th>
                   <th className="py-1 pr-3 font-normal">Região</th>
                   <th className="py-1 pr-3 font-normal">Situação</th>
                   <th className="py-1 pr-3 text-right font-normal">Versão</th>
+                  <th className="py-1 pr-3 font-normal">Decisão</th>
                   <th className="py-1 pr-3 text-right font-normal">Liberados</th>
                   <th className="py-1 pr-3 text-right font-normal">Bloqueados</th>
                   <th className="py-1 text-right font-normal">Ignoradas</th>
@@ -237,9 +273,13 @@ function TreinamentoDoModelo({ token }: { token: string }) {
                         {formatarDataHora(item.solicitado_em)}
                       </button>
                     </td>
+                    <td className="py-1 pr-3">{TIPO[item.tipo] ?? item.tipo}</td>
                     <td className="py-1 pr-3">{item.regiao}</td>
                     <td className="py-1 pr-3">{STATUS[item.status]}</td>
                     <td className="py-1 pr-3 text-right">{item.modelo ? item.modelo.versao : "—"}</td>
+                    <td className="py-1 pr-3">
+                      {item.decisao === "SUBSTITUIDO" ? "Substituiu o vigente" : item.decisao === "MANTIDO" ? "Vigente mantido" : "—"}
+                    </td>
                     <td className="py-1 pr-3 text-right">{inteiro(item.itens_liberados)}</td>
                     <td className="py-1 pr-3 text-right">{inteiro(item.itens_bloqueados)}</td>
                     <td className="py-1 text-right">{inteiro(item.itens_ignorados)}</td>
