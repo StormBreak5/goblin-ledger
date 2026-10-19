@@ -53,6 +53,9 @@ class ResumoTreinamentoResponse(BaseModel):
     bloqueados_avaliacao_insuficiente: Optional[int] = Field(default=None, description="CU11-C1-FA5.")
     itens_ignorados: Optional[int] = Field(default=None, description="CU11-C1-FA3.")
     liberados_fora_do_treino: Optional[int] = Field(default=None, description="Liberados que não integram o conjunto de treinamento.")
+    liberados_sem_amostra_de_treino: Optional[int] = Field(
+        default=None, description="Liberados sem nenhuma amostra no período de treinamento (não ajustaram os pesos).")
+    ultimo_dia: Optional[date] = Field(default=None, description="RN25: último dia encerrado da série usada.")
     avisos: Optional[str] = None
     etapa_da_falha: Optional[str] = Field(default=None, description="SELECAO (FA1), TREINO (FE1), BANCO (FE2) ou INTERNA.")
     mensagem: Optional[str] = Field(default=None, description="Texto do cenário, quando o treinamento não foi concluído.")

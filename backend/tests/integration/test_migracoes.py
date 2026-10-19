@@ -55,7 +55,7 @@ def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     with banco_vazio.connect() as conexao:
         assert set(inspect(conexao).get_table_names()) - {"alembic_version"} == TODAS_AS_TABELAS
         assert conexao.execute(text("SELECT count(*) FROM historical_item_prices")).scalar() == 1  # dados preservados
-        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0007"
+        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0008"
         # linhas antigas ganham os valores padrão das colunas novas, sem reescrever a tabela
         assert conexao.execute(text("SELECT origem, anomalia, granularidade FROM historical_item_prices")).one() == (
             "UNDERMINE", False, "DIARIA",
@@ -165,3 +165,42 @@ def test_migracao_6_remove_leituras_repetidas_da_ficha_e_impede_novas(banco_vazi
                 "INSERT INTO item_prices (id, item_id, price_copper, region, created_at) VALUES "
                 "(gen_random_uuid(), 122284, 300, 'us', '2026-09-29 22:23:07+00')"
             ))
+
+
+def test_cu11_migracao_8_situacao_ignorada(banco_vazio):
+    """RF08: a situação da projeção passa a ser 'Ignorada' (C1-FA3); os registros do primeiro treinamento são convertidos
+    e o banco recusa o valor antigo."""
+    import pytest
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy.exc import IntegrityError
+    from src.repositories.database import MIGRATIONS_DIR
+
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_DIR)
+    with banco_vazio.begin() as conexao:
+        config.attributes["connection"] = conexao
+        command.upgrade(config, "0007")
+        conexao.execute(text(
+            "INSERT INTO modelo_preditivo (versao, regiao, treinado_em, data_inicio, corte_validacao, corte_teste, data_fim, "
+            "itens_elegiveis, itens_treino, itens_avaliados, amostras_treino, amostras_validacao, amostras_teste, epocas, "
+            "melhor_epoca, segundos_por_epoca, duracao_segundos, caminho_artefatos, assinatura_normalizacao, vigente) "
+            "VALUES (1, 'US', now(), '2022-09-04', '2025-07-25', '2026-05-22', '2026-10-19', 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, "
+            "'v1', 'a', true)"
+        ))
+        conexao.execute(text(
+            "INSERT INTO projecao_item (serie, item_id, regiao, versao, integra_treino, situacao, motivo, atualizado_em) "
+            "VALUES ('3209', 1, 'US', 1, true, 'IGNORADO', 'série insuficiente', now()), "
+            "('3209', 2, 'US', 1, true, 'LIBERADA', NULL, now())"
+        ))
+        command.upgrade(config, "0008")
+
+    with banco_vazio.connect() as conexao:
+        situacoes = conexao.execute(text("SELECT item_id, situacao FROM projecao_item ORDER BY item_id")).all()
+        colunas = {c["name"] for c in inspect(conexao).get_columns("execucao_treinamento")}
+    assert [tuple(linha) for linha in situacoes] == [(1, "IGNORADA"), (2, "LIBERADA")]
+    assert {"liberados_sem_amostra_de_treino", "ultimo_dia"} <= colunas
+
+    with pytest.raises(IntegrityError):
+        with banco_vazio.begin() as conexao:
+            conexao.execute(text("UPDATE projecao_item SET situacao = 'IGNORADO' WHERE item_id = 1"))

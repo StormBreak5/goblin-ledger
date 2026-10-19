@@ -49,6 +49,8 @@ export interface ResumoTreinamento {
   bloqueados_avaliacao_insuficiente: number | null; // CU11-C1-FA5
   itens_ignorados: number | null; // CU11-C1-FA3
   liberados_fora_do_treino: number | null;
+  liberados_sem_amostra_de_treino: number | null; // sem nenhuma amostra no período de treinamento
+  ultimo_dia: string | null; // AAAA-MM-DD, RN25: último dia encerrado da série usada
   avisos: string | null;
   etapa_da_falha: string | null; // SELECAO (FA1), TREINO (FE1), BANCO (FE2) ou INTERNA
   mensagem: string | null;

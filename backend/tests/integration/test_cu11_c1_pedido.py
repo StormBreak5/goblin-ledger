@@ -132,7 +132,7 @@ def test_cu11_c1_resumo_do_treinamento(admin_client, db_session, relogio):
         tipo="INICIAL", disparo="ADMIN", regiao="US", status="SUCESSO", solicitado_em=relogio(), versao=modelo.versao,
         itens_elegiveis=10, itens_treino=8, itens_liberados=3, itens_bloqueados=6, bloqueados_acima_do_limiar=4,
         bloqueados_nao_supera_ingenuo=1, bloqueados_avaliacao_insuficiente=1, itens_ignorados=1,
-        liberados_fora_do_treino=1,
+        liberados_fora_do_treino=1, liberados_sem_amostra_de_treino=2, ultimo_dia=date(2026, 10, 5),
     )
     sem_itens = ExecucaoTreinamento(tipo="INICIAL", disparo="ADMIN", regiao="US", status="FALHA",
                                     solicitado_em=relogio(), etapa_da_falha="SELECAO")
@@ -144,6 +144,7 @@ def test_cu11_c1_resumo_do_treinamento(admin_client, db_session, relogio):
     corpo = admin_client.get(f"/api/admin/model-training/{concluido.id}", headers=cabecalho(token)).json()
     assert (corpo["itens_liberados"], corpo["itens_bloqueados"], corpo["itens_ignorados"]) == (3, 6, 1)  # passo 12
     assert corpo["liberados_fora_do_treino"] == 1 and corpo["bloqueados_avaliacao_insuficiente"] == 1
+    assert corpo["liberados_sem_amostra_de_treino"] == 2 and corpo["ultimo_dia"] == "2026-10-05"
     assert corpo["modelo"]["versao"] == modelo.versao and corpo["modelo"]["corte_teste"] == "2026-05-11"
     assert corpo["mensagem"] is None
 

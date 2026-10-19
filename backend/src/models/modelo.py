@@ -31,8 +31,8 @@ ETAPAS_DE_FALHA = (ETAPA_SELECAO, ETAPA_TREINO, ETAPA_BANCO, ETAPA_INTERNA)
 # projecao_item.situacao / motivo (RN10, RN13, RN27)
 SITUACAO_LIBERADA = "LIBERADA"
 SITUACAO_BLOQUEADA = "BLOQUEADA"
-SITUACAO_IGNORADO = "IGNORADO"  # CU11-C1-FA3
-SITUACOES = (SITUACAO_LIBERADA, SITUACAO_BLOQUEADA, SITUACAO_IGNORADO)
+SITUACAO_IGNORADA = "IGNORADA"  # CU11-C1-FA3 (RF08: 'Liberada', 'Bloqueada' ou 'Ignorada')
+SITUACOES = (SITUACAO_LIBERADA, SITUACAO_BLOQUEADA, SITUACAO_IGNORADA)
 MOTIVO_ACIMA_DO_LIMIAR = "acima do limiar"  # CU11-C1-FA4 (RN10)
 MOTIVO_NAO_SUPERA_INGENUO = "não supera o ingênuo"  # CU11-C1-FA4 (RN10)
 MOTIVO_AVALIACAO_INSUFICIENTE = "avaliação insuficiente"  # CU11-C1-FA5 (RN10)
@@ -114,6 +114,10 @@ class ExecucaoTreinamento(Base):
     bloqueados_avaliacao_insuficiente = Column(Integer, nullable=True)
     itens_ignorados = Column(Integer, nullable=True)
     liberados_fora_do_treino = Column(Integer, nullable=True)
+    # Liberados sem nenhuma amostra no período de treinamento: integram o conjunto de treinamento (RN15), mas foram
+    # lançados depois do fim desse período e não ajustaram os pesos (migração 0008).
+    liberados_sem_amostra_de_treino = Column(Integer, nullable=True)
+    ultimo_dia = Column(Date, nullable=True)  # RN25: último dia encerrado da série usada
     avisos = Column(Text, nullable=True)
     etapa_da_falha = Column(String(10), nullable=True)
     erro = Column(Text, nullable=True)
@@ -129,7 +133,7 @@ class ExecucaoTreinamento(Base):
 
 class ProjecaoItem(Base):
     """RF08 / RN10: situação atual da projeção de cada item elegível (`LIBERADA` ou `BLOQUEADA`, com o motivo) ou
-    `IGNORADO` (CU11-C1-FA3), com as métricas do item no período de teste da versão que o avaliou. `item_id` é o
+    `IGNORADA` (CU11-C1-FA3), com as métricas do item no período de teste da versão que o avaliou. `item_id` é o
     identificador do item no WoW e `serie` a região da série histórica (historical_item_prices.region)."""
     __tablename__ = "projecao_item"
 

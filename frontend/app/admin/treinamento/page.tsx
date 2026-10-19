@@ -51,7 +51,7 @@ function Resumo({ execucao }: { execucao: ResumoTreinamento }) {
         <>
           <p className="text-[var(--color-text-title)]">
             Projeção liberada: {inteiro(execucao.itens_liberados)} · Projeção bloqueada: {inteiro(execucao.itens_bloqueados)} ·
-            Ignorados: {inteiro(execucao.itens_ignorados)}
+            Projeção ignorada: {inteiro(execucao.itens_ignorados)}
           </p>
           <ul className="list-inside list-disc text-[var(--color-text-secondary)]">
             <li>
@@ -63,6 +63,11 @@ function Resumo({ execucao }: { execucao: ResumoTreinamento }) {
               {inteiro(execucao.itens_elegiveis)} itens elegíveis à projeção, {inteiro(execucao.itens_treino)} no conjunto de
               treinamento; {inteiro(execucao.liberados_fora_do_treino)} liberados não integram o conjunto de treinamento.
             </li>
+            <li>
+              {inteiro(execucao.liberados_sem_amostra_de_treino)} liberados não têm nenhuma amostra no período de treinamento
+              (lançados depois dele, não ajustaram os pesos do modelo).
+            </li>
+            {execucao.ultimo_dia && <li>Último dia encerrado da série usada: {formatarData(execucao.ultimo_dia)}.</li>}
           </ul>
         </>
       )}
@@ -221,7 +226,7 @@ function TreinamentoDoModelo({ token }: { token: string }) {
                   <th className="py-1 pr-3 text-right font-normal">Versão</th>
                   <th className="py-1 pr-3 text-right font-normal">Liberados</th>
                   <th className="py-1 pr-3 text-right font-normal">Bloqueados</th>
-                  <th className="py-1 text-right font-normal">Ignorados</th>
+                  <th className="py-1 text-right font-normal">Ignoradas</th>
                 </tr>
               </thead>
               <tbody className="text-[var(--color-text-main)]">

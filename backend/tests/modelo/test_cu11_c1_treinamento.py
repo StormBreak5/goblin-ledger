@@ -186,7 +186,7 @@ def test_cu11_c1_fa3_serie_insuficiente_item_ignorado(pg_engine, db_session, rel
     assert resumo.status == "SUCESSO" and resumo.itens_elegiveis == 7
     assert resumo.itens_ignorados == 1
     ignorado = projecoes(db_session)[300_001]
-    assert (ignorado.situacao, ignorado.motivo) == ("IGNORADO", "série insuficiente")
+    assert (ignorado.situacao, ignorado.motivo) == ("IGNORADA", "série insuficiente")
     assert ignorado.integra_treino and ignorado.mdape is None and ignorado.dias_avaliados is None
     assert 300_001 not in treinador.itens_do_treino  # fora do treino e da avaliação
 
@@ -280,3 +280,61 @@ def test_cu11_c1_fe2_falha_no_banco(pg_engine, db_session, relogio, tmp_path, mo
     assert no_passo_11.modelo is None
     _registros_mantidos(db_session, versao, situacao, tmp_path)
     assert db_session.query(ExecucaoTreinamento).filter(ExecucaoTreinamento.status == "SUCESSO").count() == 1
+
+
+def test_rn25_considera_somente_dias_encerrados(pg_engine, db_session, relogio, tmp_path):
+    """RN25: o histórico considera somente os dias já encerrados. Executado em 05/10 (UTC), o treinamento usa a série até
+    04/10; o registro do próprio dia 05/10, ainda em formação, fica de fora."""
+    from datetime import date, datetime, timezone
+
+    from src.ml.dados import carregar_banco
+
+    dados = cenario()
+    gravar_no_banco(db_session, dados, aptos_do(dados))
+    with pg_engine.connect() as conexao:
+        assert carregar_banco(conexao, CFG, date(2026, 10, 5)).precos["data"].max() == pd.Timestamp("2026-10-04")
+    relogio.agora = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
+
+    resumo = executar(pg_engine, db_session, relogio, tmp_path, TreinadorFalso())
+
+    assert resumo.status == "SUCESSO" and resumo.ultimo_dia == date(2026, 10, 4)
+    assert db_session.get(ModeloPreditivo, resumo.modelo.versao).data_fim == date(2026, 10, 4)
+
+
+def test_cu11_c1_liberados_sem_amostra_de_treino(pg_engine, db_session, relogio, tmp_path):
+    """Passo 12: liberados sem nenhuma amostra no período de treinamento. O item lançado depois do fim desse período
+    (07/12/2025) integra o conjunto de treinamento pela RN15, mas não ajustou os pesos."""
+    novo = serie_constante(300_004, "2026-01-10", FIM, ruido=0.02, semente=4)
+    dados = cenario(novo)
+    gravar_no_banco(db_session, dados, aptos_do(dados))
+
+    resumo = executar(pg_engine, db_session, relogio, tmp_path, TreinadorFalso())  # previsões perfeitas
+
+    item = projecoes(db_session)[300_004]
+    assert item.situacao == "LIBERADA" and item.integra_treino
+    avaliacao = pd.read_parquet(Path(resumo_caminho(db_session, resumo)) / "avaliacao_teste.parquet")
+    assert avaliacao.set_index("item_id").loc[300_004, "amostras_treino"] == 0
+    esperado = int(((avaliacao["situacao"] == "LIBERADA") & (avaliacao["amostras_treino"] == 0)).sum())
+    assert resumo.liberados_sem_amostra_de_treino == esperado >= 1
+
+
+def resumo_caminho(db_session, resumo: ResumoDoTreinamento) -> str:
+    return db_session.get(ModeloPreditivo, resumo.modelo.versao).caminho_artefatos
+
+
+def test_cu11_c1_execucao_antiga_recebe_os_liberados_sem_amostra_de_treino(pg_engine, db_session, relogio, tmp_path):
+    """As execuções concluídas antes da migração 0008 recebem o número a partir do artefato da versão (como a execução 1
+    do banco real, que tem 292), quando o serviço `modelo` inicia. Só o que está em branco é preenchido."""
+    from src.ml.treinamento_inicial import preencher_liberados_sem_amostra_de_treino
+
+    dados = cenario()
+    gravar_no_banco(db_session, dados, aptos_do(dados))
+    resumo = executar(pg_engine, db_session, relogio, tmp_path, TreinadorFalso())
+    original = resumo.liberados_sem_amostra_de_treino
+    db_session.query(ExecucaoTreinamento).update({"liberados_sem_amostra_de_treino": None})
+    db_session.commit()
+
+    assert preencher_liberados_sem_amostra_de_treino(pg_engine) == 1
+    db_session.expire_all()
+    assert db_session.get(ExecucaoTreinamento, resumo.id_execucao).liberados_sem_amostra_de_treino == original
+    assert preencher_liberados_sem_amostra_de_treino(pg_engine) == 0  # idempotente

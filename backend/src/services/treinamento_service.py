@@ -80,6 +80,8 @@ class ResumoDoTreinamento:
     bloqueados_avaliacao_insuficiente: Optional[int]
     itens_ignorados: Optional[int]
     liberados_fora_do_treino: Optional[int]
+    liberados_sem_amostra_de_treino: Optional[int]
+    ultimo_dia: Optional[date]
     avisos: Optional[str]
     etapa_da_falha: Optional[str]
     mensagem: Optional[str]
@@ -190,7 +192,8 @@ class TreinamentoService:
             bloqueados_acima_do_limiar=e.bloqueados_acima_do_limiar,
             bloqueados_nao_supera_ingenuo=e.bloqueados_nao_supera_ingenuo,
             bloqueados_avaliacao_insuficiente=e.bloqueados_avaliacao_insuficiente,
-            itens_ignorados=e.itens_ignorados, liberados_fora_do_treino=e.liberados_fora_do_treino, avisos=e.avisos,
+            itens_ignorados=e.itens_ignorados, liberados_fora_do_treino=e.liberados_fora_do_treino,
+            liberados_sem_amostra_de_treino=e.liberados_sem_amostra_de_treino, ultimo_dia=e.ultimo_dia, avisos=e.avisos,
             etapa_da_falha=e.etapa_da_falha,
             mensagem=MENSAGEM_DA_FALHA.get(e.etapa_da_falha) if e.status == STATUS_FALHA else None,
             erro=e.erro,

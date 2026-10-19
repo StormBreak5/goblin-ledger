@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -34,7 +35,7 @@ from src.ml.rede import FalhaNoTreinamento, ResultadoDoTreino, Treinador
 from src.ml.selecao import Selecao, selecionar
 from src.models.modelo import (ETAPA_BANCO, ETAPA_INTERNA, ETAPA_SELECAO, ETAPA_TREINO, MOTIVO_ACIMA_DO_LIMIAR,
                                MOTIVO_AVALIACAO_INSUFICIENTE, MOTIVO_NAO_SUPERA_INGENUO, MOTIVO_SERIE_INSUFICIENTE,
-                               SITUACAO_BLOQUEADA, SITUACAO_IGNORADO, SITUACAO_LIBERADA, STATUS_FALHA, STATUS_SUCESSO,
+                               SITUACAO_BLOQUEADA, SITUACAO_IGNORADA, SITUACAO_LIBERADA, STATUS_FALHA, STATUS_SUCESSO,
                                ExecucaoTreinamento, ModeloPreditivo, ProjecaoItem)
 from src.services import security
 
@@ -65,15 +66,17 @@ class Contagens:
     bloqueados_avaliacao_insuficiente: Optional[int] = None
     itens_ignorados: Optional[int] = None
     liberados_fora_do_treino: Optional[int] = None
+    liberados_sem_amostra_de_treino: Optional[int] = None
+    ultimo_dia: Optional[date] = None  # RN25: último dia encerrado da série usada
 
-    def como_dict(self) -> dict[str, Optional[int]]:
+    def como_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if v is not None}
 
 
 def situacao_dos_itens(selecao: Selecao, base: BasePreparada, av: Avaliacao) -> pd.DataFrame:
     """CU11-C1 passos 9 e 10, FA3, FA4 e FA5: a situação de cada item elegível.
 
-    - FA3: sem nenhuma amostra depois da higienização → IGNORADO, "série insuficiente" (fora do treino e da avaliação);
+    - FA3: sem nenhuma amostra depois da higienização → IGNORADA, "série insuficiente" (fora do treino e da avaliação);
     - avaliado no teste → LIBERADA ou BLOQUEADA pela RN10, com as métricas (FA4: acima do limiar ou não supera o
       ingênuo; FA5: menos de 30 dias avaliados);
     - com amostras, mas sem nenhum dia avaliado no período de teste → BLOQUEADA, "avaliação insuficiente" (FA5).
@@ -88,7 +91,7 @@ def situacao_dos_itens(selecao: Selecao, base: BasePreparada, av: Avaliacao) -> 
 
     sem_amostras = (out["amostras_treino"] + out["amostras_validacao"] + out["amostras_teste"]) == 0
     nao_avaliado = out["situacao"].isna() & ~sem_amostras
-    out.loc[sem_amostras, "situacao"] = SITUACAO_IGNORADO
+    out.loc[sem_amostras, "situacao"] = SITUACAO_IGNORADA
     out.loc[sem_amostras, "motivo"] = MOTIVO_SERIE_INSUFICIENTE
     out.loc[nao_avaliado, "situacao"] = SITUACAO_BLOQUEADA
     out.loc[nao_avaliado, "motivo"] = MOTIVO_AVALIACAO_INSUFICIENTE
@@ -97,6 +100,9 @@ def situacao_dos_itens(selecao: Selecao, base: BasePreparada, av: Avaliacao) -> 
 
 
 def contar(situacao: pd.DataFrame, selecao: Selecao) -> Contagens:
+    """CU11-C1 passo 12: liberados, bloqueados por motivo e ignorados, os liberados fora do conjunto de treinamento e
+    os liberados sem nenhuma amostra no período de treinamento (lançados depois do fim dele: integram o conjunto de
+    treinamento pela RN15, mas não ajustaram os pesos)."""
     bloqueada = situacao["situacao"] == SITUACAO_BLOQUEADA
     liberada = situacao["situacao"] == SITUACAO_LIBERADA
     return Contagens(
@@ -107,8 +113,10 @@ def contar(situacao: pd.DataFrame, selecao: Selecao) -> Contagens:
         bloqueados_acima_do_limiar=int((bloqueada & (situacao["motivo"] == MOTIVO_ACIMA_DO_LIMIAR)).sum()),
         bloqueados_nao_supera_ingenuo=int((bloqueada & (situacao["motivo"] == MOTIVO_NAO_SUPERA_INGENUO)).sum()),
         bloqueados_avaliacao_insuficiente=int((bloqueada & (situacao["motivo"] == MOTIVO_AVALIACAO_INSUFICIENTE)).sum()),
-        itens_ignorados=int((situacao["situacao"] == SITUACAO_IGNORADO).sum()),
+        itens_ignorados=int((situacao["situacao"] == SITUACAO_IGNORADA).sum()),
         liberados_fora_do_treino=int((liberada & ~situacao["integra_treino"].astype(bool)).sum()),
+        liberados_sem_amostra_de_treino=int((liberada & (situacao["amostras_treino"] == 0)).sum()),
+        ultimo_dia=selecao.ultimo_dia,
     )
 
 
@@ -133,18 +141,22 @@ class TreinamentoInicial:
         self.relogio = relogio
 
     # ------------------------------------------------------------------------------------------------- execução
-    def executar(self, id_execucao: int) -> None:
+    def executar(self, id_execucao: int, data_execucao: Optional[date] = None) -> None:
+        """`data_execucao`: a data UTC da execução (padrão: a do relógio). RN25: só os dias anteriores a ela, os já
+        encerrados, entram no histórico."""
         contagens = Contagens()
         artefatos = Artefatos(self.pasta, id_execucao)
+        ate = data_execucao or self.relogio().date()
         try:
             regiao = self._regiao(id_execucao)
 
             # Passos 2 e 3: a seleção usa a própria série (RN02 e RN27), então a leitura vem antes.
             self._andamento(id_execucao, "Selecionando os itens elegíveis e o conjunto de treinamento")
-            entrada = self._ler_banco()
+            entrada = self._ler_banco(ate)
             selecao = selecionar(entrada, self.cfg, regiao)
             contagens.itens_elegiveis = int(selecao.itens["elegivel"].sum())
             contagens.itens_treino = int(selecao.itens["integra_treino"].sum())
+            contagens.ultimo_dia = selecao.ultimo_dia
             if contagens.itens_treino == 0:
                 raise _Falha(ETAPA_SELECAO, f"Nenhum dos {contagens.itens_elegiveis} itens elegíveis à projeção na "
                                             f"região {regiao} é apto ao treinamento (RN15).")
@@ -208,11 +220,11 @@ class TreinamentoInicial:
         except SQLAlchemyError as e:
             raise _Falha(ETAPA_BANCO, f"Falha ao ler o pedido do treinamento: {e}") from e
 
-    def _ler_banco(self):  # type: ignore[no-untyped-def]
-        """CU11-C1 passo 3 (FE2: falha de I/O ou queda de conexão)."""
+    def _ler_banco(self, ate: date):  # type: ignore[no-untyped-def]
+        """CU11-C1 passo 3 (FE2: falha de I/O ou queda de conexão), só com os dias anteriores a `ate` (RN25)."""
         try:
             with self.abrir_sessao() as s:
-                return carregar_banco(s.connection(), self.cfg)
+                return carregar_banco(s.connection(), self.cfg, ate)
         except SQLAlchemyError as e:
             raise _Falha(ETAPA_BANCO, f"Falha ao ler a série histórica: {e}") from e
 
@@ -301,6 +313,7 @@ class TreinamentoInicial:
                          "validacao_parada_antecipada": treino.amostras_parada_antecipada,
                          "teste": av.resumo["amostras"]},
             "versoes": treino.versoes, "assinatura_normalizacao": base.normalizacao["assinatura"],
+            "ultimo_dia": None if contagens.ultimo_dia is None else contagens.ultimo_dia.isoformat(),
             "contagens_da_preparacao": base.normalizacao["contagens"], "resumo_do_treinamento": contagens.como_dict(),
             "avaliacao_teste": av.resumo,
         }
@@ -333,3 +346,34 @@ class TreinamentoInicial:
                     **contagens.como_dict()))
         except SQLAlchemyError:
             logger.exception("CU11-C1: não foi possível registrar a falha do treinamento %s.", id_execucao)
+
+
+def preencher_liberados_sem_amostra_de_treino(engine: Engine) -> int:
+    """CU11-C1 passo 12: as execuções concluídas antes da migração 0008 não têm os liberados sem amostra de treino.
+    O número sai do artefato da versão (avaliacao_teste.parquet: liberados com `amostras_treino == 0`). Idempotente:
+    só preenche o que está nulo. Devolve quantas execuções foram completadas."""
+    from src.ml.artefatos import ARQUIVO_AVALIACAO
+
+    completadas = 0
+    with sessionmaker(bind=engine)() as s:
+        pendentes = (
+            s.query(ExecucaoTreinamento, ModeloPreditivo)
+            .join(ModeloPreditivo, ModeloPreditivo.versao == ExecucaoTreinamento.versao)
+            .filter(ExecucaoTreinamento.status == STATUS_SUCESSO,
+                    ExecucaoTreinamento.liberados_sem_amostra_de_treino.is_(None))
+            .all()
+        )
+        for execucao, modelo in pendentes:
+            caminho = Path(modelo.caminho_artefatos) / ARQUIVO_AVALIACAO
+            if not caminho.exists():
+                logger.warning("CU11: %s não existe; liberados sem amostra de treino da execução %s ficam em branco.",
+                               caminho, execucao.id)
+                continue
+            itens = pd.read_parquet(caminho, columns=["situacao", "amostras_treino"])
+            execucao.liberados_sem_amostra_de_treino = int(
+                ((itens["situacao"] == SITUACAO_LIBERADA) & (itens["amostras_treino"] == 0)).sum())
+            completadas += 1
+            logger.info("CU11: execução %s completada com %s liberados sem amostra de treino.", execucao.id,
+                        execucao.liberados_sem_amostra_de_treino)
+        s.commit()
+    return completadas

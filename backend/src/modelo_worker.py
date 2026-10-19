@@ -14,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.ml.artefatos import pasta_dos_modelos
 from src.ml.configuracao import ConfigModelo
-from src.ml.treinamento_inicial import TreinamentoInicial
+from src.ml.treinamento_inicial import TreinamentoInicial, preencher_liberados_sem_amostra_de_treino
 from src.models.modelo import ETAPA_INTERNA, STATUS_FALHA, TIPO_INICIAL, ExecucaoTreinamento
 from src.repositories.database import init_db
 from src.services.security import agora
@@ -58,6 +58,7 @@ def main() -> None:
         interrompidos = TreinamentoService(sessao).encerrar_em_execucao()
     if interrompidos:
         logger.warning("CU11: %d treinamento(s) interrompido(s) pelo reinício do serviço.", interrompidos)
+    preencher_liberados_sem_amostra_de_treino(SessionLocal.kw["bind"])
     logger.info("Serviço modelo pronto: fila a cada %.0f s, artefatos em %s, RN07 %s.", intervalo_da_fila(),
                 pasta.resolve(), "desligada" if cfg.ilvl_minimo is None else f"com nível mínimo {cfg.ilvl_minimo}")
     while True:

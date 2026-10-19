@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import date
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -29,6 +31,7 @@ class Selecao:
     precos: pd.DataFrame  # registros diários dos itens elegíveis, com a coluna `regiao`
     itens: pd.DataFrame   # um registro por série e item da região: critérios, `elegivel` e `integra_treino`
     rn07_ativa: bool
+    ultimo_dia: Optional[date] = None  # RN25: último dia encerrado da série da região
 
     @property
     def elegiveis(self) -> pd.DataFrame:
@@ -108,4 +111,6 @@ def selecionar(entrada: Entrada, cfg: ConfigModelo, regiao: str) -> Selecao:
                 cfg.historico_minimo_dias,
                 "desligada" if cfg.ilvl_minimo is None else f"{int(itens['equipamento_obsoleto_rn07'].sum())} obsoletos",
                 len(elegiveis), int(itens["integra_treino"].sum()))
-    return Selecao(precos=precos, itens=itens, rn07_ativa=cfg.ilvl_minimo is not None)
+    ultimo = precos["data"].max() if len(precos) else None
+    return Selecao(precos=precos, itens=itens, rn07_ativa=cfg.ilvl_minimo is not None,
+                   ultimo_dia=None if ultimo is None or pd.isna(ultimo) else pd.Timestamp(ultimo).date())

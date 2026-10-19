@@ -28,7 +28,7 @@ Texto do TC atual, com as mudanças da v4 (RN10 e RN15 alteradas; RN27 nova).
 - **RN16 – Harmonização de Dados de Terceiros:** Dados históricos retroativos obtidos via extração externa (Undermine Exchange, web scraping) devem obrigatoriamente ser convertidos, tipados e higienizados para o exato padrão relacional do SGBD do sistema e da padronização de moeda, garantindo a integridade do dataset antes do treinamento inicial. Cada registro identifica a sua origem e a sua granularidade (diária ou horária). As séries de origens diferentes não são misturadas no treinamento: o modelo utiliza a série diária da Undermine Exchange, única com histórico contínuo, e a série horária do ciclo da Blizzard não é incorporada a ela.
 - **RN17 – Marcação Estocástica de Eventos:** Datas de grandes atualizações sistêmicas do jogo (patches/expansões) mapeadas no banco histórico devem ser injetadas como variáveis categóricas para o algoritmo. Isso impede que o modelo interprete quedas abruptas de preço causadas por obsolescência de itens como flutuações naturais de mercado. Além de patches e expansões, são registrados como eventos as temporadas, os eventos sazonais e os eventos recorrentes do jogo.
 - **RN24 – Normalização das Variáveis do Modelo:** Para o treinamento e a predição, os preços e as quantidades recebem transformação logarítmica e são padronizados pela média e pelo desvio-padrão dos últimos 90 dias do próprio item; as variações de preço e os indicadores derivados são divididos por constantes globais. Em todos os casos, os valores resultantes são limitados ao intervalo entre −1 e 1. O dia da semana é representado por seno e cosseno, as contagens de dias são limitadas a 60 e divididas por 60 (exceto a distância até o próximo patch), e as categorias do item são representadas por vetores aprendidos (embeddings). Dias sem registro são preenchidos com o último valor observado por até 3 dias e marcados como não observados. A saída do modelo é padronizada pela média e pelo desvio-padrão de cada dia do horizonte, calculados no período de treinamento.
-- **RN25 – Integridade Temporal do Treinamento:** Toda variável de entrada do modelo deve ser calculada apenas com informações disponíveis no dia da previsão. Como a data de anúncio dos eventos não é registrada, um patch só é considerado conhecido a partir de 14 dias antes da sua data. O histórico é dividido em ordem cronológica, com as mesmas datas de corte para todos os itens, em 70% para treinamento, 20% para validação e 10% para teste (HYNDMAN; ATHANASOPOULOS, 2018). A validação é usada para interromper o treinamento e escolher a configuração do modelo; o teste é usado uma única vez, para medir o erro final e decidir a liberação da projeção de cada item. Amostras cujos dias previstos atravessem uma data de corte são descartadas. As constantes de normalização são calculadas exclusivamente com os dados do período de treinamento e armazenadas junto com a versão do modelo.
+- **RN25 – Integridade Temporal do Treinamento:** Toda variável de entrada do modelo deve ser calculada apenas com informações disponíveis no dia da previsão. O histórico considera somente os dias já encerrados. Como a data de anúncio dos eventos não é registrada, um patch só é considerado conhecido a partir de 14 dias antes da sua data. O histórico é dividido em ordem cronológica, com as mesmas datas de corte para todos os itens, em 70% para treinamento, 20% para validação e 10% para teste (HYNDMAN; ATHANASOPOULOS, 2018). A validação é usada para interromper o treinamento e escolher a configuração do modelo; o teste é usado uma única vez, para medir o erro final e decidir a liberação da projeção de cada item. Amostras cujos dias previstos atravessem uma data de corte são descartadas. As constantes de normalização são calculadas exclusivamente com os dados do período de treinamento e armazenadas junto com a versão do modelo.
 - **RN26 – Política de Retreinamento:** O modelo preditivo é retreinado semanalmente, após o reinício semanal do jogo, e só substitui o modelo vigente se apresentar erro menor que o dele no mesmo período de teste; caso contrário, o modelo vigente é mantido.
 - **RN27 – Histórico Mínimo para Projeção:** A projeção de um item, tenha ele integrado ou não o conjunto de treinamento do modelo, só pode ser calculada e avaliada quando o item possuir ao menos 60 dias de histórico diário, necessários para a padronização móvel das variáveis e para compor a janela de entrada do modelo. Itens com histórico inferior exibem apenas o histórico gráfico. *(nova na v4)*
 
@@ -75,7 +75,7 @@ Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja h
 | Versão do Modelo | Inteiro | - | Sim | Numérico sequencial |
 | Data/Hora do Treinamento | Data/Hora | - | Sim | Timestamp |
 | Erro do Modelo por Item (MdAPE) | Decimal | - | Sim | Percentual |
-| Situação da Projeção do Item | Texto | 9 | Sim | 'Liberada' ou 'Bloqueada' |
+| Situação da Projeção do Item | Texto | 9 | Sim | 'Liberada', 'Bloqueada' ou 'Ignorada' |
 
 ## Requisito Funcional 12 – [RF 12]: Treinamento Inicial
 
@@ -168,7 +168,7 @@ Fundamentação (seção 3.1.2.3): Quando há um grande número de séries tempo
 #### Fluxo Alternativo 3 - Série insuficiente após a higienização
 
 - **3.1** No passo 4, o sistema identifica que os registros restantes do item não são suficientes para compor as amostras do modelo.
-- **3.2** O sistema classifica o item como "Ignorado", registrando o motivo, e o exclui do treinamento e da avaliação.
+- **3.2** O sistema classifica a projeção do item como "Ignorada", registrando o motivo, e o exclui do treinamento e da avaliação.
 - **3.3** Retorna ao passo 3 do fluxo principal para os demais itens.
 
 #### Fluxo Alternativo 4 - Projeção do item reprovada na avaliação
@@ -334,6 +334,7 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
 - **Variável 6 (índice da subclasse):** calcule-a com todos os itens selecionados no dia, não só com o conjunto de treinamento.
 - **Itens novos:** um item lançado depois do treino entra como elegível quando completa 60 dias de histórico. Ele é avaliado no período de teste do próximo retreinamento e liberado quando tiver os 30 dias avaliados da RN10. Na prática, isso leva uns 3 meses a partir do lançamento, sem retreinar o modelo para isso.
 - **Itens fora do treino no resumo do C1:** informe quantos itens liberados não integram o conjunto de treinamento.
+- **Liberados sem amostra de treino (resumo do C1 e do C2):** informe também quantos itens liberados não têm nenhuma amostra no período de treinamento. São os lançados depois do fim desse período: integram o conjunto de treinamento pela RN15, mas não ajustaram os pesos. No treinamento inicial (versão 1, região US) foram 292 dos 1.307 liberados.
 
 ### Arquitetura
 
@@ -358,11 +359,11 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
   | --- | --- |
   | `modelo_preditivo` | versão, região, data e hora do treinamento, datas de corte, mediana do MdAPE e do MAPE do modelo e do ingênuo no teste, caminho dos artefatos, se é a versão vigente |
   | `execucao_treinamento` | tipo (inicial ou retreinamento), origem (Admin ou agendado), status (`EXECUTANDO`, `SUCESSO`, `FALHA`), início, fim, resumo (liberados, bloqueados, ignorados e liberados fora do conjunto de treinamento), erro |
-  | `projecao_item` | item, série/região, versão, se integra o conjunto de treinamento, dias avaliados, MdAPE, MdAPE do ingênuo, MAPE, situação (`LIBERADA`, `BLOQUEADA`, `IGNORADO`), motivo, data da atualização |
+  | `projecao_item` | item, série/região, versão, se integra o conjunto de treinamento, dias avaliados, MdAPE, MdAPE do ingênuo, MAPE, situação (`LIBERADA`, `BLOQUEADA`, `IGNORADA`), motivo, data da atualização |
   | `predicao_diaria` (RN13) | data da previsão, item, série, versão, h (1 a 7), data prevista, preço previsto em Cobre, preço real, erro |
 
   - `execucao_treinamento` atende o C1-FA2. Como no CU10-C1-FA4, uma execução "em andamento" há mais de N horas deixa de bloquear.
-  - Motivos de bloqueio em `projecao_item`: "acima do limiar", "não supera o ingênuo", "avaliação insuficiente" (C1-FA5), "deixou de ser elegível" (C2-FA1) e "degradação" (C3-FA3). Para `IGNORADO`, "série insuficiente" (C1-FA3).
+  - Motivos de bloqueio em `projecao_item`: "acima do limiar", "não supera o ingênuo", "avaliação insuficiente" (C1-FA5), "deixou de ser elegível" (C2-FA1) e "degradação" (C3-FA3). Para `IGNORADA`, "série insuficiente" (C1-FA3).
   - Em `predicao_diaria`, preço real e erro nulos correspondem a "N/D". Chave única: (item, série, versão, data da previsão, h).
 - **Mensagens ao usuário:** exatamente as dos cenários.
 
@@ -402,7 +403,8 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
   - a projeção é liberada se o **MdAPE** for de no máximo 15%, menor que o MdAPE do ingênuo e medido em pelo menos **30 dias** com previsões avaliadas (datas de origem distintas, `dias_avaliados` no `avaliar.py`);
   - abaixo dos 30 dias, a projeção fica bloqueada com o motivo "avaliação insuficiente" (FA5);
   - grave também o MAPE, o RMSE e o erro relativo ao ingênuo, para o relatório.
-- **FA3:** o item sem amostras suficientes depois da higienização vira `IGNORADO`, com o motivo.
+- **FA3:** o item sem amostras suficientes depois da higienização tem a projeção `IGNORADA`, com o motivo.
+- **Dias encerrados (RN25):** o C1, o C2 e o C3 usam só os registros anteriores à data UTC da execução, que é um parâmetro (`data_execucao`) para os testes. O resumo registra o último dia usado (`ultimo_dia`).
 - **FE1:** cobre treino que produz NaN (TerminateOnNaN) e falta de memória.
 
 ### C2 – Retreinamento
