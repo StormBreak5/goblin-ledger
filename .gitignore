@@ -47,6 +47,9 @@ desktop.ini
 
 *.mp4
 
+# Artefatos do modelo preditivo (serviço `modelo`, CU11)
+backend/modelos/
+
 # Artefatos de modelos e dados (estudos/)
 *.parquet
 *.keras

@@ -21,6 +21,7 @@ from src.models.evento import EventoJogo, ExtracaoEvento
 from src.models.item import Item
 from src.models.item_price import ItemPrice
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
+from src.models.modelo import ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria, ProjecaoItem
 from src.models.usuario import TentativaLogin, Usuario
 from src.repositories.database import run_migrations
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
@@ -59,6 +60,7 @@ def make_auth_client() -> Callable[..., TestClient]:
             admin_cobertura_controller,
             admin_eventos_controller,
             admin_historico_controller,
+            admin_treinamento_controller,
             auth_controller,
             deps,
             mercado_controller,
@@ -72,6 +74,7 @@ def make_auth_client() -> Callable[..., TestClient]:
         app.include_router(admin_historico_controller.router, prefix="/api")
         app.include_router(admin_eventos_controller.router, prefix="/api")
         app.include_router(admin_cobertura_controller.router, prefix="/api")
+        app.include_router(admin_treinamento_controller.router, prefix="/api")
         app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor
         app.dependency_overrides[deps.get_preenchedor_de_itens] = lambda: (lambda: None)  # nunca chama a Blizzard
         if relogio is not None:
@@ -138,6 +141,10 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session = sessionmaker(bind=pg_engine)()
     yield session
     session.rollback()
+    session.query(PredicaoDiaria).delete()
+    session.query(ProjecaoItem).delete()
+    session.query(ExecucaoTreinamento).delete()
+    session.query(ModeloPreditivo).delete()
     session.query(HistoricalItemPrice).delete()
     session.query(ScraperExecutionLog).delete()
     session.query(Item).delete()

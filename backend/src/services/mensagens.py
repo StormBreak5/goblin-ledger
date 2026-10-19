@@ -66,3 +66,11 @@ FALHA_NO_HISTORICO = "Não foi possível carregar o histórico de mercado no mom
 
 # CU02-C4 – Encerrar sessão
 SESSAO_EXPIRADA = "Sua sessão expirou. Faça login novamente"  # CU02-C4-FA1
+
+# CU11-C1 – Executar treinamento inicial
+NENHUM_ITEM_APTO = "Nenhum item apto ao treinamento. Verifique a validação da cobertura histórica"  # CU11-C1-FA1
+TREINAMENTO_EM_ANDAMENTO = "Já existe um treinamento em andamento"  # CU11-C1-FA2
+FALHA_NO_TREINAMENTO_DO_MODELO = "Não foi possível concluir o treinamento do modelo. Verifique o log de execução"  # FE1
+FALHA_NO_TREINAMENTO = "Não foi possível concluir o treinamento no momento. Tente novamente mais tarde"  # CU11-C1-FE2
+# O documento não define o texto abaixo.
+TREINAMENTO_NAO_ENCONTRADO = "Treinamento não encontrado"

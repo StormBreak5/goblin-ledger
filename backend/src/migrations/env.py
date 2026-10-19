@@ -10,6 +10,7 @@ from src.models.evento import EventoJogo, ExtracaoEvento  # noqa: F401
 from src.models.item import Item  # noqa: F401
 from src.models.item_price import ItemPrice  # noqa: F401
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino  # noqa: F401
+from src.models.modelo import ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria, ProjecaoItem  # noqa: F401
 from src.models.usuario import Sessao, TentativaLogin, TokenRecuperacao, Usuario  # noqa: F401
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog  # noqa: F401
 

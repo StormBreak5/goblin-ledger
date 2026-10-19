@@ -1,0 +1,7 @@
+# CU11: dependências do serviço `modelo` (além de requirements.txt). Fixadas nas versões em que o pipeline foi testado
+# no estudo (estudos/lstm/, etapas 1 a 2f).
+numpy==2.5.3
+pandas==3.0.6
+pyarrow==25.0.1
+tensorflow-cpu==2.21.0
+keras==3.15.1

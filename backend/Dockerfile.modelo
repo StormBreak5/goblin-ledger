@@ -1,0 +1,17 @@
+# CU11: serviço `modelo` (treino e avaliação do modelo preditivo global). O TensorFlow não tem pacote para Alpine,
+# então esta imagem usa a slim; a versão do Python é a mesma do ambiente em que o estudo testou o pipeline (3.13).
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    TF_CPP_MIN_LOG_LEVEL=2
+
+WORKDIR /app
+
+COPY requirements.txt requirements-modelo.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-modelo.txt
+
+COPY src/ ./src/
+
+CMD ["python", "-m", "src.modelo_worker"]

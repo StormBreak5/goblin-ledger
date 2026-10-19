@@ -20,7 +20,7 @@
 
 ## Escopo da implementação atual
 
-Os casos de uso **detalhados** em `docs/casos-de-uso/` (CU01, CU02, CU03, CU04, CU09, CU10) estão implementados; cada arquivo traz a situação no código, as decisões tomadas e o que ficou pendente. A relação de testes por fluxo está em `docs/plano-de-testes-por-fluxo.md`. CU05, CU06, CU07, CU08 e CU11 ainda não foram especificados e **não** devem ser implementados.
+Os casos de uso **detalhados** em `docs/casos-de-uso/` (CU01, CU02, CU03, CU04, CU09, CU10) estão implementados; cada arquivo traz a situação no código, as decisões tomadas e o que ficou pendente. A relação de testes por fluxo está em `docs/plano-de-testes-por-fluxo.md`. O CU11 (Treinar Modelo) é **provisório**: está especificado em `CU11-treinar-modelo.md`, com a v4 do documento de alterações do TC, ainda não reexportada do TC; as RNs desse arquivo prevalecem sobre `regras-de-negocio.md` e `requisitos.md`. CU05, CU06, CU07 e CU08 ainda não foram especificados e **não** devem ser implementados.
 
 ## Atores (seção 6.3)
 

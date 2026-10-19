@@ -5,9 +5,10 @@ const paginas = [
   { href: "/admin/historico", rotulo: "Histórico de preços" },
   { href: "/admin/eventos", rotulo: "Eventos do jogo" },
   { href: "/admin/cobertura", rotulo: "Cobertura histórica" },
+  { href: "/admin/treinamento", rotulo: "Treinamento do modelo" },
 ];
 
-/** Atalhos entre as telas do Admin (CU09-C4 e CU10). */
+/** Atalhos entre as telas do Admin (CU09-C4, CU10 e CU11). */
 export default function AdminNav({ atual }: { atual: string }) {
   return (
     <nav aria-label="Funções administrativas" className="mb-6 flex flex-wrap gap-x-4 gap-y-1 text-sm">

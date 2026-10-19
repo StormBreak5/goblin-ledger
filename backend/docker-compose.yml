@@ -46,5 +46,42 @@ services:
       db:
         condition: service_healthy
 
+  # CU11: treino e avaliação do modelo preditivo global (pandas + TensorFlow). Consome a fila de treinamentos que a
+  # API registra (POST /api/admin/model-training). Os artefatos de cada versão ficam em ./modelos/v{versao}.
+  modelo:
+    build:
+      context: .
+      dockerfile: Dockerfile.modelo
+    container_name: goblinledger-modelo
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      MODELO_PASTA: /app/modelos
+    volumes:
+      - ./modelos:/app/modelos
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Testes do pipeline do CU11 (precisam do TensorFlow): docker compose run --rm modelo-testes
+  modelo-testes:
+    build:
+      context: .
+      dockerfile: Dockerfile.modelo
+    profiles: ["testes"]
+    environment:
+      TEST_DATABASE_URL: postgresql+psycopg2://${DB_USER:-goblin}:${DB_PASS:-goblin_password}@db:5432/${DB_NAME:-goblinledger}
+    volumes:  # o código e os testes da pasta de trabalho, sem precisar reconstruir a imagem
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./pytest.ini:/app/pytest.ini:ro
+    command: ["python", "-m", "pytest", "-p", "no:cacheprovider", "tests/modelo"]
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres_data:

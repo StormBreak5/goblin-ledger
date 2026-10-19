@@ -103,6 +103,17 @@ class ImportacaoNaoEncontradaError(ErroDeNegocio):
     mensagem_padrao = mensagens.IMPORTACAO_NAO_ENCONTRADA
 
 
+class TreinamentoEmAndamentoError(ErroDeNegocio):
+    """CU11-C1-FA2: só um treinamento do modelo roda por vez."""
+    status_code = 409
+    mensagem_padrao = mensagens.TREINAMENTO_EM_ANDAMENTO
+
+
+class TreinamentoNaoEncontradoError(ErroDeNegocio):
+    status_code = 404
+    mensagem_padrao = mensagens.TREINAMENTO_NAO_ENCONTRADO
+
+
 class FonteDeEventosInvalidaError(ErroDeNegocio):
     """CU10-C2 passo 1: a fonte escolhida não existe ou a URL informada não é a da fonte."""
     status_code = 422
