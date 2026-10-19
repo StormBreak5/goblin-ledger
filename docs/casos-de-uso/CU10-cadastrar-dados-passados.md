@@ -4,6 +4,8 @@
 
 **Situação no código (06/10/2026):** Implementado (C1 a C3), com as telas do Admin; commits `4213e36`, `117c63b`, `6c8d7d8`, `1f3eb01`, `2e70b04` e `81b0a6b`. Testes em `backend/tests/integration/test_cu10_*.py`, `backend/tests/scraper/` e `backend/tests/unit/test_cu10_*.py`.
 
+**Atualização (19/10/2026): importação diária.** O worker roda todo dia a importação incremental do C1 para os reinos monitorados (`HISTORICO_IMPORTACAO_DIARIA_CRON`, padrão 02:00 UTC), com a mesma rotina da recuperação de 48 h, que continua como estava. A série diária da Undermine é a única que o CU11 usa (RN16), e sem isso ela parava de crescer com o worker no ar. Nenhuma importação grava o agregado diário da data UTC corrente, que ainda está em formação. Na importação incremental, o agregado diário já gravado dentro da janela incremental (2 dias) é regravado se a fonte trouxer outro valor; isso corrigiu o 19/10/2026, gravado às 02:11 UTC só com as primeiras horas do dia. Para rodar uma vez: `python -m src.worker --importacao-diaria`.
+
 ## Descrição
 
 Este caso de uso tem como principal função carregar para o banco de dados o histórico retroativo de preços dos itens e as datas das grandes atualizações do jogo, obtidos de fontes de terceiros, harmonizando-os ao padrão do sistema e verificando se cada item possui histórico suficiente para o treinamento inicial do modelo preditivo.
@@ -177,6 +179,8 @@ Decisões já implementadas (com a variável de ambiente que as controla) e o qu
 - Modos de importação:
   - a do Admin é exata: ignora o ETag e o filtro incremental, para contar os duplicados;
   - a recomposição de 48 horas (CU09-C1 FA3) é incremental e usa o ETag.
+  - a importação diária (`HISTORICO_IMPORTACAO_DIARIA_CRON`, padrão `0 2 * * *`, em UTC; `off` desliga) é incremental como a recomposição e regrava o agregado diário que mudou na fonte dentro da janela incremental. Ela não conta para a regra das 48 horas;
+  - nenhum modo grava o agregado diário da data UTC corrente (só dias encerrados).
 - RN16: cada ponto tem `granularidade` (`DIARIA` = dia inteiro em UTC; `HORARIA` = instante) e `origem`.
 - O arquivo de um item que só é commodity é um stub de 45 bytes sem preços. Ele é tratado como "sem dados", e a busca segue para o arquivo das commodities.
 - C1-FA1: no TC, a mensagem aparece com um espaço depois da aspa (`" Região ou item inválido…`). O texto correto, que é o do código, não tem esse espaço: "Região ou item inválido. Verifique os dados informados".

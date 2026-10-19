@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import aiohttp
@@ -69,6 +69,17 @@ INSERT_SQL = (
     f"INSERT INTO {HistoricalItemPrice.__tablename__} (item_id, region, timestamp, price, quantity, granularidade) "
     "VALUES %s ON CONFLICT (item_id, region, timestamp) DO NOTHING"
 )
+# CU10-C1 (importação incremental): o agregado diário já gravado é regravado com o valor que a fonte traz agora, se
+# mudou. Corrige o dia gravado antes de terminar (o menor preço só cobria as primeiras horas) e uma revisão da fonte
+# no último dia. Só toca registros diários da Undermine; horários e registros da Blizzard nunca mudam.
+CORRIGIR_DIARIOS_SQL = (
+    f"UPDATE {HistoricalItemPrice.__tablename__} AS h SET price = v.price, quantity = v.quantity "
+    "FROM (VALUES %s) AS v (item_id, region, timestamp, price, quantity) "
+    "WHERE h.item_id = v.item_id AND h.region = v.region AND h.timestamp = v.timestamp "
+    f"AND h.origem = '{ORIGEM_UNDERMINE}' AND h.granularidade = '{GRANULARIDADE_DIARIA}' "
+    "AND (h.price, h.quantity) IS DISTINCT FROM (v.price, v.quantity)"
+)
+CORRIGIR_DIARIOS_MODELO = "(%s::integer, %s, %s::timestamp, %s::bigint, %s::integer)"
 
 
 class ImportacaoInterrompidaError(Exception):
@@ -275,6 +286,23 @@ def load_last_seen(session: Session, region_id: str) -> Dict[int, datetime]:
     return {item_id: last for item_id, last in rows}
 
 
+def _corrigir_diarios(db_session: Session, rows: List[tuple]) -> int:
+    """CU10-C1 (importação incremental): regrava os agregados diários já existentes cujo valor na fonte mudou, como o
+    do dia gravado antes de terminar. Devolve quantos foram corrigidos."""
+    if not rows:
+        return 0
+    cursor = db_session.connection().connection.cursor()
+    try:
+        corrigidos = 0
+        for start in range(0, len(rows), INSERT_PAGE_SIZE):
+            page = [linha[:5] for linha in rows[start:start + INSERT_PAGE_SIZE]]
+            execute_values(cursor, CORRIGIR_DIARIOS_SQL, page, template=CORRIGIR_DIARIOS_MODELO, page_size=len(page))
+            corrigidos += cursor.rowcount
+        return corrigidos
+    finally:
+        cursor.close()
+
+
 def _insert_rows(db_session: Session, rows: List[tuple]) -> int:
     """CU10-C1 passo 9: grava as linhas em páginas, ignorando as já existentes. Devolve quantas foram inseridas."""
     if not rows:
@@ -306,12 +334,15 @@ class ChunkWriter:
         *,
         incremental: bool = True,
         on_progress: Optional[Callable[["ChunkWriter"], None]] = None,
+        hoje: Optional[date] = None,
     ):
         self.db_session = db_session
         self.region_id = region_id
         self.last_seen = last_seen
         self.incremental = incremental
         self.on_progress = on_progress
+        # Dias encerrados: o agregado diário da data UTC corrente ainda está em formação e não é gravado.
+        self.inicio_de_hoje = datetime.combine(hoje or datetime.now(timezone.utc).date(), datetime.min.time())
         self.items_processed = 0
         self.items_created = 0  # FA2
         self.items_without_data = 0
@@ -319,6 +350,8 @@ class ChunkWriter:
         self.records_inserted = 0
         self.records_discarded = 0
         self.records_duplicated = 0
+        self.records_corrected = 0  # agregados diários regravados (importação incremental)
+        self.records_open_day = 0  # agregados diários do dia corrente, ainda não encerrado (não gravados)
         self.write_seconds = 0.0
 
     def __call__(self, results: list) -> None:
@@ -328,6 +361,8 @@ class ChunkWriter:
         items_to_create = []
         discarded = 0
         skipped = 0
+        open_day = 0
+        diarios_na_janela: List[tuple] = []  # agregados diários que podem já existir (item com histórico gravado)
         latest_valid = datetime.now(timezone.utc).replace(tzinfo=None) + FUTURE_TOLERANCE
 
         for r in results:
@@ -361,10 +396,15 @@ class ChunkWriter:
                     if not MIN_VALID_TIMESTAMP <= timestamp <= latest_valid or p['price'] < 0 or p['quantity'] < 0:
                         discarded += 1
                         continue
+                    if granularidade == GRANULARIDADE_DIARIA and timestamp >= self.inicio_de_hoje:
+                        open_day += 1  # dia ainda não encerrado: o menor preço só cobre parte do dia
+                        continue
                     if cutoff is not None and timestamp <= cutoff:
                         skipped += 1  # já gravado numa importação anterior
                         continue
                     rows.append((target.item_id, self.region_id, timestamp, p['price'], p['quantity'], granularidade))
+                    if cutoff is not None and granularidade == GRANULARIDADE_DIARIA:
+                        diarios_na_janela.append(rows[-1])
 
                 # Update item's ETag and remember which source served it
                 origem = {'last_etag': r['new_etag'], 'source_region': r['source']}
@@ -376,8 +416,11 @@ class ChunkWriter:
         if items_to_create:
             self.items_created += self._cadastrar_itens(items_to_create)
         inserted = _insert_rows(self.db_session, rows)
+        corrected = _corrigir_diarios(self.db_session, diarios_na_janela)  # só existe na importação incremental
         self.records_inserted += inserted
-        self.records_duplicated += skipped + (len(rows) - inserted)
+        self.records_corrected += corrected
+        self.records_open_day += open_day
+        self.records_duplicated += skipped + (len(rows) - inserted - corrected)
         if items_to_update:
             self.db_session.execute(ATUALIZAR_ORIGEM_DO_ITEM, items_to_update)
 

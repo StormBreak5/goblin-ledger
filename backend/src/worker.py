@@ -6,6 +6,7 @@ import logging
 from dotenv import load_dotenv
 import sys
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 # Corrige imports quando rodando direto.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 scheduler = None
 INGESTAO_JOB_ID = "ingestao_job"
 VIGIA_JOB_ID = "vigia_ingestao_job"
+IMPORTACAO_DIARIA_JOB_ID = "importacao_diaria_job"
+# CU10-C1, importação diária: todo dia às 02:00 UTC (HISTORICO_IMPORTACAO_DIARIA_CRON, formato crontab; "off" desliga).
+HORARIO_PADRAO_DA_IMPORTACAO_DIARIA = "0 2 * * *"
 
 # A rodada é quem agenda a seguinte. O APScheduler descarta um job `date` atrasado além da tolerância, e então ninguém
 # agendava mais nada: com o PC suspenso por dias (Docker pausado), a coleta horária parava para sempre e só o job da Ficha
@@ -92,6 +96,34 @@ def job_run_backfill():
         logger.error(f"Erro no job de backfill: {e}")
     finally:
         session.close()
+
+def job_importacao_diaria():
+    """CU10-C1, importação diária: importação incremental do histórico da Undermine para todos os reinos monitorados,
+    com a mesma rotina da recuperação. A série diária não depende mais de o worker ficar 48 h sem coletar (o CU11-C2 e
+    o C3 precisam dela atualizada). Se outra importação estiver em andamento, esta não começa."""
+    logger.info(">>> Iniciando a importação diária do histórico da Undermine...")
+    from src.services.importacao_historico import ImportacaoHistoricoService
+    session = get_session()
+    try:
+        return ImportacaoHistoricoService(session).importar_diariamente()
+    except Exception:
+        logger.exception("Erro na importação diária do histórico.")
+        return []
+    finally:
+        session.close()
+
+def agendar_importacao_diaria(agendador) -> bool:
+    """Agenda a importação diária pelo cron de HISTORICO_IMPORTACAO_DIARIA_CRON, em UTC. Devolve False se desligada."""
+    expressao = os.getenv("HISTORICO_IMPORTACAO_DIARIA_CRON", "").strip() or HORARIO_PADRAO_DA_IMPORTACAO_DIARIA
+    if expressao.lower() == "off":
+        logger.info("Importação diária do histórico desligada (HISTORICO_IMPORTACAO_DIARIA_CRON=off).")
+        return False
+    agendador.add_job(
+        job_importacao_diaria, CronTrigger.from_crontab(expressao, timezone=timezone.utc), id=IMPORTACAO_DIARIA_JOB_ID,
+        replace_existing=True, coalesce=True, misfire_grace_time=ATRASO_MAXIMO_DA_RODADA,
+    )
+    logger.info("Importação diária do histórico agendada (%s, UTC).", expressao)
+    return True
 
 def job_ingestao_de_mercado():
     """
@@ -189,12 +221,26 @@ def start_scheduler():
     agendar_ingestao(datetime.now(timezone.utc))
     scheduler.add_job(job_vigiar_ingestao, 'interval', minutes=INTERVALO_DO_VIGIA_MINUTOS, id=VIGIA_JOB_ID)
 
+    # CU10-C1: importação incremental diária da série da Undermine (um atraso, como o PC suspenso, roda ao acordar).
+    agendar_importacao_diaria(scheduler)
+
     scheduler.start()
     logger.info("Scheduler rodando em background.")
     return scheduler
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Worker do Goblin Ledger (ingestão e importação do histórico).")
+    parser.add_argument("--importacao-diaria", action="store_true",
+                        help="roda a importação diária do histórico uma vez e termina (CU10-C1)")
+    args = parser.parse_args()
     load_dotenv()
+    if args.importacao_diaria:
+        init_db()
+        for resumo in job_importacao_diaria():
+            logger.info("Importação diária: %s", resumo)
+        sys.exit(0)
     scheduler = start_scheduler()
     try:
         # Impede que a thread principal termine

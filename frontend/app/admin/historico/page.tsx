@@ -195,7 +195,7 @@ function ImportacaoDeHistorico({ token }: { token: string }) {
                     <td className="py-1 pr-3">{formatarData(item.iniciada_em)}</td>
                     <td className="py-1 pr-3">
                       {STATUS[item.status]}
-                      {item.disparo === "RECUPERACAO" ? " (recuperação automática)" : ""}
+                      {item.disparo === "RECUPERACAO" ? " (recuperação automática)" : item.disparo === "DIARIA" ? " (importação diária)" : ""}
                     </td>
                     <td className="py-1 pr-3 text-right">{inteiro(item.registros_importados)}</td>
                     <td className="py-1 pr-3 text-right">{inteiro(item.registros_descartados)}</td>

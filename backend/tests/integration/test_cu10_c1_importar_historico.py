@@ -313,3 +313,95 @@ def test_cu10_c1_a_importacao_do_admin_nao_conta_como_recuperacao_do_historico(d
     servico.recuperar()
 
     assert repositorio.ultima_coleta() is not None and repositorio.ultimo_backfill_iniciado() is not None
+
+
+# ---------------------------------------------------------------- importação diária (série diária para o CU11)
+
+def _pontos(db_session) -> dict:
+    return {(p.timestamp, p.granularidade): (p.price, p.quantity) for p in db_session.query(HistoricalItemPrice)}
+
+
+def test_cu10_c1_importacao_diaria_grava_so_dias_encerrados(db_session, add_item, fonte_falsa, relogio):
+    """Importação diária do worker: incremental, para os reinos monitorados, gravando só os dias encerrados. O agregado
+    diário da data UTC corrente (28/09 no relógio falso) ainda está em formação e fica para o dia seguinte; os registros
+    horários do dia entram."""
+    from datetime import datetime
+
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    add_item(9921, "Item A")
+    fonte_falsa.com_dias(9921, [datetime(2026, 9, 26), datetime(2026, 9, 27), datetime(2026, 9, 28)],
+                         horarios=[datetime(2026, 9, 28, 5), datetime(2026, 9, 28, 6)])
+
+    resumos = ImportacaoHistoricoService(db_session, relogio).importar_diariamente()
+
+    assert set(_pontos(db_session)) == {
+        (datetime(2026, 9, 26), "DIARIA"), (datetime(2026, 9, 27), "DIARIA"),
+        (datetime(2026, 9, 28, 5), "HORARIA"), (datetime(2026, 9, 28, 6), "HORARIA"),
+    }
+    log = db_session.query(ScraperExecutionLog).one()
+    assert (log.triggered_by, log.status, log.region) == ("DIARIA", ExecutionStatus.SUCCESS, REGIAO)
+    assert [(r.registros_importados, r.registros_descartados) for r in resumos] == [(4, 0)]
+
+    relogio.avancar(days=1)  # no dia seguinte o 28/09 está encerrado
+    ImportacaoHistoricoService(db_session, relogio).importar_diariamente()
+    assert (datetime(2026, 9, 28), "DIARIA") in _pontos(db_session)
+
+
+def test_cu10_c1_importacao_incremental_regrava_o_dia_gravado_antes_de_terminar(db_session, add_item, fonte_falsa,
+                                                                                 relogio):
+    """Um agregado diário gravado antes de o dia terminar (o menor preço só cobria as primeiras horas, como o 19/10/2026
+    da recuperação das 02:11 UTC) é regravado com o valor do dia completo na importação incremental seguinte. Nada mais
+    muda: nem o registro horário do mesmo dia nem o diário fora da janela incremental. A importação do Admin não
+    sobrescreve o que já existe."""
+    from datetime import datetime
+
+    from helpers_historico import dados_decodificados
+
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    add_item(9931, "Item A")
+    db_session.add_all([
+        HistoricalItemPrice(item_id=9931, region=REGIAO, timestamp=datetime(2026, 9, 27), price=150000, quantity=2,
+                            origem="UNDERMINE", granularidade="DIARIA"),  # dia parcial
+        HistoricalItemPrice(item_id=9931, region=REGIAO, timestamp=datetime(2026, 9, 20), price=777, quantity=1,
+                            origem="UNDERMINE", granularidade="DIARIA"),  # fora da janela de 2 dias
+        HistoricalItemPrice(item_id=9931, region=REGIAO, timestamp=datetime(2026, 9, 27, 1), price=555, quantity=9,
+                            origem="UNDERMINE", granularidade="HORARIA"),
+    ])
+    db_session.commit()
+    diarios = [datetime(2026, 9, 20), datetime(2026, 9, 26), datetime(2026, 9, 27)]
+    fonte_falsa.com_dias(9931, diarios, horarios=[datetime(2026, 9, 27, 1)])  # dia completo: 100000 Cobre
+
+    resumo = ImportacaoHistoricoService(db_session, relogio).importar_diariamente()[0]
+
+    db_session.expire_all()
+    pontos = _pontos(db_session)
+    assert pontos[(datetime(2026, 9, 27), "DIARIA")] == (100000, 5)  # corrigido
+    assert pontos[(datetime(2026, 9, 26), "DIARIA")] == (100000, 5)  # novo
+    assert pontos[(datetime(2026, 9, 20), "DIARIA")] == (777, 1)
+    assert pontos[(datetime(2026, 9, 27, 1), "HORARIA")] == (555, 9)
+    assert (resumo.registros_importados, resumo.registros_duplicados) == (1, 2)
+
+    fonte_falsa.series[9931] = (dados_decodificados(diarios, preco=200000), REGIAO)
+    servico = ImportacaoHistoricoService(db_session, relogio)
+    pedido = servico.validar("US", 3209, [9931])
+    servico.executar(servico.registrar_inicio(pedido, "ADMIN"), pedido)
+    db_session.expire_all()
+    assert _pontos(db_session)[(datetime(2026, 9, 26), "DIARIA")] == (100000, 5)
+
+
+def test_cu10_c1_importacao_diaria_nao_roda_com_outra_importacao_em_andamento(db_session, add_item, fonte_falsa,
+                                                                              relogio):
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    add_item(9941, "Item A")
+    fonte_falsa.com_dias(9941, dias(3))
+    db_session.add(ScraperExecutionLog(execution_start=relogio().replace(tzinfo=None), status=ExecutionStatus.RUNNING,
+                                       triggered_by="ADMIN", region=REGIAO))
+    db_session.commit()
+
+    assert ImportacaoHistoricoService(db_session, relogio).importar_diariamente() == []
+
+    assert db_session.query(HistoricalItemPrice).count() == 0 and fonte_falsa.chamadas == []
+    assert db_session.query(ScraperExecutionLog).count() == 1

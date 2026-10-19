@@ -18,6 +18,7 @@ GRANULARIDADE_HORARIA = "HORARIA"  # snapshot horário (Undermine ou ciclo da Bl
 # CU10-C1: quem disparou a importação (scraper_execution_logs.triggered_by).
 DISPARO_ADMIN = "ADMIN"
 DISPARO_RECUPERACAO = "RECUPERACAO"  # regra de recuperação de 48 h do worker (CU09)
+DISPARO_DIARIA = "DIARIA"  # importação incremental diária do worker (série diária atualizada para o CU11)
 
 # CU10-C1: etapa em que a importação falhou (scraper_execution_logs.failure_stage).
 FALHA_FONTE = "FONTE"  # FE1: fonte indisponível

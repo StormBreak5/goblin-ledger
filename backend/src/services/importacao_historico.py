@@ -19,6 +19,7 @@ from src.scraper.backfill import (
     load_last_seen,
 )
 from src.scraper.models import (
+    DISPARO_DIARIA,
     DISPARO_RECUPERACAO,
     FALHA_BANCO,
     FALHA_FONTE,
@@ -208,7 +209,7 @@ class ImportacaoHistoricoService:
         (banco) desfaz tudo. `incremental` (recuperação automática) grava só o que é mais novo que o último ponto de
         cada item; a importação do Admin não usa o atalho, para contar os duplicados com exatidão.
         """
-        writer = ChunkWriter(self.session, pedido.id_reino, {}, incremental=incremental)
+        writer = ChunkWriter(self.session, pedido.id_reino, {}, incremental=incremental, hoje=self.relogio().date())
         try:
             targets = self._alvos(pedido, incremental)
             writer.last_seen = load_last_seen(self.session, pedido.id_reino) if incremental else {}
@@ -237,28 +238,42 @@ class ImportacaoHistoricoService:
             return self._finalizar(id_execucao, writer, etapa, str(e), gravado=False)
 
         logger.info(
-            "CU10-C1: importação concluída. %d itens processados, %d registros importados, %d descartados, %d duplicados. "
+            "CU10-C1: importação concluída. %d itens processados, %d registros importados, %d diários corrigidos, "
+            "%d descartados, %d duplicados, %d diários do dia corrente adiados. "
             "Tempos: download+decodificação=%.1fs, gravação=%.1fs.",
-            writer.items_processed, writer.records_inserted, writer.records_discarded, writer.records_duplicated,
-            download, writer.write_seconds,
+            writer.items_processed, writer.records_inserted, writer.records_corrected, writer.records_discarded,
+            writer.records_duplicated, writer.records_open_day, download, writer.write_seconds,
         )
         resumo = self._finalizar(id_execucao, writer, None, None, gravado=True)
         self._preencher_itens(writer.items_created)
         return resumo
 
-    def recuperar(self) -> None:
+    def recuperar(self) -> list[ResumoDaImportacao]:
         """Recuperação automática (worker, mais de 48 h sem coleta): importa de forma incremental os itens ativos de
         cada reino monitorado. Se outra importação estiver em andamento, não faz nada."""
+        return self._importar_incrementalmente(DISPARO_RECUPERACAO)
+
+    def importar_diariamente(self) -> list[ResumoDaImportacao]:
+        """CU10-C1, importação diária (worker, HISTORICO_IMPORTACAO_DIARIA_CRON): a mesma rotina da recuperação, todo
+        dia, para a série diária da Undermine não parar de crescer com o worker no ar (o CU11-C2 retreina e o C3
+        confere as predições com ela). Só grava dias encerrados e regrava o último dia se a fonte o completou."""
+        return self._importar_incrementalmente(DISPARO_DIARIA)
+
+    def _importar_incrementalmente(self, disparo: str) -> list[ResumoDaImportacao]:
+        """Importação incremental dos itens ativos de cada reino monitorado. Uma importação por vez (a trava de
+        `registrar_inicio`): se outra estiver em andamento, esta não começa."""
+        resumos: list[ResumoDaImportacao] = []
         for mercado in ingestao_config.carregar_mercados():
             if mercado.tipo != ingestao_config.TIPO_LEILOES:
                 continue
             pedido = self.validar(mercado.regiao, mercado.id_reino, None)
             try:
-                id_execucao = self.registrar_inicio(pedido, DISPARO_RECUPERACAO)
+                id_execucao = self.registrar_inicio(pedido, disparo)
             except ImportacaoEmAndamentoError:
-                logger.info("Recuperação do histórico adiada: já existe uma importação em andamento.")
-                return
-            self.executar(id_execucao, pedido, incremental=True)
+                logger.info("Importação %s adiada: já existe uma importação em andamento.", disparo)
+                return resumos
+            resumos.append(self.executar(id_execucao, pedido, incremental=True))
+        return resumos
 
     # ------------------------------------------------------------------ apoio
 

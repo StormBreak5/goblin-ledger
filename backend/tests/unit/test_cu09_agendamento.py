@@ -93,7 +93,7 @@ def _agendar_worker(mocker):
 def test_cu09_c1_ativacao_nao_ha_mais_backfill_horario(mocker):
     jobs = _agendar_worker(mocker)
 
-    assert set(jobs) == {"token_job", "sync_items_job", "ingestao_job", "vigia_ingestao_job"}
+    assert set(jobs) == {"token_job", "sync_items_job", "ingestao_job", "vigia_ingestao_job", "importacao_diaria_job"}
     assert "backfill_job" not in jobs
     assert worker.job_run_backfill not in [chamada.args[0] for chamada in jobs.values()]  # só a recuperação o chama
 
