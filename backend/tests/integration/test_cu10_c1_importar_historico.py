@@ -469,3 +469,28 @@ def test_cu10_c1_importacao_diaria_tenta_de_novo_depois_de_um_deadlock(db_sessio
     db_session.commit()
     [falha] = ImportacaoHistoricoService(db_session, relogio).importar_diariamente()
     assert falha.status == "FALHA" and db_session.query(ScraperExecutionLog).count() == 3
+
+
+def test_cu10_c1_dia_em_aberto_e_gravado_no_dia_seguinte_mesmo_com_o_arquivo_igual(db_session, add_item, fonte_falsa,
+                                                                                     relogio):
+    """O agregado do dia em aberto fica para o dia seguinte. Se o arquivo do item não mudar (sem leilões novos), a fonte
+    responderia 304 ao ETag guardado e o dia, já encerrado, nunca seria gravado (aconteceu com 4.878 itens no 19/10/2026).
+    Por isso o ETag não avança quando o dia em aberto é adiado, e a importação diária não manda o ETag."""
+    from datetime import datetime
+
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    add_item(9961, "Item A")
+    fonte_falsa.respeita_etag = True
+    fonte_falsa.com_dias(9961, [datetime(2026, 9, 26), datetime(2026, 9, 27), datetime(2026, 9, 28)])
+
+    ImportacaoHistoricoService(db_session, relogio).recuperar()  # 28/09 em aberto: fica para depois
+    assert (datetime(2026, 9, 28), "DIARIA") not in _pontos(db_session)
+    relogio.avancar(days=1)
+    ImportacaoHistoricoService(db_session, relogio).recuperar()  # o mesmo arquivo: não pode virar 304
+    assert (datetime(2026, 9, 28), "DIARIA") in _pontos(db_session)
+
+    ImportacaoHistoricoService(db_session, relogio).recuperar()  # sem dia em aberto adiado, o ETag avançou
+    assert fonte_falsa.chamadas[-1].last_etag is not None
+    ImportacaoHistoricoService(db_session, relogio).importar_diariamente()
+    assert fonte_falsa.chamadas[-1].last_etag is None  # a importação diária não manda o ETag

@@ -204,16 +204,18 @@ class ImportacaoHistoricoService:
 
     # ------------------------------------------------------------------ passos 3 a 10
 
-    def executar(self, id_execucao: int, pedido: PedidoDeImportacao, *, incremental: bool = False) -> ResumoDaImportacao:
+    def executar(self, id_execucao: int, pedido: PedidoDeImportacao, *, incremental: bool = False,
+                 usar_etag: Optional[bool] = None) -> ResumoDaImportacao:
         """
         Executa a importação já registrada. Falhas previstas viram o resultado FALHA (com a etapa e o erro) e nunca
         propagam: FE1 (fonte indisponível) e FE3 (formato alterado) interrompem e mantêm o que já foi gravado; FE2
         (banco) desfaz tudo. `incremental` (recuperação automática) grava só o que é mais novo que o último ponto de
-        cada item; a importação do Admin não usa o atalho, para contar os duplicados com exatidão.
+        cada item; a importação do Admin não usa o atalho, para contar os duplicados com exatidão. `usar_etag` (padrão:
+        o mesmo que `incremental`) manda o ETag guardado, e a fonte responde 304 para o arquivo que não mudou.
         """
         writer = ChunkWriter(self.session, pedido.id_reino, {}, incremental=incremental, hoje=self.relogio().date())
         try:
-            targets = self._alvos(pedido, incremental)
+            targets = self._alvos(pedido, incremental and (incremental if usar_etag is None else usar_etag))
             writer.last_seen = load_last_seen(self.session, pedido.id_reino) if incremental else {}
             writer.on_progress = self._registrador_de_progresso(id_execucao)
             self.session.execute(
@@ -292,12 +294,16 @@ class ImportacaoHistoricoService:
                 logger.info("Importação %s adiada: já existe uma importação em andamento.", disparo)
                 return resumos
             self.ultima_falha_foi_deadlock = False
-            resumo = self.executar(id_execucao, pedido, incremental=True)
+            # A importação diária não manda o ETag: o arquivo de um item sem leilões novos não muda, e o 304 deixaria de
+            # fora o agregado do dia que acabou de encerrar (adiado na véspera, quando ainda estava em aberto).
+            usar_etag = disparo != DISPARO_DIARIA
+            resumo = self.executar(id_execucao, pedido, incremental=True, usar_etag=usar_etag)
             if self.ultima_falha_foi_deadlock:
                 logger.warning("Importação %s desfeita por deadlock com outra gravação no histórico: tentando de novo, "
                                "uma vez.", disparo)
                 try:
-                    resumo = self.executar(self.registrar_inicio(pedido, disparo), pedido, incremental=True)
+                    resumo = self.executar(self.registrar_inicio(pedido, disparo), pedido, incremental=True,
+                                           usar_etag=usar_etag)
                 except ImportacaoEmAndamentoError:
                     logger.info("Nova tentativa adiada: já existe uma importação em andamento.")
             resumos.append(resumo)
@@ -306,8 +312,9 @@ class ImportacaoHistoricoService:
     # ------------------------------------------------------------------ apoio
 
     def _alvos(self, pedido: PedidoDeImportacao, incremental: bool) -> list[BackfillTarget]:
-        """Itens a baixar, com o que o ORM sabe deles. Fora da recuperação o ETag é ignorado: um 304 devolveria um
-        arquivo vazio e o resumo não teria como contar os registros duplicados."""
+        """Itens a baixar, com o que o ORM sabe deles. `incremental` aqui é "usa o ETag": fora da recuperação o ETag é
+        ignorado (na do Admin, um 304 devolveria um arquivo vazio e o resumo não teria como contar os duplicados; na
+        diária, deixaria de fora o dia que acabou de encerrar)."""
 
         def metadados(item: Item) -> dict:
             dados = dict(item.metadata_info or {})

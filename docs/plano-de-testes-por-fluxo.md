@@ -4,8 +4,8 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 297 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 91 do CU10 e 49 do CU11). A suíte
-> completa tem 387 testes: 320 no backend (`pytest`, no host), 35 do pipeline do modelo no container do serviço
+> Os testes com identificador de fluxo ou de regra somam 298 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 92 do CU10 e 49 do CU11). A suíte
+> completa tem 388 testes: 321 no backend (`pytest`, no host), 35 do pipeline do modelo no container do serviço
 > `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
@@ -268,7 +268,7 @@
 | regra | `test_cu10_migracao_4_marca_os_pontos_da_blizzard_como_horarios_rn16` | `backend/tests/integration/test_migracoes.py` |
 | regra | `test_cu10_migracao_5_corrige_a_granularidade_dos_pontos_do_ciclo_horario_rn16` | `backend/tests/integration/test_migracoes.py` |
 
-#### CU10 – Cenário 1 (44 testes)
+#### CU10 – Cenário 1 (45 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -295,6 +295,7 @@
 | regra | `test_cu10_c1_a_importacao_do_admin_nao_conta_como_recuperacao_do_historico` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_a_recuperacao_do_worker_importa_incrementalmente_os_itens_ativos` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_arquivo_sem_dados_reconhece_o_stub_e_so_ele` | `backend/tests/scraper/test_backfill.py` |
+| regra | `test_cu10_c1_dia_em_aberto_e_gravado_no_dia_seguinte_mesmo_com_o_arquivo_igual` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_etag_mescla_metadata_sem_apagar_atributos` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_etag_sem_origem_registrada_nao_e_reaproveitado_na_recuperacao` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_importacao_diaria_agendada_nao_grava_junto_com_o_ciclo_da_blizzard` | `backend/tests/unit/test_cu10_c1_agendamento.py` |

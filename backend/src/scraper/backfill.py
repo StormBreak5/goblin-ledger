@@ -375,6 +375,7 @@ class ChunkWriter:
                 self.items_failed += 1
 
             if r['status'] == 200 and r['data']:
+                em_aberto_antes = open_day
                 last = self.last_seen.get(target.item_id) if self.incremental else None
                 cutoff = last - INCREMENTAL_LOOKBACK if last is not None else None
 
@@ -406,8 +407,12 @@ class ChunkWriter:
                     if cutoff is not None and granularidade == GRANULARIDADE_DIARIA:
                         diarios_na_janela.append(rows[-1])
 
-                # Update item's ETag and remember which source served it
-                origem = {'last_etag': r['new_etag'], 'source_region': r['source']}
+                # Update item's ETag and remember which source served it. Se o agregado do dia em aberto ficou para
+                # depois, o ETag não avança: com o arquivo igual amanhã, a fonte responderia 304 e o dia, já encerrado,
+                # nunca seria gravado.
+                pulou_dia_em_aberto = open_day > em_aberto_antes
+                origem = {'last_etag': target.last_etag if pulou_dia_em_aberto else r['new_etag'],
+                          'source_region': r['source']}
                 if target.novo:
                     items_to_create.append((target.item_id, {**target.metadata, **origem}))  # CU10-C1-FA2
                 else:
