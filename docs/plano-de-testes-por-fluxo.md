@@ -4,8 +4,8 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 298 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 92 do CU10 e 49 do CU11). A suíte
-> completa tem 388 testes: 321 no backend (`pytest`, no host), 35 do pipeline do modelo no container do serviço
+> Os testes com identificador de fluxo ou de regra somam 309 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 92 do CU10 e 60 do CU11). A suíte
+> completa tem 400 testes: 326 no backend (`pytest`, no host), 42 do pipeline do modelo no container do serviço
 > `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
@@ -423,6 +423,22 @@
 | regra | `test_cu11_c2_retreinamento_dormindo_roda_ao_acordar_uma_vez` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
 | regra | `test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_e_registrado_uma_vez` | `backend/tests/integration/test_cu11_c2_agendador.py` |
 | regra | `test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_roda_ao_iniciar` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+
+#### CU11 – Cenário 3 (11 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu11_c3_fluxo_principal_registra_snapshot_rn13` | `backend/tests/integration/test_cu11_c3_consolidacao.py` |
+| FA1 | `test_cu11_c3_fa1_sem_predicao_do_dia` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| FA2 | `test_cu11_c3_fa2_valor_real_indisponivel` | `backend/tests/integration/test_cu11_c3_consolidacao.py` |
+| FA3 | `test_cu11_c3_fa3_degradacao_bloqueia_item_rn13` | `backend/tests/integration/test_cu11_c3_consolidacao.py` |
+| FA4 | `test_cu11_c3_fa4_degradacao_generalizada_antecipa_retreino` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| FE1 | `test_cu11_c3_fe1_falha_no_banco_reprocessa` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| regra | `test_cu11_c3_comando_consolidar` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| regra | `test_cu11_c3_disparo_perdido_roda_ao_iniciar` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| regra | `test_cu11_c3_espera_a_importacao_diaria` | `backend/tests/integration/test_cu11_c3_consolidacao.py` |
+| regra | `test_cu11_c3_gera_previsoes_dos_proximos_7_dias_em_cobre_rn01` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| regra | `test_cu11_c3_previsao_usa_so_dados_ate_o_dia_de_referencia_rn25` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
 
 #### CU11 – Regras do modelo (RN03, RN10, RN24, RN25, RN27) (13 testes)
 

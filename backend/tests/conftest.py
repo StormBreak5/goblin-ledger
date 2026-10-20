@@ -21,7 +21,8 @@ from src.models.evento import EventoJogo, ExtracaoEvento
 from src.models.item import Item
 from src.models.item_price import ItemPrice
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
-from src.models.modelo import ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria, ProjecaoItem
+from src.models.modelo import (ConsolidacaoDiaria, ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria,
+                              ProjecaoItem)
 from src.models.usuario import TentativaLogin, Usuario
 from src.repositories.database import run_migrations
 from src.scraper.models import HistoricalItemPrice, ScraperExecutionLog
@@ -141,6 +142,7 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session = sessionmaker(bind=pg_engine)()
     yield session
     session.rollback()
+    session.query(ConsolidacaoDiaria).delete()
     session.query(PredicaoDiaria).delete()
     session.query(ProjecaoItem).delete()
     session.query(ExecucaoTreinamento).delete()

@@ -60,6 +60,14 @@ class ConfigModelo:
     # Aviso no resumo (não bloqueia): o último dia encerrado da série tem mais que estes dias (CU11-C2)
     serie_desatualizada_dias: int = 3
 
+    # CU11-C3 (RN13): degradação do item (FA3) e do modelo (FA4), espera pela importação diária e trecho de histórico
+    # lido para as previsões (janela + padronização de 90 dias + aquecimento da EMA e do patamar da RN03)
+    degradacao_dias: int = 7
+    degradacao_minimo_alvos: int = 14
+    degradacao_geral: float = 0.20
+    consolidacao_espera_minutos: int = 60
+    previsao_historico_dias: int = 200
+
     # Rede e treino (configuração final do estudo, etapa 2e)
     unidades: int = 64
     dropout: float = 0.2
@@ -112,6 +120,12 @@ class ConfigModelo:
             limiar_rn10=_decimal("MODELO_LIMIAR_RN10", padrao.limiar_rn10),
             minimo_dias_rn10=_inteiro("MODELO_MINIMO_DIAS_RN10", padrao.minimo_dias_rn10),
             serie_desatualizada_dias=_inteiro("MODELO_SERIE_DESATUALIZADA_DIAS", padrao.serie_desatualizada_dias),
+            degradacao_dias=_inteiro("MODELO_DEGRADACAO_DIAS", padrao.degradacao_dias),
+            degradacao_minimo_alvos=_inteiro("MODELO_DEGRADACAO_MINIMO_ALVOS", padrao.degradacao_minimo_alvos),
+            degradacao_geral=_decimal("MODELO_DEGRADACAO_GERAL", padrao.degradacao_geral),
+            consolidacao_espera_minutos=_inteiro("MODELO_CONSOLIDACAO_ESPERA_MINUTOS",
+                                                 padrao.consolidacao_espera_minutos),
+            previsao_historico_dias=_inteiro("MODELO_PREVISAO_HISTORICO_DIAS", padrao.previsao_historico_dias),
             rn03_confirmacao=_inteiro("MODELO_RN03_CONFIRMACAO", padrao.rn03_confirmacao),
             rn03_salto_absurdo=_decimal("MODELO_RN03_SALTO_ABSURDO", padrao.rn03_salto_absurdo),
             rn03_confirmacao_absurdo=_inteiro("MODELO_RN03_CONFIRMACAO_ABSURDO", padrao.rn03_confirmacao_absurdo),

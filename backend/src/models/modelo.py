@@ -192,9 +192,53 @@ class PredicaoDiaria(Base):
     preco_real = Column(BigInteger, nullable=True)
     erro_pct = Column(Float, nullable=True)
     criado_em = Column(DateTime(timezone=True), nullable=False, default=_agora)
+    # CU11-C3 (migração 0010): quando o dia previsto foi consolidado. Com ele preenchido, preço real e erro nulos são
+    # "N/D" (FA2); sem ele, o dia ainda não foi consolidado.
+    consolidado_em = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("item_id", "serie", "versao", "data_previsao", "h", name="uq_predicao_diaria"),
         CheckConstraint("h BETWEEN 1 AND 7", name="ck_predicao_diaria_h"),
         Index("ix_predicao_diaria_data_prevista", "data_prevista"),
+    )
+
+
+# consolidacao_diaria.importacao_diaria: o que a consolidação encontrou da importação diária do dia (CU11-C3 passo 2)
+IMPORTACAO_CONCLUIDA = "CONCLUIDA"
+IMPORTACAO_EM_ANDAMENTO = "EM_ANDAMENTO"  # o limite de espera estourou
+IMPORTACAO_FALHA = "FALHA"
+IMPORTACAO_NAO_RODOU = "NAO_RODOU"
+SITUACOES_DA_IMPORTACAO = (IMPORTACAO_CONCLUIDA, IMPORTACAO_EM_ANDAMENTO, IMPORTACAO_FALHA, IMPORTACAO_NAO_RODOU)
+
+
+class ConsolidacaoDiaria(Base):
+    """CU11-C3 / RN13: a consolidação de um dia de referência (D, o último dia encerrado) numa região. O FE1 precisa
+    saber quais dias já foram consolidados: o próximo disparo reprocessa, na ordem, os que não têm `SUCESSO`."""
+    __tablename__ = "consolidacao_diaria"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    regiao = Column(String(2), nullable=False)
+    dia = Column(Date, nullable=False)
+    status = Column(String(10), nullable=False)
+    iniciado_em = Column(DateTime(timezone=True), nullable=False, default=_agora)
+    concluido_em = Column(DateTime(timezone=True), nullable=True)
+    versao = Column(Integer, ForeignKey("modelo_preditivo.versao"), nullable=True)
+    importacao_diaria = Column(String(12), nullable=True)
+    predicoes_do_dia = Column(Integer, nullable=True)
+    predicoes_preenchidas = Column(Integer, nullable=True)
+    predicoes_nd = Column(Integer, nullable=True)
+    itens_liberados_no_inicio = Column(Integer, nullable=True)
+    itens_bloqueados_degradacao = Column(Integer, nullable=True)
+    previsoes_gravadas = Column(Integer, nullable=True)
+    itens_sem_janela = Column(Integer, nullable=True)
+    retreinamento_antecipado = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    id_execucao_retreinamento = Column(Integer, ForeignKey("execucao_treinamento.id"), nullable=True)
+    avisos = Column(Text, nullable=True)
+    erro = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("regiao", "dia", name="uq_consolidacao_diaria"),
+        CheckConstraint(f"status IN ({_lista_sql((STATUS_SUCESSO, STATUS_FALHA))})", name="ck_consolidacao_diaria_status"),
+        CheckConstraint(f"importacao_diaria IN ({_lista_sql(SITUACOES_DA_IMPORTACAO)})",
+                        name="ck_consolidacao_diaria_importacao"),
     )

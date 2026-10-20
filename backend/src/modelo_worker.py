@@ -1,14 +1,15 @@
-"""Serviço `modelo` (CU11): consome a fila de treinamentos e agenda o retreinamento semanal.
+"""Serviço `modelo` (CU11): consome a fila de treinamentos, agenda o retreinamento semanal e a consolidação diária.
 
 - A API registra o pedido do Admin (CU11-C1 passo 1); o agendador deste serviço registra o retreinamento (CU11-C2
   passo 1, `MODELO_RETREINO_CRON`). Este serviço, que tem pandas e TensorFlow, retira as execuções da fila, uma por vez:
   `INICIAL` → src/ml/treinamento_inicial.py; `RETREINAMENTO` → src/ml/retreinamento.py.
-- A consolidação diária (C3) entra aqui no próximo pedido.
+- A consolidação diária das predições (CU11-C3, `MODELO_CONSOLIDACAO_CRON`) roda no agendador: src/ml/consolidacao.py.
 
 Uso (dentro do container):
     python -m src.modelo_worker                          # o serviço: fila + agendador
     python -m src.modelo_worker --retreinar US           # CU11-C2 passo 1 pelo mesmo caminho do agendador
     python -m src.modelo_worker --retreinar --aguardar   # todas as regiões com modelo vigente; espera o fim
+    python -m src.modelo_worker --consolidar             # CU11-C3 agora, como o agendador
 """
 import argparse
 import logging
@@ -23,12 +24,14 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.ml.artefatos import pasta_dos_modelos
 from src.ml.configuracao import ConfigModelo
+from src.ml.consolidacao import Consolidacao, ResumoDaConsolidacao
 from src.ml.retreinamento import Retreinamento
 from src.ml.treinamento_inicial import TreinamentoInicial, preencher_liberados_sem_amostra_de_treino
 from src.models.modelo import (ETAPA_INTERNA, STATUS_EM_ANDAMENTO, STATUS_FALHA, TIPO_INICIAL, TIPO_RETREINAMENTO,
                                ExecucaoTreinamento)
 from src.repositories.database import init_db
 from src.services.agendamento import ultimo_disparo
+from src.services.consolidacao_service import ConsolidacaoService
 from src.services.security import agora
 from src.services.treinamento_service import RegistroDoRetreinamento, TreinamentoService
 
@@ -39,6 +42,10 @@ RETREINO_JOB_ID = "retreinamento_job"
 # CU11-C2 passo 1: depois do reinício semanal dos EUA (terça-feira). Use o nome do dia: no APScheduler 3, o dia da
 # semana em número começa na segunda (0), diferente do crontab ("2" seria quarta-feira).
 HORARIO_PADRAO_DO_RETREINO = "0 18 * * tue"
+CONSOLIDACAO_JOB_ID = "consolidacao_job"
+CONSOLIDACAO_PERDIDA_JOB_ID = "consolidacao_perdida_job"
+# CU11-C3 passo 1: todo dia às 03:00 UTC, uma hora depois da importação diária do worker (que leva uns 5 minutos).
+HORARIO_PADRAO_DA_CONSOLIDACAO = "0 3 * * *"
 
 
 def intervalo_da_fila() -> float:
@@ -91,6 +98,67 @@ def agendar_retreinamento(agendador: Any, SessionLocal: Callable[[], Any]) -> bo
                       misfire_grace_time=None)
     logger.info("Retreinamento agendado (%s, UTC).", expressao)
     return True
+
+
+def gatilho_da_consolidacao() -> Optional[CronTrigger]:
+    """O cron de MODELO_CONSOLIDACAO_CRON, em UTC; None se desligada ("off")."""
+    expressao = os.getenv("MODELO_CONSOLIDACAO_CRON", "").strip() or HORARIO_PADRAO_DA_CONSOLIDACAO
+    return None if expressao.lower() == "off" else CronTrigger.from_crontab(expressao, timezone=timezone.utc)
+
+
+def consolidacao_perdida(SessionLocal: Callable[[], Any], cfg: ConfigModelo, agora: Optional[datetime] = None) -> bool:
+    """Computador desligado no horário: alguma região com modelo vigente não tem consolidação concluída depois do
+    último disparo do cron (o APScheduler não guarda o disparo perdido)."""
+    gatilho = gatilho_da_consolidacao()
+    anterior = None if gatilho is None else ultimo_disparo(gatilho, agora or datetime.now(timezone.utc))
+    if anterior is None:
+        return False
+    with SessionLocal() as sessao:
+        return bool(ConsolidacaoService(sessao, cfg).consolidacoes_perdidas(anterior))
+
+
+def agendar_consolidacao(agendador: Any, consolidar: Callable[[], Any], SessionLocal: Callable[[], Any],
+                         cfg: ConfigModelo) -> bool:
+    """CU11-C3 passo 1: agenda a consolidação diária pelo cron de MODELO_CONSOLIDACAO_CRON, em UTC. Dormindo no horário,
+    ela roda ao acordar, uma vez só (coalesce, sem limite de atraso); desligado, é reconhecida aqui, ao iniciar, e roda
+    agora, uma vez. Devolve False se desligada ("off")."""
+    gatilho = gatilho_da_consolidacao()
+    if gatilho is None:
+        logger.info("Consolidação diária desligada (MODELO_CONSOLIDACAO_CRON=off).")
+        return False
+
+    def disparar() -> None:
+        try:
+            consolidar()
+        except Exception:
+            logger.exception("CU11-C3: a consolidação diária não foi concluída.")
+
+    agendador.add_job(disparar, gatilho, id=CONSOLIDACAO_JOB_ID, replace_existing=True, coalesce=True,
+                      misfire_grace_time=None)
+    logger.info("Consolidação diária agendada (%s, UTC).", os.getenv("MODELO_CONSOLIDACAO_CRON", "").strip()
+                or HORARIO_PADRAO_DA_CONSOLIDACAO)
+    try:
+        perdida = consolidacao_perdida(SessionLocal, cfg)
+    except Exception:
+        logger.warning("CU11-C3: não foi possível conferir se a consolidação agendada foi perdida.", exc_info=True)
+        perdida = False
+    if perdida:
+        logger.warning("CU11-C3: a última consolidação agendada não rodou (serviço desligado no horário): roda agora.")
+        agendador.add_job(disparar, "date", run_date=datetime.now(timezone.utc), id=CONSOLIDACAO_PERDIDA_JOB_ID,
+                          replace_existing=True, misfire_grace_time=None)
+    return True
+
+
+def mostrar_consolidacao(resumo: Optional[ResumoDaConsolidacao]) -> None:
+    if resumo is None:
+        print("Consolidação não iniciada: já existe uma em andamento.", flush=True)
+        return
+    print(f"Importação diária: {resumo.importacao.situacao}" + (f" ({resumo.importacao.aviso})"
+                                                                if resumo.importacao.aviso else ""), flush=True)
+    for dia in resumo.dias:
+        print(dia, flush=True)
+    if not resumo.dias:
+        print("Nenhum dia a consolidar: os dias encerrados já foram consolidados (ou não há modelo vigente).", flush=True)
 
 
 def atender_um(SessionLocal: Callable[[], Any], treinamentos: dict[str, TreinamentoInicial]) -> bool:
@@ -146,6 +214,8 @@ def servico(SessionLocal: Callable[[], Any], cfg: ConfigModelo) -> None:
     preencher_liberados_sem_amostra_de_treino(engine)
     agendador = BackgroundScheduler(timezone=timezone.utc)
     agendar_retreinamento(agendador, SessionLocal)
+    consolidacao = Consolidacao(engine, cfg)
+    agendar_consolidacao(agendador, consolidacao.executar, SessionLocal, cfg)
     agendador.start()
     try:
         registrar_retreinamentos_perdidos(SessionLocal)
@@ -168,9 +238,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="registra o retreinamento (CU11-C2) da região, pelo mesmo caminho do agendador; sem "
                              "região, de todas as que têm modelo vigente")
     parser.add_argument("--aguardar", action="store_true", help="com --retreinar: espera o fim e mostra o resumo")
+    parser.add_argument("--consolidar", action="store_true",
+                        help="roda agora a consolidação diária das predições (CU11-C3), como o agendador")
     args = parser.parse_args(argv)
     cfg = ConfigModelo.do_ambiente()
     SessionLocal = init_db()  # aplica as migrações (com a trava do Alembic, como a API e o worker)
+    if args.consolidar:
+        mostrar_consolidacao(Consolidacao(SessionLocal.kw["bind"], cfg).executar())
+        return 0
     if args.retreinar is None:
         servico(SessionLocal, cfg)
         return 0

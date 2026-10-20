@@ -46,6 +46,8 @@ docker-compose logs -f modelo
 docker-compose run --rm modelo-testes
 # CU11-C2: retreinamento pelo mesmo caminho do agendador (sem região: todas com modelo vigente); --aguardar espera o fim
 docker-compose exec modelo python -m src.modelo_worker --retreinar US --aguardar
+# CU11-C3: consolidação diária das predições agora, como o agendador (MODELO_CONSOLIDACAO_CRON, 03:00 UTC)
+docker-compose exec modelo python -m src.modelo_worker --consolidar
 # CU10-C1: importação diária do histórico da Undermine, uma vez (o worker a agenda em HISTORICO_IMPORTACAO_DIARIA_CRON)
 docker-compose exec worker python src/worker.py --importacao-diaria
 

@@ -22,7 +22,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import delete, insert, update
+from sqlalchemy import delete, insert, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -40,6 +40,7 @@ from src.models.modelo import (ETAPA_BANCO, ETAPA_INTERNA, ETAPA_SELECAO, ETAPA_
                                SITUACAO_BLOQUEADA, SITUACAO_IGNORADA, SITUACAO_LIBERADA, STATUS_FALHA, STATUS_SUCESSO,
                                ExecucaoTreinamento, ModeloPreditivo, ProjecaoItem)
 from src.services import security
+from src.services.treinamento_service import TRAVA_DA_SITUACAO_DOS_ITENS
 
 logger = logging.getLogger(__name__)
 
@@ -331,6 +332,7 @@ class TreinamentoInicial:
         junto: ela era da versão anterior."""
         with self.abrir_sessao() as s:
             try:
+                s.execute(text(TRAVA_DA_SITUACAO_DOS_ITENS))
                 agora = self.relogio()
                 s.execute(update(ModeloPreditivo)
                           .where(ModeloPreditivo.regiao == regiao, ModeloPreditivo.vigente.is_(True))

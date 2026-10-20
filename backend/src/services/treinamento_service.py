@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # como na importação do CU10-C1. O treinamento completo leva de 20 a 35 minutos (relatório da etapa 2e).
 TEMPO_MAXIMO_DO_TREINAMENTO = timedelta(hours=float(os.getenv("MODELO_TEMPO_MAXIMO_HORAS", "6")))
 TRAVA_DO_TREINAMENTO = "SELECT pg_advisory_xact_lock(hashtext('treinamento_modelo'))"
+# CU11: o C1 (passo 11), o C2 (passo 9) e o C3 (FA3) gravam a situação dos itens em projecao_item; com esta trava, nunca
+# ao mesmo tempo (um espera o outro terminar a transação).
+TRAVA_DA_SITUACAO_DOS_ITENS = "SELECT pg_advisory_xact_lock(hashtext('projecao_item'))"
 
 MENSAGEM_DA_FALHA = {
     ETAPA_SELECAO: mensagens.NENHUM_ITEM_APTO,  # CU11-C1-FA1

@@ -135,19 +135,25 @@ SQL_PRECOS = text("""
     SELECT h.region AS serie, h.item_id, (h."timestamp")::date AS data,
            MIN(h.price) AS preco, MAX(h.quantity) AS quantidade
       FROM historical_item_prices h
-     WHERE h.origem = 'UNDERMINE' AND h.granularidade = 'DIARIA' AND NOT h.anomalia AND h."timestamp" < :ate
+     WHERE h.origem = 'UNDERMINE' AND h.granularidade = 'DIARIA' AND NOT h.anomalia
+       AND h."timestamp" >= :desde AND h."timestamp" < :ate
      GROUP BY 1, 2, 3
 """)
+INICIO_DOS_DADOS = datetime(2004, 1, 1)  # antes do lançamento do jogo: "desde o começo"
 
 
-def carregar_banco(conexao: Connection, cfg: ConfigModelo, ate: date) -> Entrada:
+def carregar_banco(conexao: Connection, cfg: ConfigModelo, ate: date, desde: Optional[date] = None) -> Entrada:
     """CU11-C1 passo 3 (RN16): a série diária da Undermine, os atributos dos itens, os eventos do jogo (RN17), os
     reinos (RN11) e a aptidão ao treinamento (RN15). Uma falha de banco aqui é o CU11-C1-FE2.
 
-    RN25: o histórico considera somente os dias já encerrados, os anteriores a `ate` (a data UTC da execução)."""
-    logger.info("CU11: lendo historical_item_prices (Undermine, diária, antes de %s)...", ate.isoformat())
+    RN25: o histórico considera somente os dias já encerrados, os anteriores a `ate` (a data UTC da execução).
+    `desde` (CU11-C3 passo 7): só o trecho de histórico necessário para as previsões, não a base inteira."""
+    logger.info("CU11: lendo historical_item_prices (Undermine, diária, %s antes de %s)...",
+                "desde o começo" if desde is None else f"de {desde.isoformat()}", ate.isoformat())
     limite = datetime.combine(ate, datetime.min.time())
-    partes = list(pd.read_sql_query(SQL_PRECOS, conexao, params={"ate": limite}, chunksize=2_000_000))
+    inicio = INICIO_DOS_DADOS if desde is None else datetime.combine(desde, datetime.min.time())
+    partes = list(pd.read_sql_query(SQL_PRECOS, conexao, params={"ate": limite, "desde": inicio},
+                                    chunksize=2_000_000))
     precos = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame(columns=COLUNAS_PRECOS)
     meta = pd.read_sql_query(text("SELECT external_item_id, metadata_info FROM items WHERE game = 'wow'"), conexao)
     eventos = pd.read_sql_query(text("SELECT tipo, nome, versao, data_inicio, data_fim, regiao FROM evento_jogo"),

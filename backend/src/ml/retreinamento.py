@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-from sqlalchemy import delete, insert, tuple_, update
+from sqlalchemy import delete, insert, text, tuple_, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.ml.artefatos import ARQUIVO_AVALIACAO, ARQUIVO_MODELO, ARQUIVO_NORMALIZACAO, ARQUIVO_TREINO, Artefatos
@@ -38,6 +38,7 @@ from src.ml.rede import ResultadoDoTreino
 from src.ml.selecao import Selecao
 from src.ml.treinamento_inicial import (Contagens, TreinamentoInicial, _Falha, contar, linhas_da_situacao,
                                         situacao_dos_itens)
+from src.services.treinamento_service import TRAVA_DA_SITUACAO_DOS_ITENS
 from src.models.modelo import (DECISAO_MANTIDO, DECISAO_SUBSTITUIDO, ETAPA_BANCO, ETAPA_INTERNA,
                                MOTIVO_DEIXOU_DE_SER_ELEGIVEL, SITUACAO_BLOQUEADA, SITUACAO_LIBERADA, STATUS_SUCESSO,
                                ExecucaoTreinamento, ModeloPreditivo, ProjecaoItem)
@@ -154,6 +155,7 @@ class Retreinamento(TreinamentoInicial):
         substitui = comparacao.novo_e_melhor
         with self.abrir_sessao() as s:
             try:
+                s.execute(text(TRAVA_DA_SITUACAO_DOS_ITENS))
                 agora = self.relogio()
                 if substitui:
                     s.execute(update(ModeloPreditivo).where(ModeloPreditivo.versao == vigente.versao)
