@@ -104,14 +104,18 @@ def job_importacao_diaria():
     o C3 precisam dela atualizada). Se outra importação estiver em andamento, esta não começa."""
     logger.info(">>> Iniciando a importação diária do histórico da Undermine...")
     from src.services.importacao_historico import ImportacaoHistoricoService
-    session = get_session()
-    try:
-        return ImportacaoHistoricoService(session).importar_diariamente()
-    except Exception:
-        logger.exception("Erro na importação diária do histórico.")
-        return []
-    finally:
-        session.close()
+    # A importação e o ciclo da Blizzard (CU09) gravam em historical_item_prices: rodando juntos, podem entrar em
+    # deadlock no índice único. Como a recuperação de 48 h, que roda dentro da rodada, a importação diária espera a
+    # rodada em andamento terminar e a segura enquanto importa (a rodada que cair nesse intervalo é retomada pelo vigia).
+    with _rodada_em_andamento:
+        session = get_session()
+        try:
+            return ImportacaoHistoricoService(session).importar_diariamente()
+        except Exception:
+            logger.exception("Erro na importação diária do histórico.")
+            return []
+        finally:
+            session.close()
 
 def gatilho_da_importacao_diaria():
     """O cron de HISTORICO_IMPORTACAO_DIARIA_CRON, em UTC; None se desligada ("off")."""

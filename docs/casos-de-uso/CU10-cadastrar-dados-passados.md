@@ -181,6 +181,7 @@ Decisões já implementadas (com a variável de ambiente que as controla) e o qu
   - a recomposição de 48 horas (CU09-C1 FA3) é incremental e usa o ETag.
   - a importação diária (`HISTORICO_IMPORTACAO_DIARIA_CRON`, padrão `0 2 * * *`, em UTC; `off` desliga) é incremental como a recomposição e regrava o agregado diário que mudou na fonte dentro da janela incremental. Ela não conta para a regra das 48 horas;
   - nenhum modo grava o agregado diário da data UTC corrente (só dias encerrados).
+  - a importação e o ciclo da Blizzard (CU09) gravam em `historical_item_prices`; rodando juntos, podem entrar em deadlock no índice único (aconteceu na importação diária de 20/10/2026, desfeita depois de 6 minutos). A importação diária agendada espera a rodada de ingestão em andamento e a segura enquanto importa, como a recuperação de 48 h, e a importação incremental desfeita por deadlock é tentada de novo uma vez;
   - disparo perdido da importação diária: com o computador dormindo no horário, ela roda ao acordar, uma vez só (coalesce, sem limite de atraso, como o ciclo do worker). Desligado, o APScheduler não guarda o disparo; ao iniciar, o worker confere se o último disparo do cron tem importação incremental concluída depois dele e, se não tem, roda a importação na hora, uma vez.
 - RN16: cada ponto tem `granularidade` (`DIARIA` = dia inteiro em UTC; `HORARIA` = instante) e `origem`.
 - O arquivo de um item que só é commodity é um stub de 45 bytes sem preços. Ele é tratado como "sem dados", e a busca segue para o arquivo das commodities.

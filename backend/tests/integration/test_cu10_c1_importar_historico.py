@@ -433,3 +433,39 @@ def test_cu10_c1_importacao_diaria_perdida_e_reconhecida_pelo_ultimo_disparo(db_
     log(datetime(2026, 10, 20, 2, 0, 5), "DIARIA")
     assert not worker.importacao_diaria_perdida(gatilho, agora, db_session)
     assert not worker.importacao_diaria_perdida(gatilho, datetime(2026, 10, 20, 1, 0, tzinfo=timezone.utc), db_session)
+
+
+def test_cu10_c1_importacao_diaria_tenta_de_novo_depois_de_um_deadlock(db_session, add_item, fonte_falsa, relogio,
+                                                                       mocker):
+    """A importação grava numa só transação e o ciclo da Blizzard (CU09) grava no mesmo índice: o PostgreSQL pode
+    desfazê-la por deadlock (20/10/2026). É uma falha transitória: ela é tentada de novo uma vez."""
+    import psycopg2.errors
+
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    add_item(9951, "Item A")
+    fonte_falsa.com_dias(9951, dias(3))
+    gravar = backfill._insert_rows
+    chamadas = {"total": 0}
+
+    def deadlock_na_primeira(session, rows):
+        chamadas["total"] += 1
+        if chamadas["total"] == 1:
+            raise psycopg2.errors.DeadlockDetected("deadlock detected")
+        return gravar(session, rows)
+
+    mocker.patch.object(backfill, "_insert_rows", deadlock_na_primeira)
+
+    [resumo] = ImportacaoHistoricoService(db_session, relogio).importar_diariamente()
+
+    assert (resumo.status, resumo.registros_importados) == ("CONCLUIDA", 3)
+    logs = db_session.query(ScraperExecutionLog).order_by(ScraperExecutionLog.id).all()
+    assert [(log.status, log.failure_stage) for log in logs] == [(ExecutionStatus.FAILED, "BANCO"),
+                                                                 (ExecutionStatus.SUCCESS, None)]
+
+    chamadas["total"] = 0  # outra falha de banco não é transitória: não há nova tentativa
+    mocker.patch.object(backfill, "_insert_rows", side_effect=OperationalError("INSERT", {}, Exception("disk full")))
+    db_session.query(HistoricalItemPrice).delete()
+    db_session.commit()
+    [falha] = ImportacaoHistoricoService(db_session, relogio).importar_diariamente()
+    assert falha.status == "FALHA" and db_session.query(ScraperExecutionLog).count() == 3

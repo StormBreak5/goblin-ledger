@@ -4,8 +4,8 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 295 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 89 do CU10 e 49 do CU11). A suíte
-> completa tem 385 testes: 318 no backend (`pytest`, no host), 35 do pipeline do modelo no container do serviço
+> Os testes com identificador de fluxo ou de regra somam 297 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 91 do CU10 e 49 do CU11). A suíte
+> completa tem 387 testes: 320 no backend (`pytest`, no host), 35 do pipeline do modelo no container do serviço
 > `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
@@ -268,7 +268,7 @@
 | regra | `test_cu10_migracao_4_marca_os_pontos_da_blizzard_como_horarios_rn16` | `backend/tests/integration/test_migracoes.py` |
 | regra | `test_cu10_migracao_5_corrige_a_granularidade_dos_pontos_do_ciclo_horario_rn16` | `backend/tests/integration/test_migracoes.py` |
 
-#### CU10 – Cenário 1 (42 testes)
+#### CU10 – Cenário 1 (44 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -297,11 +297,13 @@
 | regra | `test_cu10_c1_arquivo_sem_dados_reconhece_o_stub_e_so_ele` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_etag_mescla_metadata_sem_apagar_atributos` | `backend/tests/scraper/test_backfill.py` |
 | regra | `test_cu10_c1_etag_sem_origem_registrada_nao_e_reaproveitado_na_recuperacao` | `backend/tests/scraper/test_backfill.py` |
+| regra | `test_cu10_c1_importacao_diaria_agendada_nao_grava_junto_com_o_ciclo_da_blizzard` | `backend/tests/unit/test_cu10_c1_agendamento.py` |
 | regra | `test_cu10_c1_importacao_diaria_dormindo_roda_ao_acordar_uma_vez` | `backend/tests/unit/test_cu10_c1_agendamento.py` |
 | regra | `test_cu10_c1_importacao_diaria_grava_so_dias_encerrados` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_importacao_diaria_nao_roda_com_outra_importacao_em_andamento` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_importacao_diaria_perdida_com_o_computador_desligado_roda_ao_iniciar` | `backend/tests/unit/test_cu10_c1_agendamento.py` |
 | regra | `test_cu10_c1_importacao_diaria_perdida_e_reconhecida_pelo_ultimo_disparo` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
+| regra | `test_cu10_c1_importacao_diaria_tenta_de_novo_depois_de_um_deadlock` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_importacao_incremental_regrava_o_dia_gravado_antes_de_terminar` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_lista_as_importacoes_mais_recentes_e_recusa_id_desconhecido` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |
 | regra | `test_cu10_c1_o_ritmo_entre_requisicoes_e_configuravel_rn23` | `backend/tests/integration/test_cu10_c1_importar_historico.py` |

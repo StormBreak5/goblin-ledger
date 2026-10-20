@@ -82,3 +82,25 @@ def test_cu10_c1_importacao_diaria_perdida_com_o_computador_desligado_roda_ao_in
     mocker.patch.object(worker, "importacao_diaria_perdida", return_value=False)
     worker.agendar_importacao_diaria(agendador)
     assert [c.kwargs["id"] for c in agendador.add_job.call_args_list] == ["importacao_diaria_job"]
+
+
+def test_cu10_c1_importacao_diaria_agendada_nao_grava_junto_com_o_ciclo_da_blizzard(mocker):
+    """A importação diária agendada espera a rodada de ingestão (CU09) em andamento terminar, como a recuperação de 48 h:
+    as duas gravam em historical_item_prices e, juntas, podem entrar em deadlock."""
+    import threading
+
+    from src.services.importacao_historico import ImportacaoHistoricoService
+
+    importou = threading.Event()
+    mocker.patch.object(worker, "get_session", return_value=MagicMock())
+    mocker.patch.object(ImportacaoHistoricoService, "importar_diariamente", lambda self: importou.set() or [])
+
+    worker._rodada_em_andamento.acquire()  # um ciclo da Blizzard em andamento
+    try:
+        importacao = threading.Thread(target=worker.job_importacao_diaria)
+        importacao.start()
+        assert not importou.wait(timeout=0.5)  # esperando o ciclo
+    finally:
+        worker._rodada_em_andamento.release()
+    importacao.join(timeout=5)
+    assert importou.is_set() and not worker._rodada_em_andamento.locked()

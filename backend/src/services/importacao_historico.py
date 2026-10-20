@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional, Sequence
 
 import psycopg2
+import psycopg2.errors
 from sqlalchemy import func, text, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -110,6 +111,7 @@ class ImportacaoHistoricoService:
         self.relogio = relogio
         self._limitador = limitador
         self._preencher_itens_novos = preencher_itens_novos
+        self.ultima_falha_foi_deadlock = False  # a última execução foi desfeita por deadlock (falha transitória)
 
     # ------------------------------------------------------------------ passo 2: validação
 
@@ -233,6 +235,7 @@ class ImportacaoHistoricoService:
             self.session.commit()  # passo 9
         except Exception as e:  # FE2: falha na gravação; nada fica persistido
             self.session.rollback()
+            self.ultima_falha_foi_deadlock = isinstance(getattr(e, "orig", e), psycopg2.errors.DeadlockDetected)
             etapa = FALHA_BANCO if isinstance(e, (SQLAlchemyError, psycopg2.Error)) else FALHA_INTERNA
             logger.exception("CU10-C1-FE2: a importação foi desfeita.")
             return self._finalizar(id_execucao, writer, etapa, str(e), gravado=False)
@@ -272,7 +275,12 @@ class ImportacaoHistoricoService:
 
     def _importar_incrementalmente(self, disparo: str) -> list[ResumoDaImportacao]:
         """Importação incremental dos itens ativos de cada reino monitorado. Uma importação por vez (a trava de
-        `registrar_inicio`): se outra estiver em andamento, esta não começa."""
+        `registrar_inicio`): se outra estiver em andamento, esta não começa.
+
+        A importação grava numa só transação, e o ciclo horário da Blizzard (CU09) grava em historical_item_prices ao
+        mesmo tempo: as duas podem esperar uma pela outra no índice único, e o PostgreSQL desfaz uma delas (deadlock,
+        como na importação diária de 20/10/2026, desfeita depois de 6 minutos). É uma falha transitória: a importação
+        desfeita por deadlock é tentada de novo uma vez."""
         resumos: list[ResumoDaImportacao] = []
         for mercado in ingestao_config.carregar_mercados():
             if mercado.tipo != ingestao_config.TIPO_LEILOES:
@@ -283,7 +291,16 @@ class ImportacaoHistoricoService:
             except ImportacaoEmAndamentoError:
                 logger.info("Importação %s adiada: já existe uma importação em andamento.", disparo)
                 return resumos
-            resumos.append(self.executar(id_execucao, pedido, incremental=True))
+            self.ultima_falha_foi_deadlock = False
+            resumo = self.executar(id_execucao, pedido, incremental=True)
+            if self.ultima_falha_foi_deadlock:
+                logger.warning("Importação %s desfeita por deadlock com outra gravação no histórico: tentando de novo, "
+                               "uma vez.", disparo)
+                try:
+                    resumo = self.executar(self.registrar_inicio(pedido, disparo), pedido, incremental=True)
+                except ImportacaoEmAndamentoError:
+                    logger.info("Nova tentativa adiada: já existe uma importação em andamento.")
+            resumos.append(resumo)
         return resumos
 
     # ------------------------------------------------------------------ apoio
