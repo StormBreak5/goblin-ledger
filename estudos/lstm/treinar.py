@@ -13,6 +13,7 @@
 - Perda: o padrão é a MAE (erro absoluto), aprovada na etapa 2e: o modelo passa a mirar a mediana, a mesma coisa
   que a RN10 mede (MdAPE), e a mediana do MdAPE por item caiu de 22,67% para 20,62% (docs/relatorio-etapa2e.md).
   `--perda huber` repete a configuração anterior. `--reduzir-taxa` (ReduceLROnPlateau) foi testada e reprovada.
+- Etapa 2g: `--ativacao leaky_relu` ou `gelu` troca a ativação da camada densa de 32 (o padrão continua a ReLU).
 - Etapa 2c: numa base preparada com --reservar-itens, as amostras dos itens reservados ficam fora do treino e da
   parada antecipada (o modelo nunca as vê), mas são previstas na validação, para medir o erro em itens não vistos.
   Com --incluir-reservados, treina com todos os itens (o controle do experimento).
@@ -71,10 +72,19 @@ def criar_perdas(tipo: str, horizonte: int, delta: float = 1.0):  # type: ignore
     return perda_mascarada, mae_mascarado
 
 
-def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa: float, perda: str):  # type: ignore[no-untyped-def]
+ATIVACOES = ("relu", "leaky_relu", "gelu")
+INCLINACAO_LEAKY = 0.1  # etapa 2g: inclinação da LeakyReLU para pré-ativações negativas
+
+
+def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa: float, perda: str,  # type: ignore[no-untyped-def]
+                     ativacao: str = "relu"):
+    """`ativacao` (etapa 2g) é a da camada densa de 32. Com a ReLU, uma amostra cujas 32 pré-ativações são negativas
+    sai igual ao viés da camada de saída; a LeakyReLU e a GELU mantêm um gradiente para elas."""
     import keras
     from keras import layers
 
+    if ativacao not in ATIVACOES:
+        raise ValueError(f"ativação desconhecida: {ativacao}")
     voc = dados.normalizacao["vocabulario"]
     seq = keras.Input((dados.janela, len(dados.var_seq)), name="X_seq")
     est = keras.Input((len(dados.var_est),), name="X_est")
@@ -84,7 +94,10 @@ def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa
     classe = layers.Flatten()(layers.Embedding(len(voc["classe_id"]) + 1, 4, name="emb_classe")(cat[:, 0:1]))
     subclasse = layers.Flatten()(layers.Embedding(len(voc["subclasse_id"]) + 1, 8, name="emb_subclasse")(cat[:, 1:2]))
     h = layers.Concatenate()([h, est, classe, subclasse])
-    h = layers.Dense(32, activation="relu")(h)
+    if ativacao == "leaky_relu":
+        h = layers.LeakyReLU(negative_slope=INCLINACAO_LEAKY)(layers.Dense(32)(h))
+    else:
+        h = layers.Dense(32, activation=ativacao)(h)
     saida = layers.Dense(dados.horizonte, name="y")(h)
     modelo = keras.Model([seq, est, cat], saida, name="lstm_global")
     fn_perda, fn_mae = criar_perdas(perda, dados.horizonte)
@@ -168,6 +181,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--taxa-minima", type=float, default=1e-5)
     ap.add_argument("--unidades", type=int, default=64)
     ap.add_argument("--dropout", type=float, default=0.2)
+    ap.add_argument("--ativacao", choices=ATIVACOES, default="relu",
+                    help="etapa 2g: ativação da camada densa de 32; padrão: relu (configuração final)")
     ap.add_argument("--taxa", type=float, default=1e-3, help="taxa de aprendizado do Adam")
     ap.add_argument("--semente", type=int, default=42)
     mascara = ap.add_mutually_exclusive_group()
@@ -217,7 +232,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"etapa 2c: {reserva['itens_reservados']:,} itens reservados "
               f"{'INCLUÍDOS no treino (controle)' if reserva['incluidos_no_treino'] else 'FORA do treino'}")
 
-    modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda)
+    modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda, args.ativacao)
     modelo.summary(print_fn=lambda s, **_: print(s))
     callbacks = []
     if args.reduzir_taxa:  # antes do CSVLogger, para a taxa de cada época ir para o historico.csv

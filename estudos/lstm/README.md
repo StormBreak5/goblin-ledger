@@ -207,6 +207,33 @@ A janela de 60 dias ficou de fora de propósito: ela subiria o histórico mínim
 dias, o contrário do que se quer com a previsão de itens novos (etapa 2c). A regra de decisão e os comandos estão em
 `pedido-etapa2e.md`. Depois dela, a configuração congela.
 
+## Melhorias baratas (etapa 2g)
+
+Testa três melhorias contra a configuração final (`mae_s{42,7,2026}`), na validação, com a regra de decisão de
+`pedido-etapa2g.md`. Duas não precisam de treino novo, porque usam as previsões já gravadas.
+
+| Candidato | Como | Ideia |
+|---|---|---|
+| Média de sementes (`ens`) | `combinar.py media` | A previsão é a média dos log-retornos previstos por modelos iguais com sementes diferentes. |
+| Encolhimento (`enc`) | `combinar.py encolher` | log-retorno final = αₕ × log-retorno previsto (α = 0 é o ingênuo). αₕ é escolhido na 1ª metade da validação e medido na 2ª. |
+| Ativação da camada densa (`lrelu` e `gelu`) | `treinar.py --ativacao leaky_relu` (inclinação de 0,1) ou `--ativacao gelu` | Com a ReLU, uma amostra cujas 32 pré-ativações são negativas sai igual ao viés da saída. |
+
+`ativacoes.py` conta, num período, as amostras sem nenhuma unidade com pré-ativação positiva e as unidades que nunca
+ficam positivas.
+
+```bash
+python combinar.py media --nome ens3 --saida saida/treino01_agr/combinadas \
+    --previsoes saida/treino01_agr/modelos/mae_s{42,7,2026}/previsoes_validacao.parquet
+python combinar.py encolher --pasta saida/treino01_agr --nome enc_s42 --saida saida/treino01_agr/combinadas \
+    --previsoes saida/treino01_agr/modelos/mae_s42/previsoes_validacao.parquet   # grava enc_s42, ref2_s42 e ing2
+python avaliar.py --pasta saida/treino01_agr --periodo validacao \
+    --previsoes saida/treino01_agr/combinadas/enc_s42.parquet --rotulo enc_s42
+python treinar.py --pasta saida/treino01_agr --nome lrelu_s42 --semente 42 --ativacao leaky_relu
+python ativacoes.py --modelo saida/treino01_agr/modelos/lrelu_s42 --pasta saida/treino01_agr --periodo validacao
+```
+
+O resultado está em `docs/relatorio-etapa2g.md`.
+
 ## Generalização para itens fora do treino (etapa 2c)
 
 **Pergunta.** O modelo não recebe nenhum identificador do item: só a janela de 30 dias, já em escala relativa ao

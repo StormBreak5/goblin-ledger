@@ -673,3 +673,165 @@ def test_generalizacao_por_liquidez_e_por_novidade(com_reserva: tuple[Resultado,
     sem = set(av.por_item["item_id"]) - com_treino
     linhas_sem = tab[tab["tem_amostra_de_treino"].astype(str) == "False"]
     assert int(linhas_sem["itens"].sum()) == len(sem)
+
+
+# ------------------------------------------------------------------------------ etapa 2g: melhorias baratas
+def _tipos(modelo) -> list[str]:  # type: ignore[no-untyped-def]
+    return [type(c).__name__ for c in modelo.layers]
+
+
+def test_ativacao_padrao_mantem_a_rede(preparado: tuple[Resultado, Path]) -> None:
+    """Sem --ativacao, a rede é a da configuração final: Dense(32, relu), sem camada a mais."""
+    keras = pytest.importorskip("keras")
+    from ativacoes import camada_densa
+    from treinar import construir_modelo
+
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    padrao = construir_modelo(dados, 4, 0.2, 1e-3, "mae")
+    relu = construir_modelo(dados, 4, 0.2, 1e-3, "mae", "relu")
+    assert _tipos(padrao) == _tipos(relu)
+    assert not any(isinstance(c, keras.layers.LeakyReLU) for c in padrao.layers)
+    assert camada_densa(padrao).get_config()["activation"] == "relu"
+    assert padrao.count_params() == relu.count_params()
+
+
+def test_ativacao_leaky_e_gelu_constroem(preparado: tuple[Resultado, Path]) -> None:
+    keras = pytest.importorskip("keras")
+    import json
+
+    from ativacoes import camada_densa
+    from treinar import INCLINACAO_LEAKY, construir_modelo, main
+
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    relu = construir_modelo(dados, 4, 0.2, 1e-3, "mae")
+    leaky = construir_modelo(dados, 4, 0.2, 1e-3, "mae", "leaky_relu")
+    gelu = construir_modelo(dados, 4, 0.2, 1e-3, "mae", "gelu")
+    camada = [c for c in leaky.layers if isinstance(c, keras.layers.LeakyReLU)]
+    assert len(camada) == 1 and camada[0].get_config()["negative_slope"] == pytest.approx(INCLINACAO_LEAKY)
+    assert camada_densa(leaky).get_config()["activation"] == "linear"
+    assert camada_densa(gelu).get_config()["activation"] == "gelu"
+    assert relu.count_params() == leaky.count_params() == gelu.count_params()  # a ativação não tem parâmetros
+    with pytest.raises(ValueError):
+        construir_modelo(dados, 4, 0.2, 1e-3, "mae", "tanh")
+
+    assert main(["--pasta", str(pasta), "--nome", "t2g", "--ativacao", "leaky_relu", "--epocas", "1", "--unidades",
+                 "4", "--lote", "64", "--amostras-por-epoca", "256", "--amostras-validacao", "256"]) == 0
+    info = json.loads((pasta / "modelos" / "t2g" / "treino.json").read_text(encoding="utf-8"))
+    assert info["parametros"]["ativacao"] == "leaky_relu"
+    recarregado = keras.models.load_model(pasta / "modelos" / "t2g" / "modelo.keras", compile=False)
+    assert any(isinstance(c, keras.layers.LeakyReLU) for c in recarregado.layers)
+
+
+def test_media_de_previsoes_iguais_e_a_propria(tmp_path: Path) -> None:
+    from avaliar import salvar_previsoes
+    from combinar import main, media
+
+    rng = np.random.default_rng(3)
+    ids = np.array([5, 1, 3, 2], dtype=np.int64)
+    yhat = rng.normal(size=(4, 7))
+    salvar_previsoes(ids, yhat, tmp_path / "a.parquet")
+    ordem = np.array([2, 0, 3, 1])
+    salvar_previsoes(ids[ordem], yhat[ordem], tmp_path / "b.parquet")  # mesmas amostras, outra ordem
+    salvar_previsoes(ids, yhat + 2.0, tmp_path / "c.parquet")
+    salvar_previsoes(ids[:3], yhat[:3], tmp_path / "d.parquet")
+
+    por_id = np.argsort(ids)
+    m_ids, m = media([tmp_path / "a.parquet", tmp_path / "b.parquet"])
+    assert np.array_equal(m_ids, ids[por_id]) and np.allclose(m, yhat[por_id])
+    _, m = media([tmp_path / "a.parquet", tmp_path / "c.parquet"])
+    assert np.allclose(m, yhat[por_id] + 1.0)
+    with pytest.raises(ValueError):
+        media([tmp_path / "a.parquet", tmp_path / "d.parquet"])
+    with pytest.raises(ValueError):
+        media([tmp_path / "a.parquet"])
+    assert main(["media", "--nome", "ens", "--saida", str(tmp_path / "comb"),
+                 "--previsoes", str(tmp_path / "a.parquet"), str(tmp_path / "b.parquet")]) == 0
+    assert np.allclose(pd.read_parquet(tmp_path / "comb" / "ens.parquet").filter(like="yhat_").to_numpy(),
+                       yhat[por_id])
+
+
+def test_encolher_alfa_1_e_o_modelo_e_alfa_0_e_o_ingenuo(preparado: tuple[Resultado, Path]) -> None:
+    from combinar import encolher
+
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    yhat = jan[dados.colunas_alvo()].to_numpy("float64")
+    H = dados.horizonte
+    assert np.allclose(encolher(yhat, [1.0] * H, dados.normalizacao), yhat)
+    zero = encolher(yhat, [0.0] * H, dados.normalizacao)
+    alvo = dados.normalizacao["alvo"]
+    assert np.allclose(zero, (0.0 - np.asarray(alvo["media"])) / np.asarray(alvo["desvio"]))  # = avaliar.py --ingenuo
+    det = avaliar(dados, "validacao", jan["id_amostra"].to_numpy(), zero).detalhe
+    assert (det["preco_previsto"] == det["preco_base"]).all()
+
+
+def test_encolher_escolhe_alfa_so_na_primeira_metade(preparado: tuple[Resultado, Path], tmp_path: Path) -> None:
+    """Uma previsão com o dobro do log-retorno real é corrigida por α = 0,5 em todos os horizontes; alterar as
+    previsões da 2ª metade não muda os α, e a 2ª metade só tem amostras com todos os dias previstos depois do meio."""
+    import json
+
+    from avaliar import desnormalizar, salvar_previsoes
+    from combinar import main
+
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao")
+    alvo = dados.normalizacao["alvo"]
+    media_alvo, desvio = np.asarray(alvo["media"]), np.asarray(alvo["desvio"])
+    dobro = (2.0 * desnormalizar(jan[dados.colunas_alvo()].to_numpy("float64"), dados.normalizacao)
+             - media_alvo) / desvio
+    ids = jan["id_amostra"].to_numpy()
+    salvar_previsoes(ids, dobro, tmp_path / "dobro.parquet")
+    args = ["encolher", "--pasta", str(pasta), "--nome", "enc_t", "--saida", str(tmp_path / "comb")]
+    assert main(args + ["--previsoes", str(tmp_path / "dobro.parquet")]) == 0
+    info = json.loads((tmp_path / "comb" / "enc_t.json").read_text(encoding="utf-8"))
+    assert info["alfa"] == [0.5] * dados.horizonte
+    n = info["amostras"]
+    assert n["primeira_metade"] > 0 and n["segunda_metade"] > 0
+    assert n["primeira_metade"] + n["segunda_metade"] + n["atravessam_o_meio"] == len(jan)
+
+    meio = pd.Timestamp(info["meio"])
+    seg = pd.read_parquet(tmp_path / "comb" / "enc_t.parquet")
+    origem = jan.set_index("id_amostra").loc[seg["id_amostra"], "data_origem"]
+    assert (pd.to_datetime(origem) + pd.Timedelta(days=1) >= meio).all()
+    ref2 = pd.read_parquet(tmp_path / "comb" / "ref2_t.parquet")
+    assert np.allclose(ref2.filter(like="yhat_").to_numpy(),
+                       pd.DataFrame(dobro, index=ids).loc[ref2["id_amostra"]].to_numpy())
+    ing2 = pd.read_parquet(tmp_path / "comb" / "ing2.parquet").filter(like="yhat_").to_numpy()
+    assert np.allclose(ing2, (0.0 - media_alvo) / desvio)
+
+    na_segunda = (pd.to_datetime(jan["data_origem"]) + pd.Timedelta(days=1) >= meio).to_numpy()
+    alterado = dobro.copy()
+    alterado[na_segunda] *= 3.0
+    salvar_previsoes(ids, alterado, tmp_path / "alterado.parquet")
+    assert main(args + ["--nome", "enc_t2", "--previsoes", str(tmp_path / "alterado.parquet")]) == 0
+    info2 = json.loads((tmp_path / "comb" / "enc_t2.json").read_text(encoding="utf-8"))
+    assert info2["alfa"] == info["alfa"] and info2["mdape_primeira_metade"] == info["mdape_primeira_metade"]
+
+
+def test_ativacoes_conta_amostras_sem_unidade_ativa(preparado: tuple[Resultado, Path]) -> None:
+    """Com todas as pré-ativações negativas, toda amostra fica sem unidade ativa e, com a ReLU, a saída é o viés da
+    camada `y` para qualquer item."""
+    pytest.importorskip("keras")
+    from ativacoes import camada_densa, pre_ativacoes, resumir
+    from treinar import construir_modelo
+
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao").head(300)
+    modelo = construir_modelo(dados, 4, 0.2, 1e-3, "mae")
+    densa = camada_densa(modelo)
+    pesos, vies = densa.get_weights()
+    densa.set_weights([np.zeros_like(pesos), np.full_like(vies, -1.0)])
+    morta = resumir(pre_ativacoes(modelo, dados, jan))
+    assert morta["amostras"] == 300 and morta["fracao_sem_unidade_ativa"] == 1.0
+    assert morta["unidades_nunca_ativas"] == morta["unidades"] == 32
+    t = dados.tensores(jan)
+    saida = modelo.predict_on_batch({"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]})
+    assert np.allclose(saida, modelo.get_layer("y").get_weights()[1][None, :])
+    densa.set_weights([np.zeros_like(pesos), np.full_like(vies, 1.0)])
+    viva = resumir(pre_ativacoes(modelo, dados, jan))
+    assert viva["amostras_sem_unidade_ativa"] == 0 and viva["unidades_nunca_ativas"] == 0
