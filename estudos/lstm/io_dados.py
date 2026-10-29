@@ -118,6 +118,14 @@ def carregar_csv(pasta: Path, cfg: Config) -> Entrada:
     )
 
 
+def carregar_eventos_csv(pasta: Path) -> pd.DataFrame:
+    """Só o eventos.csv (etapa 2h: o calendário futuro não precisa dos preços)."""
+    caminho = Path(pasta) / "eventos.csv"
+    if not caminho.exists():
+        raise FileNotFoundError(f"{caminho} não encontrado")
+    return _padronizar_eventos(pd.read_csv(caminho))
+
+
 # ----------------------------------------------------------------------------------------------------------- banco
 def url_do_banco() -> str:
     """Mesma montagem do backend (src/repositories/database.py). A porta padrão aqui é a 5435, a que o
@@ -166,6 +174,17 @@ def _atributos_do_metadata(item_id: int, meta: Optional[dict[str, Any]],
     }
 
 
+SQL_EVENTOS = "SELECT tipo, nome, versao, data_inicio, data_fim, regiao FROM evento_jogo"
+
+
+def carregar_eventos_banco(url: str) -> pd.DataFrame:
+    """Só evento_jogo (etapa 2h), com a mesma consulta e a mesma padronização de carregar_banco."""
+    from sqlalchemy import create_engine, text
+
+    with create_engine(url).connect() as con:
+        return _padronizar_eventos(pd.read_sql_query(text(SQL_EVENTOS), con))
+
+
 def carregar_banco(url: str, cfg: Config, itens: Optional[list[int]] = None) -> Entrada:
     from sqlalchemy import create_engine, text  # import aqui: o modo CSV não precisa do SQLAlchemy
 
@@ -185,8 +204,7 @@ def carregar_banco(url: str, cfg: Config, itens: Optional[list[int]] = None) -> 
         precos = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame(columns=COLUNAS_PRECOS)
 
         meta = pd.read_sql_query(text("SELECT external_item_id, metadata_info FROM items WHERE game = 'wow'"), con)
-        eventos = pd.read_sql_query(
-            text("SELECT tipo, nome, versao, data_inicio, data_fim, regiao FROM evento_jogo"), con)
+        eventos = pd.read_sql_query(text(SQL_EVENTOS), con)
         reinos = {int(r.id_reino): str(r.regiao) for r in
                   pd.read_sql_query(text("SELECT id_reino, regiao FROM reino"), con).itertuples()}
         aptos_df = pd.read_sql_query(text("SELECT item_id, apto FROM aptidao_treinamento"), con)

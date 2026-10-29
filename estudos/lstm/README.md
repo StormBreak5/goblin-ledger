@@ -234,6 +234,38 @@ python ativacoes.py --modelo saida/treino01_agr/modelos/lrelu_s42 --pasta saida/
 
 O resultado está em `docs/relatorio-etapa2g.md`.
 
+## Calendário dos dias previstos (etapa 2h)
+
+**O que muda:** as variáveis 9 a 14 só entram com os 30 dias passados. Na etapa 2h, a rede ganha a entrada `X_fut` [7, 6], com o calendário de D+1 a D+7 como conhecido em D (RN25). Ela é achatada e juntada antes da camada densa de 32.
+
+| Coluna | Valor em D+h |
+|---|---|
+| `fut_dia_sin`, `fut_dia_cos` | dia da semana de D+h |
+| `fut_patch` | algum patch entre D+1 e D+h |
+| `fut_expansao` | algum marco de expansão (pré-patch ou lançamento) entre D+1 e D+h |
+| `fut_temporada` | alguma temporada começa entre D+1 e D+h |
+| `fut_evento` | algum evento sazonal ativo em D+h |
+
+**Como o calendário é montado:**
+- `calendario_futuro.py` lê só `evento_jogo`, do banco ou de um `eventos.csv`, e não mexe na base.
+- Antes de gravar, ele confere se as variáveis 9 a 14 recalculadas com esses eventos batem com as da base. Se não baterem, ele para.
+- O calendário vai para uma pasta à parte e é ligado a cada amostra pela região da série e pelo dia de origem.
+- **Rede inalterada sem a opção:** sem `--calendario-futuro`, a rede não muda.
+
+`eventos_no_horizonte.py` separa o erro das amostras com e sem evento entre D+1 e D+7: patch, marco de expansão, início de temporada, ou início ou fim de evento sazonal.
+
+```bash
+python calendario_futuro.py --banco --pasta saida/treino01_agr --saida saida/calendario2h
+python treinar.py --pasta saida/treino01_agr --nome cal_s42 --semente 42 --ativacao gelu \
+    --calendario-futuro saida/calendario2h/calendario_futuro.parquet
+python avaliar.py --pasta saida/treino01_agr --periodo validacao \
+    --previsoes saida/treino01_agr/modelos/cal_s42/previsoes_validacao.parquet --rotulo cal_s42
+python eventos_no_horizonte.py --pasta saida/treino01_agr --calendario saida/calendario2h/calendario_futuro.parquet \
+    --detalhe saida/treino01_agr/avaliacao_validacao_cal_s42_detalhe.parquet --rotulo cal_s42
+```
+
+A regra de decisão e os comandos estão em `pedido-etapa2h.md`.
+
 ## Generalização para itens fora do treino (etapa 2c)
 
 **Pergunta.** O modelo não recebe nenhum identificador do item: só a janela de 30 dias, já em escala relativa ao

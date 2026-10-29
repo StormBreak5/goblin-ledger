@@ -14,6 +14,8 @@
   que a RN10 mede (MdAPE), e a mediana do MdAPE por item caiu de 22,67% para 20,62% (docs/relatorio-etapa2e.md).
   `--perda huber` repete a configuração anterior. `--reduzir-taxa` (ReduceLROnPlateau) foi testada e reprovada.
 - Etapa 2g: `--ativacao leaky_relu` ou `gelu` troca a ativação da camada densa de 32 (o padrão continua a ReLU).
+- Etapa 2h: `--calendario-futuro` (arquivo do calendario_futuro.py) junta a entrada X_fut [7, 6], o calendário de D+1
+  a D+7 conhecido em D, achatada e juntada antes da camada densa de 32. Sem a opção, a rede não muda.
 - Etapa 2c: numa base preparada com --reservar-itens, as amostras dos itens reservados ficam fora do treino e da
   parada antecipada (o modelo nunca as vê), mas são previstas na validação, para medir o erro em itens não vistos.
   Com --incluir-reservados, treina com todos os itens (o controle do experimento).
@@ -38,6 +40,7 @@ import numpy as np
 import pandas as pd
 
 from avaliar import salvar_previsoes
+from calendario_futuro import COLUNAS_FUTURAS, CalendarioFuturo
 from dataset import DadosPreparados
 
 
@@ -77,9 +80,10 @@ INCLINACAO_LEAKY = 0.1  # etapa 2g: inclinação da LeakyReLU para pré-ativaç�
 
 
 def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa: float, perda: str,  # type: ignore[no-untyped-def]
-                     ativacao: str = "relu"):
+                     ativacao: str = "relu", futuro: Optional[tuple[int, int]] = None):
     """`ativacao` (etapa 2g) é a da camada densa de 32. Com a ReLU, uma amostra cujas 32 pré-ativações são negativas
-    sai igual ao viés da camada de saída; a LeakyReLU e a GELU mantêm um gradiente para elas."""
+    sai igual ao viés da camada de saída; a LeakyReLU e a GELU mantêm um gradiente para elas. `futuro` (etapa 2h) é o
+    formato (dias, variáveis) do X_fut, o calendário dos dias previstos, juntado antes da camada densa."""
     import keras
     from keras import layers
 
@@ -93,20 +97,34 @@ def construir_modelo(dados: DadosPreparados, unidades: int, dropout: float, taxa
     h = layers.Dropout(dropout, name="dropout")(h)
     classe = layers.Flatten()(layers.Embedding(len(voc["classe_id"]) + 1, 4, name="emb_classe")(cat[:, 0:1]))
     subclasse = layers.Flatten()(layers.Embedding(len(voc["subclasse_id"]) + 1, 8, name="emb_subclasse")(cat[:, 1:2]))
-    h = layers.Concatenate()([h, est, classe, subclasse])
+    entradas = [seq, est, cat]
+    partes = [h, est, classe, subclasse]
+    if futuro is not None:
+        fut = keras.Input(futuro, name="X_fut")
+        entradas.append(fut)
+        partes.append(layers.Flatten(name="fut_achatado")(fut))
+    h = layers.Concatenate()(partes)
     if ativacao == "leaky_relu":
         h = layers.LeakyReLU(negative_slope=INCLINACAO_LEAKY)(layers.Dense(32)(h))
     else:
         h = layers.Dense(32, activation=ativacao)(h)
     saida = layers.Dense(dados.horizonte, name="y")(h)
-    modelo = keras.Model([seq, est, cat], saida, name="lstm_global")
+    modelo = keras.Model(entradas, saida, name="lstm_global")
     fn_perda, fn_mae = criar_perdas(perda, dados.horizonte)
     modelo.compile(optimizer=keras.optimizers.Adam(taxa), loss=fn_perda, metrics=[fn_mae])
     return modelo
 
 
+def entradas_do_lote(t: dict[str, np.ndarray], jan: pd.DataFrame,
+                     calendario: Optional[CalendarioFuturo]) -> dict[str, np.ndarray]:
+    x = {"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}
+    if calendario is not None:  # etapa 2h
+        x["X_fut"] = calendario.tensor(jan["serie"], jan["data_origem"])
+    return x
+
+
 def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca: int, embaralhar: bool, semente: int,
-                usar_mascara: bool = True):  # type: ignore[no-untyped-def]
+                usar_mascara: bool = True, calendario: Optional[CalendarioFuturo] = None):  # type: ignore[no-untyped-def]
     import keras
 
     class Lotes(keras.utils.PyDataset):
@@ -126,9 +144,10 @@ def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca:
             return math.ceil(self.n / lote)
 
         def __getitem__(self, i: int):  # type: ignore[no-untyped-def]
-            t = dados.tensores(jan.iloc[self.ordem[i * lote:(i + 1) * lote]])
+            parte = jan.iloc[self.ordem[i * lote:(i + 1) * lote]]
+            t = dados.tensores(parte)
             mascara = t["mascara"].astype(np.float32) if usar_mascara else np.ones_like(t["y"], dtype=np.float32)
-            return {"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}, np.concatenate([t["y"], mascara], 1)
+            return entradas_do_lote(t, parte, calendario), np.concatenate([t["y"], mascara], 1)
 
         def on_epoch_end(self) -> None:
             self._sortear()
@@ -136,11 +155,15 @@ def criar_lotes(dados: DadosPreparados, jan: pd.DataFrame, lote: int, por_epoca:
     return Lotes()
 
 
-def prever(modelo, dados: DadosPreparados, jan: pd.DataFrame, lote: int = 4096) -> tuple[np.ndarray, np.ndarray]:  # type: ignore[no-untyped-def]
+def prever(modelo, dados: DadosPreparados, jan: pd.DataFrame, lote: int = 4096,  # type: ignore[no-untyped-def]
+           calendario: Optional[CalendarioFuturo] = None) -> tuple[np.ndarray, np.ndarray]:
+    if ("X_fut" in [i.name for i in modelo.inputs]) != (calendario is not None):
+        raise ValueError("o calendário futuro (etapa 2h) tem de ser passado se, e só se, o modelo tem a entrada X_fut")
     ids, saidas = [], []
     for ini in range(0, len(jan), lote):
-        t = dados.tensores(jan.iloc[ini:ini + lote])
-        saidas.append(modelo.predict_on_batch({"X_seq": t["X_seq"], "X_est": t["X_est"], "X_cat": t["X_cat"]}))
+        parte = jan.iloc[ini:ini + lote]
+        t = dados.tensores(parte)
+        saidas.append(modelo.predict_on_batch(entradas_do_lote(t, parte, calendario)))
         ids.append(t["id_amostra"])
     return np.concatenate(ids), np.concatenate(saidas)
 
@@ -183,6 +206,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--dropout", type=float, default=0.2)
     ap.add_argument("--ativacao", choices=ATIVACOES, default="relu",
                     help="etapa 2g: ativação da camada densa de 32; padrão: relu (configuração final)")
+    ap.add_argument("--calendario-futuro", type=Path,
+                    help="etapa 2h: calendario_futuro.parquet do calendario_futuro.py; junta a entrada X_fut")
     ap.add_argument("--taxa", type=float, default=1e-3, help="taxa de aprendizado do Adam")
     ap.add_argument("--semente", type=int, default=42)
     mascara = ap.add_mutually_exclusive_group()
@@ -201,12 +226,14 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     keras.utils.set_random_seed(args.semente)
     dados = DadosPreparados(args.pasta)
+    calendario = (CalendarioFuturo.carregar(args.calendario_futuro, args.pasta, dados.horizonte)
+                  if args.calendario_futuro else None)
     if args.apenas_prever_teste:
         if not args.nome:
             ap.error("--apenas-prever-teste exige --nome do modelo já treinado")
         destino = args.pasta / "modelos" / args.nome
         modelo = keras.models.load_model(destino / "modelo.keras", compile=False)
-        ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"))
+        ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"), calendario=calendario)
         salvar_previsoes(ids_t, yhat_t, destino / "previsoes_teste.parquet")
         info_p = destino / "treino.json"
         info = json.loads(info_p.read_text(encoding="utf-8"))
@@ -232,7 +259,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"etapa 2c: {reserva['itens_reservados']:,} itens reservados "
               f"{'INCLUÍDOS no treino (controle)' if reserva['incluidos_no_treino'] else 'FORA do treino'}")
 
-    modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda, args.ativacao)
+    modelo = construir_modelo(dados, args.unidades, args.dropout, args.taxa, args.perda, args.ativacao,
+                              (dados.horizonte, len(COLUNAS_FUTURAS)) if calendario is not None else None)
     modelo.summary(print_fn=lambda s, **_: print(s))
     callbacks = []
     if args.reduzir_taxa:  # antes do CSVLogger, para a taxa de cada época ir para o historico.csv
@@ -245,8 +273,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ]
     inicio = time.time()
     hist = modelo.fit(
-        criar_lotes(dados, jan_tr, args.lote, args.amostras_por_epoca, True, args.semente, args.mascara),
-        validation_data=criar_lotes(dados, va_es, args.lote, 0, False, args.semente, args.mascara),
+        criar_lotes(dados, jan_tr, args.lote, args.amostras_por_epoca, True, args.semente, args.mascara, calendario),
+        validation_data=criar_lotes(dados, va_es, args.lote, 0, False, args.semente, args.mascara, calendario),
         epochs=args.epocas, callbacks=callbacks, verbose=2)
     duracao = time.time() - inicio
     val = hist.history.get("val_loss", [])
@@ -254,10 +282,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     modelo.save(destino / "modelo.keras")
     shutil.copy(args.pasta / "normalizacao.json", destino / "normalizacao.json")
-    ids, yhat = prever(modelo, dados, jan_va)
+    ids, yhat = prever(modelo, dados, jan_va, calendario=calendario)
     salvar_previsoes(ids, yhat, destino / "previsoes_validacao.parquet")
     if args.prever_teste:
-        ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"))
+        ids_t, yhat_t = prever(modelo, dados, dados.janelas("teste"), calendario=calendario)
         salvar_previsoes(ids_t, yhat_t, destino / "previsoes_teste.parquet")
 
     info: dict[str, Any] = {
@@ -276,6 +304,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         "previu_teste": bool(args.prever_teste),
         "mascara": bool(args.mascara),
         "variaveis_sequencia": len(dados.var_seq),
+        # Etapa 2h: o calendário dos dias previstos (X_fut), ou None.
+        "calendario_futuro": None if calendario is None else {
+            "arquivo": str(args.calendario_futuro), "assinatura": calendario.assinatura,
+            "formato": [calendario.horizonte, len(COLUNAS_FUTURAS)], "colunas": list(COLUNAS_FUTURAS)},
     }
     (destino / "treino.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps({k: info[k] for k in ("epocas_executadas", "melhor_epoca", "melhor_val_loss", "segundos_por_epoca",

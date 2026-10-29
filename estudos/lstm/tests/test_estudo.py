@@ -835,3 +835,156 @@ def test_ativacoes_conta_amostras_sem_unidade_ativa(preparado: tuple[Resultado, 
     densa.set_weights([np.zeros_like(pesos), np.full_like(vies, 1.0)])
     viva = resumir(pre_ativacoes(modelo, dados, jan))
     assert viva["amostras_sem_unidade_ativa"] == 0 and viva["unidades_nunca_ativas"] == 0
+
+
+# ------------------------------------------------------------------------- etapa 2h: calendário dos dias previstos
+def _eventos(*linhas: dict[str, object]) -> pd.DataFrame:
+    return _padronizar_eventos(pd.DataFrame([{"versao": None, "data_fim": None, "regiao": "GLOBAL", **ln}
+                                             for ln in linhas]))
+
+
+def test_calendario_futuro_desligado_mantem_a_rede(preparado: tuple[Resultado, Path]) -> None:
+    pytest.importorskip("keras")
+    from calendario_futuro import COLUNAS_FUTURAS
+    from treinar import construir_modelo
+
+    _, pasta = preparado
+    dados = DadosPreparados(pasta)
+    padrao = construir_modelo(dados, 4, 0.2, 1e-3, "mae", "gelu")
+    sem = construir_modelo(dados, 4, 0.2, 1e-3, "mae", "gelu", None)
+    com = construir_modelo(dados, 4, 0.2, 1e-3, "mae", "gelu", (dados.horizonte, len(COLUNAS_FUTURAS)))
+    assert [i.name for i in padrao.inputs] == ["X_seq", "X_est", "X_cat"]
+    assert padrao.count_params() == sem.count_params()
+    # o X_fut achatado só acrescenta os pesos dele na camada densa de 32
+    assert com.count_params() == padrao.count_params() + dados.horizonte * len(COLUNAS_FUTURAS) * 32
+    assert [i.name for i in com.inputs] == ["X_seq", "X_est", "X_cat", "X_fut"]
+
+
+def test_calendario_futuro_so_usa_o_que_se_sabe_em_d() -> None:
+    """RN25: a linha de D só depende do calendário de D+1 a D+7; um patch em D+3 marca h3 a h7, um em D+8 não marca."""
+    from calendario_futuro import COLUNA_EVENTO_NO_HORIZONTE, calcular
+
+    d = pd.DatetimeIndex(["2025-03-01"])
+
+    def linha(ev: pd.DataFrame) -> pd.Series:
+        return calcular(d, ev, CFG).iloc[0]
+
+    def valores(ln: pd.Series, coluna: str) -> list[float]:
+        return [float(ln[f"{coluna}_h{h}"]) for h in range(1, 8)]
+
+    base = _eventos({"tipo": "PATCH", "nome": "Patch A", "versao": "1.0.0", "data_inicio": "2025-01-07"})
+    ln = linha(base)
+    assert valores(ln, "fut_patch") == [0.0] * 7 and not ln[COLUNA_EVENTO_NO_HORIZONTE]
+    dias = pd.date_range("2025-03-02", periods=7)
+    assert np.allclose(valores(ln, "fut_dia_sin"), np.sin(2 * np.pi * dias.dayofweek.to_numpy() / 7))
+    assert np.allclose(valores(ln, "fut_dia_cos"), np.cos(2 * np.pi * dias.dayofweek.to_numpy() / 7))
+
+    patch3 = pd.concat([base, _eventos({"tipo": "PATCH", "nome": "Patch B", "versao": "1.1.0",
+                                        "data_inicio": "2025-03-04"})])
+    ln = linha(patch3)
+    assert valores(ln, "fut_patch") == [0, 0, 1, 1, 1, 1, 1] and ln[COLUNA_EVENTO_NO_HORIZONTE]
+    patch8 = pd.concat([base, _eventos({"tipo": "PATCH", "nome": "Patch B", "versao": "1.1.0",
+                                        "data_inicio": "2025-03-09"})])
+    assert valores(linha(patch8), "fut_patch") == [0.0] * 7
+
+    outros = pd.concat([base, _eventos({"tipo": "TEMPORADA", "nome": "T", "data_inicio": "2025-03-03"},
+                                       {"tipo": "EVENTO_SAZONAL", "nome": "F", "data_inicio": "2025-03-06",
+                                        "data_fim": "2025-03-07"},
+                                       {"tipo": "EXPANSAO", "nome": "E", "data_inicio": "2025-03-07"})])
+    ln = linha(outros)
+    assert valores(ln, "fut_temporada") == [0, 1, 1, 1, 1, 1, 1]
+    assert valores(ln, "fut_evento") == [0, 0, 0, 0, 1, 1, 0]
+    assert valores(ln, "fut_expansao") == [0, 0, 0, 0, 0, 1, 1]
+    # eventos que começam depois de D+7 não mudam a linha de D
+    depois = pd.concat([outros, _eventos({"tipo": "EVENTO_SAZONAL", "nome": "G", "data_inicio": "2025-03-09",
+                                          "data_fim": "2025-03-20"},
+                                         {"tipo": "TEMPORADA", "nome": "T2", "data_inicio": "2025-03-10"},
+                                         {"tipo": "EXPANSAO", "nome": "E2", "data_inicio": "2025-03-12"})])
+    pd.testing.assert_series_equal(linha(depois), ln)
+    with pytest.raises(ValueError, match="RN25"):  # um patch a mais de 14 dias ainda não é conhecido em D
+        calcular(d, base, replace(CFG, horizonte=15))
+
+
+def test_calendario_futuro_confere_as_variaveis_da_base(preparado: tuple[Resultado, Path],
+                                                        sinteticos: dict[str, pd.DataFrame]) -> None:
+    from calendario_futuro import conferir
+
+    _, pasta = preparado
+    eventos = _padronizar_eventos(sinteticos["eventos"])
+    assert conferir(pasta, eventos, CFG)["diferencas"] == 0
+    alterado = eventos.copy()
+    i = alterado.index[alterado["tipo"] == "PATCH"][3]
+    alterado.loc[i, "data_inicio"] += pd.Timedelta(days=1)
+    with pytest.raises(ValueError, match="não batem"):
+        conferir(pasta, alterado, CFG)
+
+
+def test_calendario_futuro_treina_e_preve(preparado: tuple[Resultado, Path], sinteticos: dict[str, pd.DataFrame],
+                                          tmp_path: Path) -> None:
+    keras = pytest.importorskip("keras")
+    import json
+    import shutil
+
+    from calendario_futuro import CalendarioFuturo, gerar
+    from treinar import main, prever
+
+    _, pasta = preparado
+    info = gerar(pasta, _padronizar_eventos(sinteticos["eventos"]), tmp_path / "cal", "teste")
+    assert info["conferencia"]["diferencas"] == 0
+    assert info["amostras_com_valor_diferente_de_zero"]["validacao"]["fut_patch"] > 0
+    arquivo = tmp_path / "cal" / "calendario_futuro.parquet"
+    assert main(["--pasta", str(pasta), "--nome", "t2h", "--ativacao", "gelu", "--calendario-futuro", str(arquivo),
+                 "--epocas", "1", "--unidades", "4", "--lote", "64", "--amostras-por-epoca", "256",
+                 "--amostras-validacao", "256"]) == 0
+    destino = pasta / "modelos" / "t2h"
+    t = json.loads((destino / "treino.json").read_text(encoding="utf-8"))
+    assert t["parametros"]["calendario_futuro"] == str(arquivo) and t["previu_teste"] is False
+    assert t["calendario_futuro"]["assinatura"] == info["assinatura"] and t["calendario_futuro"]["formato"] == [7, 6]
+
+    dados = DadosPreparados(pasta)
+    jan = dados.janelas("validacao").head(50)
+    modelo = keras.models.load_model(destino / "modelo.keras", compile=False)
+    cal = CalendarioFuturo.carregar(arquivo, pasta, dados.horizonte)
+    ids, yhat = prever(modelo, dados, jan, calendario=cal)
+    assert yhat.shape == (len(jan), 7) and np.isfinite(yhat).all()
+    gravadas = pd.read_parquet(destino / "previsoes_validacao.parquet").set_index("id_amostra").loc[ids]
+    assert np.allclose(gravadas.filter(like="yhat_").to_numpy(), yhat, atol=1e-5)
+    with pytest.raises(ValueError):  # sem o calendário, o modelo com X_fut não prevê
+        prever(modelo, dados, jan)
+
+    adulterado = tmp_path / "adulterado"
+    adulterado.mkdir()
+    shutil.copy(arquivo.with_suffix(".json"), adulterado / "calendario_futuro.json")
+    tab = pd.read_parquet(arquivo)
+    tab.loc[0, "fut_patch_h1"] = 1.0 - tab.loc[0, "fut_patch_h1"]
+    tab.to_parquet(adulterado / "calendario_futuro.parquet", index=False)
+    with pytest.raises(ValueError, match="assinatura"):
+        CalendarioFuturo.carregar(adulterado / "calendario_futuro.parquet", pasta, dados.horizonte)
+
+
+def test_eventos_no_horizonte_separa_as_amostras(preparado: tuple[Resultado, Path],
+                                                 sinteticos: dict[str, pd.DataFrame], tmp_path: Path) -> None:
+    from avaliar import main as avaliar_main
+    from calendario_futuro import gerar
+    from eventos_no_horizonte import analisar, main
+
+    det = pd.DataFrame({"id_amostra": [1, 1, 2, 2, 3, 3], "serie": "s", "item_id": [10, 10, 10, 10, 20, 20],
+                        "avaliavel": [True, True, True, False, True, True],
+                        "erro_pct": [0.1, 0.3, 0.2, np.nan, 0.4, 0.6],
+                        "erro_pct_ingenuo": [0.2, 0.2, 0.4, np.nan, 0.5, 0.5]})
+    t = analisar(det, np.array([True, True, False, False, True, True])).set_index("grupo")
+    assert t.loc["com evento", "amostras"] == 2 and t.loc["com evento", "alvos"] == 4
+    assert t.loc["com evento", "mediana_mdape_por_item"] == pytest.approx(0.35)    # itens: 0,2 e 0,5
+    assert t.loc["com evento", "razao_mdape"] == pytest.approx(1.0)
+    assert t.loc["sem evento", "alvos"] == 1 and t.loc["sem evento", "razao_mdape"] == pytest.approx(0.5)
+    assert t.loc["todos", "alvos"] == 5 and t.loc["todos", "itens"] == 2
+
+    _, pasta = preparado
+    gerar(pasta, _padronizar_eventos(sinteticos["eventos"]), tmp_path / "cal")
+    assert avaliar_main(["--pasta", str(pasta), "--periodo", "validacao", "--ingenuo", "--rotulo", "ing2h"]) == 0
+    assert main(["--pasta", str(pasta), "--calendario", str(tmp_path / "cal" / "calendario_futuro.parquet"),
+                 "--detalhe", str(pasta / "avaliacao_validacao_ing2h_detalhe.parquet"), "--rotulo", "ing2h"]) == 0
+    r = pd.read_csv(pasta / "eventos_horizonte_ing2h.csv").set_index("grupo")
+    assert r.loc["com evento", "amostras"] > 0 and r.loc["sem evento", "amostras"] > 0
+    assert r.loc["com evento", "amostras"] + r.loc["sem evento", "amostras"] == r.loc["todos", "amostras"]
+    assert np.allclose(r["razao_mdape"], 1.0)  # o ingênuo contra ele mesmo
