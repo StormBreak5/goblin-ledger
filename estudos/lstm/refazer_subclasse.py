@@ -180,7 +180,9 @@ def refazer(pasta: Path, itens: pd.DataFrame, saida: Path, origem: str = "") -> 
     nova["config"]["subclasse_por_classe"] = True
     nova["constantes"][CONSTANTE] = novo["constante"]
     nova["vocabulario"] = novo["vocabulario"]
-    nova["subclasse_refeita"] = {"base": str(pasta), "assinatura_base": normalizacao["assinatura"], "origem": origem,
+    # As bases mais antigas (como a treino01_agr, de 06/10) não gravavam a assinatura: ela é calculada do mesmo jeito.
+    assinatura_base = normalizacao.get("assinatura") or assinatura_normalizacao(normalizacao)
+    nova["subclasse_refeita"] = {"base": str(pasta), "assinatura_base": assinatura_base, "origem": origem,
                                  "conferencia": conferencia, "contagens": contagens}
     nova["assinatura"] = assinatura_normalizacao(nova)
 

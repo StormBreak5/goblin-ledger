@@ -1118,6 +1118,17 @@ def test_refazer_subclasse_com_a_chave_antiga_reproduz_a_base(bases_2i: dict[str
     with pytest.raises(ValueError, match="já usa"):
         refazer(tmp_path / "ok", itens, tmp_path / "de_novo")
 
+    import json
+    import shutil
+
+    antiga = tmp_path / "sem_assinatura"  # base anterior ao campo `assinatura` no normalizacao.json
+    shutil.copytree(bases_2i["pasta_off"], antiga)
+    n = json.loads((antiga / "normalizacao.json").read_text(encoding="utf-8"))
+    del n["assinatura"]
+    (antiga / "normalizacao.json").write_text(json.dumps(n), encoding="utf-8")
+    info = refazer(antiga, itens, tmp_path / "ok_antiga")
+    assert info["assinatura_base"] == bases_2i["off"].normalizacao["assinatura"]
+
 
 def test_refazer_subclasse_so_muda_a_variavel_6_e_a_subclasse(bases_2i: dict[str, object], tmp_path: Path) -> None:
     """A cópia refeita é a mesma base que a preparação com o par daria: mesmas janelas e mesmas linhas, com só a
