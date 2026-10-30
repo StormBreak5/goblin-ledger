@@ -26,11 +26,13 @@ from sqlalchemy import text  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from apoio_treino import CFG, FORA_DO_TREINO, TreinadorFalso, executar, projecoes  # noqa: E402
+from apoio_treino import (CFG, CFG_ANTIGA, FORA_DO_TREINO, TreinadorFalso, como_versao_antiga, executar,  # noqa: E402
+                          projecoes)
 from sinteticos import gerar, gravar_no_banco, serie_constante  # noqa: E402
 from src.ml.consolidacao import Consolidacao  # noqa: E402
 from src.ml.rede import TreinadorKeras  # noqa: E402
-from src.models.modelo import ConsolidacaoDiaria, ExecucaoTreinamento, PredicaoDiaria, ProjecaoItem  # noqa: E402
+from src.models.modelo import (ConsolidacaoDiaria, ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria,  # noqa: E402
+                               ProjecaoItem)
 from src.scraper.models import ExecutionStatus, ScraperExecutionLog  # noqa: E402
 
 DIA_DO_C1 = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
@@ -58,12 +60,12 @@ def cenario_c3() -> dict[str, pd.DataFrame]:
     return dados
 
 
-def vigente(pg_engine, db_session, relogio, pasta: Path, treinador: Any = None) -> int:
+def vigente(pg_engine, db_session, relogio, pasta: Path, treinador: Any = None, cfg=CFG) -> int:
     """O C1 de 06/10/2026: a versão vigente e os itens liberados."""
     dados = cenario_c3()
     gravar_no_banco(db_session, dados, set(dados["precos"]["item_id"].astype(int)) - {FORA_DO_TREINO})
     relogio.agora = DIA_DO_C1
-    resumo = executar(pg_engine, db_session, relogio, pasta, treinador or TreinadorFalso())
+    resumo = executar(pg_engine, db_session, relogio, pasta, treinador or TreinadorFalso(), cfg)
     assert resumo.status == "SUCESSO", resumo.erro
     return resumo.modelo.versao
 
@@ -167,6 +169,40 @@ def test_cu11_c3_previsao_usa_so_dados_ate_o_dia_de_referencia_rn25(pg_engine, d
     consolidar(pg_engine, relogio, TreinadorKeras())
 
     assert {(p.item_id, p.h): p.preco_previsto for p in db_session.query(PredicaoDiaria)} == antes
+
+
+def test_cu11_c3_previsao_com_vigente_antigo_usa_a_chave_antiga(pg_engine, db_session, relogio, tmp_path, mocker):
+    """Passo 7 com um vigente de antes das etapas 2g e 2i do estudo, sem os campos no normalizacao.json (como a v1 do
+    banco real): as previsões de D usam o código da subclasse sozinho e a rede ReLU da própria versão, com a LSTM
+    mínima de verdade."""
+    import json
+
+    from src.ml import previsao
+
+    versao = vigente(pg_engine, db_session, relogio, tmp_path, TreinadorKeras(), CFG_ANTIGA)
+    como_versao_antiga(db_session, versao)
+    db_session.query(ProjecaoItem).update({"situacao": "LIBERADA", "motivo": None})  # a rede de 1 época não libera
+    db_session.commit()
+    importacao_de_hoje(db_session, relogio)
+    aplicada = mocker.spy(previsao, "aplicar_versao")
+
+    resumo = consolidar(pg_engine, relogio, TreinadorKeras())
+
+    previsoes = db_session.query(PredicaoDiaria).all()
+    assert previsoes and {p.versao for p in previsoes} == {versao} and all(p.preco_previsto > 0 for p in previsoes)
+    [dia] = resumo.dias
+    assert (dia.dia, dia.status, dia.previsoes_gravadas) == (D, "SUCESSO", len(previsoes))
+    caminho = Path(db_session.get(ModeloPreditivo, versao).caminho_artefatos) / "normalizacao.json"
+    gravada = json.loads(caminho.read_text(encoding="utf-8"))
+    base = aplicada.spy_return
+    assert base.normalizacao["config"]["subclasse_por_classe"] is False
+    assert base.normalizacao["vocabulario"] == gravada["vocabulario"]
+    voc = gravada["vocabulario"]["subclasse_id"]
+    assert "5" in voc and "7005" not in voc
+    itens = cenario_c3()["itens"]
+    tecido = set(itens.loc[(itens["classe_id"] == 7) & (itens["subclasse_id"] == 5), "item_id"])
+    n = base.normalizadas
+    assert set(n.loc[n["item_id"].isin(tecido), "subclasse_idx"]) == {voc["5"]}
 
 
 def test_cu11_c3_fa4_degradacao_generalizada_antecipa_retreino(pg_engine, db_session, relogio, tmp_path):

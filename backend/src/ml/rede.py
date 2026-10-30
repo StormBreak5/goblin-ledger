@@ -1,7 +1,8 @@
 """CU11-C1 passo 8: rede e treino do modelo global (porte de `estudos/lstm/treinar.py`, configuração final).
 
 - LSTM(64) → Dropout(0,2) → junção com os atributos fixos e os embeddings de classe (4) e subclasse (8) →
-  Dense(32, ReLU) → Dense(7).
+  Dense(32, GELU) → Dense(7). A GELU é da etapa 2g do estudo; as versões treinadas antes usam a ReLU, gravada no
+  modelo.keras de cada uma (`ativacao` na configuração).
 - Perda MAE, sem máscara (etapas 2b e 2e), Adam com taxa fixa de 0,001.
 - Lotes de 512 montados sob demanda, com 400 mil amostras sorteadas do treino a cada época.
 - EarlyStopping na validação (paciência 10, volta para a melhor época), com uma amostra fixa de até 200 mil amostras.
@@ -74,7 +75,7 @@ def construir_modelo(dados: DadosPreparados, cfg: ConfigModelo):  # type: ignore
     classe = layers.Flatten()(layers.Embedding(len(voc["classe_id"]) + 1, 4, name="emb_classe")(cat[:, 0:1]))
     subclasse = layers.Flatten()(layers.Embedding(len(voc["subclasse_id"]) + 1, 8, name="emb_subclasse")(cat[:, 1:2]))
     h = layers.Concatenate()([h, est, classe, subclasse])
-    h = layers.Dense(32, activation="relu")(h)
+    h = layers.Dense(32, activation=cfg.ativacao)(h)  # CU11-C1 passo 8: GELU (etapa 2g)
     saida = layers.Dense(dados.horizonte, name="y")(h)
     modelo = keras.Model([seq, est, cat], saida, name="lstm_global")
     # Sem a máscara, a perda mascarada do estudo é igual à MAE (ou à Huber, ou à MSE) do Keras sobre os 7 dias.

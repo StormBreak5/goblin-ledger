@@ -27,6 +27,10 @@ class ConfigModelo:
     zscore_min_periodos: int = 30
     zscore_limite: float = 3.0
     percentil_constante: float = 99
+    # Variáveis 6 e 15 (etapa 2i do estudo): o código da subclasse da API só é único dentro da classe (a subclasse 5 é
+    # "Comida e bebida" nos consumíveis e "Tecido" nos materiais de profissão), então a subclasse é o par (classe,
+    # subclasse). False é o código sozinho, como nas versões treinadas antes da mudança.
+    subclasse_por_classe: bool = True
     limite_dias: int = 60
     preenchimento_max_dias: int = 3
     volatilidade_janela: int = 7
@@ -68,9 +72,10 @@ class ConfigModelo:
     consolidacao_espera_minutos: int = 60
     previsao_historico_dias: int = 200
 
-    # Rede e treino (configuração final do estudo, etapa 2e)
+    # Rede e treino (configuração final do estudo, etapa 2e, com a GELU da etapa 2g na camada densa de 32)
     unidades: int = 64
     dropout: float = 0.2
+    ativacao: str = "gelu"
     taxa_aprendizado: float = 1e-3
     perda: str = "mae"
     epocas_max: int = 100
@@ -87,6 +92,8 @@ class ConfigModelo:
             raise ValueError("MODELO_METRICA_RN10 deve ser 'mdape' ou 'mape'")
         if self.perda not in ("mae", "huber", "mse"):
             raise ValueError("MODELO_PERDA deve ser 'mae', 'huber' ou 'mse'")
+        if self.ativacao not in ("relu", "gelu"):
+            raise ValueError("a ativação da camada densa deve ser 'relu' ou 'gelu'")
         if not 0 < self.proporcao_treino < self.proporcao_treino + self.proporcao_validacao < 1:
             raise ValueError("MODELO_PROPORCAO_TREINO e MODELO_PROPORCAO_VALIDACAO devem deixar uma parte para o teste")
 
@@ -95,9 +102,10 @@ class ConfigModelo:
 
     @classmethod
     def de_dict(cls, valores: dict[str, Any]) -> "ConfigModelo":
-        """A configuração gravada no normalizacao.json de uma versão do modelo (campos desconhecidos são ignorados)."""
+        """A configuração gravada no normalizacao.json de uma versão do modelo (campos desconhecidos são ignorados). Um
+        campo que a versão não gravou fica com o valor que ela usou (PADROES_DAS_VERSOES_ANTIGAS), não com o padrão."""
         nomes = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in valores.items() if k in nomes})
+        return cls(**{**PADROES_DAS_VERSOES_ANTIGAS, **{k: v for k, v in valores.items() if k in nomes}})
 
     @classmethod
     def do_ambiente(cls) -> "ConfigModelo":
@@ -139,6 +147,11 @@ class ConfigModelo:
             amostras_validacao=_inteiro("MODELO_AMOSTRAS_VALIDACAO", padrao.amostras_validacao),
             semente=_inteiro("MODELO_SEMENTE", padrao.semente),
         )
+
+
+# Campos que mudaram de padrão depois que já havia versões treinadas: o valor com que essas versões foram treinadas, que
+# vale quando o normalizacao.json delas não traz o campo (as v1 a v4 da região US, de antes das etapas 2g e 2i).
+PADROES_DAS_VERSOES_ANTIGAS: dict[str, Any] = {"subclasse_por_classe": False, "ativacao": "relu"}
 
 
 def _texto(nome: str) -> str:

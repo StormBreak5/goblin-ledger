@@ -4,6 +4,7 @@ Plano de testes do CU11 – regras do modelo preditivo (RN03, RN10, RN24, RN25, 
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 
 import pytest
@@ -17,8 +18,9 @@ from sinteticos import gerar, serie_constante  # noqa: E402
 from src.ml.avaliacao import avaliar  # noqa: E402
 from src.ml.configuracao import PERIODOS, ConfigModelo  # noqa: E402
 from src.ml.dados import Entrada, padronizar_eventos, padronizar_itens, padronizar_precos  # noqa: E402
-from src.ml.dataset import DadosPreparados, conferir_compatibilidade  # noqa: E402
-from src.ml.preparacao import BasePreparada, calcular_cortes, preparar, rn03_por_serie, variaveis_de_calendario  # noqa: E402
+from src.ml.dataset import DadosPreparados, assinatura_normalizacao, conferir_compatibilidade  # noqa: E402
+from src.ml.preparacao import (BasePreparada, calcular_cortes, chave_da_subclasse, preparar,  # noqa: E402
+                               retorno_da_subclasse, rn03_por_serie, variaveis_de_calendario)
 from src.ml.selecao import precos_da_regiao, selecionar  # noqa: E402
 
 CFG = ConfigModelo()
@@ -126,12 +128,111 @@ def test_rn24_normalizacao_de_outra_versao_em_itens_fora_do_treino(sinteticos: d
     for k in ("constantes", "nivel_item", "vocabulario", "alvo", "variaveis"):
         assert b.normalizacao[k] == a.normalizacao[k]
     assert b.normalizacao["normalizacao_de"]["assinatura"] == a.normalizacao["assinatura"]
-    assert "8" not in a.normalizacao["vocabulario"]["subclasse_id"]
+    assert "7008" not in a.normalizacao["vocabulario"]["subclasse_id"]  # o par (7, 8)
     assert (b.normalizadas.loc[b.normalizadas["item_id"].isin(so_em_b), "subclasse_idx"] == 0).all()
     assert len(b.janelas[b.janelas["periodo"] == "teste"]) > 0
     conferir_compatibilidade(a.normalizacao, b.normalizacao)
     with pytest.raises(ValueError):
         conferir_compatibilidade(preparado.normalizacao, b.normalizacao)
+
+
+# Variáveis 6 e 15 pelo par (classe, subclasse), da etapa 2i do estudo. As versões treinadas antes usam o código
+# sozinho, e o normalizacao.json delas não tem o campo `subclasse_por_classe`.
+CFG_ANTIGA = ConfigModelo.de_dict({k: v for k, v in CFG.como_dict().items()
+                                   if k not in ("subclasse_por_classe", "ativacao")})
+
+
+def _mudar_classe(dados: dict[str, pd.DataFrame], classe: int, subclasse: int,
+                  nova_classe: int) -> tuple[dict[str, pd.DataFrame], set[int], set[int]]:
+    """Metade dos itens de (classe, subclasse) passa para `nova_classe`: o mesmo código de subclasse fica em duas
+    classes, como na API da Blizzard. Devolve os dados, os itens que mudaram e os que ficaram."""
+    dados = {k: v.copy() for k, v in dados.items()}
+    itens = dados["itens"]
+    ids = itens.loc[(itens["classe_id"] == classe) & (itens["subclasse_id"] == subclasse), "item_id"].to_numpy()
+    mudaram = set(int(i) for i in ids[::2])
+    itens.loc[itens["item_id"].isin(mudaram), "classe_id"] = nova_classe
+    return dados, mudaram, set(int(i) for i in ids) - mudaram
+
+
+def _preparar_com(dados: dict[str, pd.DataFrame], cfg: ConfigModelo, excluir: set[int] | None = None,
+                  **kwargs) -> BasePreparada:
+    entrada = entrada_de(dados)
+    precos = precos_da_regiao(entrada, "US")
+    if excluir:
+        precos = precos[~precos["item_id"].isin(excluir)]
+    return preparar(entrada, precos, cfg, **kwargs)
+
+
+def _indices_da_subclasse(base: BasePreparada, itens: set[int]) -> set[int]:
+    n = base.normalizadas
+    return set(n.loc[n["item_id"].isin(itens), "subclasse_idx"].unique())
+
+
+def test_rn24_subclasse_pelo_par_classe_subclasse(sinteticos: dict[str, pd.DataFrame]) -> None:
+    """CU11-C1 passo 5 / RN24, variáveis 6 e 15: o tecido (7, 5) e a comida e bebida (0, 5) têm o mesmo código de
+    subclasse. Com o par, cada um só entra no índice da própria subclasse da própria classe, e os dois ganham índices de
+    subclasse diferentes. O resto da base não muda."""
+    linhas = pd.DataFrame({"regiao": "US", "data": pd.Timestamp("2025-01-01"), "observado": True,
+                           "log_return": [0.10, 0.30, -0.20], "quantidade": [1.0, 3.0, 1.0],
+                           "classe_id": [7.0, 7.0, 0.0], "subclasse_id": [5.0, 5.0, 5.0]})
+    sozinho = retorno_da_subclasse(linhas, chave_da_subclasse(linhas["classe_id"], linhas["subclasse_id"], CFG_ANTIGA))
+    par = retorno_da_subclasse(linhas, chave_da_subclasse(linhas["classe_id"], linhas["subclasse_id"], CFG))
+    assert sozinho[0] == pytest.approx((0.30 * 3 - 0.20 * 1) / 4)  # o tecido misturado com a comida
+    assert par[0] == pytest.approx(0.30) and par[1] == pytest.approx(0.10)
+    assert np.isnan(par[2])  # a comida não tem outro item da mesma classe e subclasse no dia
+
+    dados, na_0, na_7 = _mudar_classe(sinteticos, 7, 5, 0)
+    antiga, nova = _preparar_com(dados, CFG_ANTIGA, **CORTES), _preparar_com(dados, CFG, **CORTES)
+    assert "7005" not in antiga.normalizacao["vocabulario"]["subclasse_id"]
+    assert {"5", "7005"} <= set(nova.normalizacao["vocabulario"]["subclasse_id"])  # (0, 5) = 0 × 1000 + 5 e (7, 5)
+    assert len(_indices_da_subclasse(antiga, na_0 | na_7)) == 1
+    assert _indices_da_subclasse(nova, na_0).isdisjoint(_indices_da_subclasse(nova, na_7))
+    na, nn = antiga.normalizadas, nova.normalizadas
+    v6 = na["item_id"].isin(na_0 | na_7)
+    assert not np.allclose(na.loc[v6, "f_retorno_subclasse"], nn.loc[v6, "f_retorno_subclasse"])
+    resto = [c for c in na.columns if c not in ("f_retorno_subclasse", "subclasse_idx")]
+    pd.testing.assert_frame_equal(na[resto], nn[resto])
+    pd.testing.assert_frame_equal(antiga.janelas, nova.janelas)
+    assert nova.normalizacao["config"]["subclasse_por_classe"] is True
+    assert nova.normalizacao["assinatura"] != antiga.normalizacao["assinatura"]
+
+
+def test_rn24_versao_antiga_mantem_o_codigo_da_subclasse(sinteticos: dict[str, pd.DataFrame]) -> None:
+    """RN24 (CU11-C2 e C3): o normalizacao.json de uma versão treinada antes da mudança não tem `subclasse_por_classe`
+    nem `ativacao`. Ela é lida com o código da subclasse sozinho e a ReLU, e a normalização dela, aplicada de novo,
+    reproduz a base e a assinatura que ela gravou."""
+    assert (CFG_ANTIGA.subclasse_por_classe, CFG_ANTIGA.ativacao) == (False, "relu")
+    assert (CFG.subclasse_por_classe, CFG.ativacao) == (True, "gelu")
+
+    dados, _, _ = _mudar_classe(sinteticos, 7, 5, 0)
+    gravada = _preparar_com(dados, CFG_ANTIGA, **CORTES).normalizacao
+    sem_campos = copy.deepcopy(gravada)
+    for campo in ("subclasse_por_classe", "ativacao"):
+        del sem_campos["config"][campo]
+    assert assinatura_normalizacao(sem_campos) == gravada["assinatura"]
+    assert set(gravada["vocabulario"]["subclasse_id"]) == {"1", "2", "5", "7", "8"}  # os códigos sozinhos
+
+    de_novo = _preparar_com(dados, CFG, normalizacao_base=sem_campos)  # a configuração vem da versão, não do padrão
+    assert de_novo.normalizacao["assinatura"] == gravada["assinatura"]
+    assert de_novo.normalizacao["vocabulario"] == gravada["vocabulario"]
+    assert de_novo.normalizacao["config"]["subclasse_por_classe"] is False
+
+
+def test_rn24_par_desconhecido_vira_zero(sinteticos: dict[str, pd.DataFrame]) -> None:
+    """RN24: um par que a versão do modelo não viu no treino vira subclasse desconhecida (0), mesmo com a classe e o
+    código da subclasse conhecidos separadamente. Com o código sozinho, a subclasse seria reconhecida."""
+    dados, novos, _ = _mudar_classe(sinteticos, 7, 8, 4)  # (4, 8) não existe; a classe 4 e a subclasse 8 existem
+    for cfg in (CFG_ANTIGA, CFG):
+        a = _preparar_com(dados, cfg, excluir=novos, **CORTES)
+        b = _preparar_com(dados, cfg, excluir=set(a.itens["item_id"]), normalizacao_base=a.normalizacao)
+        nb = b.normalizadas
+        assert set(nb["item_id"]) == novos and len(b.janelas[b.janelas["periodo"] == "teste"]) > 0
+        assert (nb["classe_idx"] > 0).all()
+        if cfg.subclasse_por_classe:
+            assert "4008" not in a.normalizacao["vocabulario"]["subclasse_id"]
+            assert (nb["subclasse_idx"] == 0).all()
+        else:
+            assert (nb["subclasse_idx"] > 0).all()
 
 
 # ------------------------------------------------------------------------------------------------------- RN25

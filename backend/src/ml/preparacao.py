@@ -45,6 +45,7 @@ TIPOS_PATCH = ("PATCH", "EXPANSAO")
 PADRAO_PRE_PATCH = re.compile(r"pr[ée][\s-]?patch", re.IGNORECASE)
 PADRAO_VERSAO = re.compile(r"(\d+)\.")
 VERSAO_FORMATO = 1
+FATOR_CLASSE = 1000  # variáveis 6 e 15: chave do par = classe × 1000 + subclasse (etapa 2i do estudo)
 
 
 @dataclass
@@ -298,9 +299,35 @@ def variaveis_de_calendario(datas: pd.DatetimeIndex, eventos: pd.DataFrame, cfg:
     return out
 
 
+def chave_da_subclasse(classe: pd.Series, subclasse: pd.Series, cfg: ConfigModelo) -> pd.Series:
+    """CU11-C1 passo 5 / RN24: o código que identifica a subclasse nas variáveis 6 e 15. Com `subclasse_por_classe`
+    (etapa 2i do estudo), é o par classe × 1000 + subclasse, porque o código da subclasse só é único dentro da classe;
+    sem a classe, o par fica desconhecido. Sem a opção, é o código da subclasse sozinho, como nas versões antigas."""
+    subclasse = subclasse.astype("float64")
+    if not cfg.subclasse_por_classe:
+        return subclasse.rename("subclasse_chave")
+    if (subclasse >= FATOR_CLASSE).any():
+        raise ValueError(f"código de subclasse maior que {FATOR_CLASSE}: a chave do par não seria única")
+    return (classe.astype("float64") * FATOR_CLASSE + subclasse).rename("subclasse_chave")
+
+
+def retorno_da_subclasse(linhas: pd.DataFrame, chave: pd.Series) -> pd.Series:
+    """Variável 6: média dos log-retornos da subclasse (`chave_da_subclasse`) no dia, ponderada pela quantidade, sem o
+    próprio item. Usa `regiao`, `data`, `observado`, `log_return` e `quantidade`."""
+    m = linhas["observado"] & linhas["log_return"].notna() & chave.notna() & (linhas["quantidade"] > 0)
+    w = linhas["quantidade"].where(m, 0.0)
+    rw = (linhas["log_return"] * w).where(m, 0.0)
+    grupo = [linhas["regiao"], chave, linhas["data"]]
+    soma_rw = rw.groupby(grupo, observed=True).transform("sum")
+    soma_w = w.groupby(grupo, observed=True).transform("sum")
+    resto = soma_w - w
+    return ((soma_rw - rw) / resto.where(resto > 0)).astype("float32")
+
+
 def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: ConfigModelo) -> pd.DataFrame:
     """CU11-C1 passo 5: variáveis antes das constantes globais. Tudo que usa shift/rolling/EMA é feito por série
-    (groupby). A variável 6 usa todos os itens elegíveis do dia, não só o conjunto de treinamento."""
+    (groupby). A variável 6 usa todos os itens elegíveis do dia, não só o conjunto de treinamento, e a subclasse das
+    variáveis 6 e 15 é a de `chave_da_subclasse` (coluna `subclasse_chave`)."""
     chave = linhas["serie_idx"]
     linhas["log_preco"] = np.log(linhas["preco"])
     linhas["log_return"] = linhas["log_preco"] - linhas["log_preco"].groupby(chave, sort=False).shift(1)
@@ -318,16 +345,9 @@ def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Confi
     linhas["commodity"] = np.where(informado, linhas["commodity"].to_numpy() == True,  # noqa: E712
                                    linhas["serie"].isin(commod_ids).to_numpy())
 
-    # Variável 6: média dos log-retornos da subclasse no dia, ponderada pela quantidade, sem o próprio item.
-    m = linhas["observado"] & linhas["log_return"].notna() & linhas["subclasse_id"].notna() & (linhas["quantidade"] > 0)
-    w = linhas["quantidade"].where(m, 0.0)
-    rw = (linhas["log_return"] * w).where(m, 0.0)
-    grupo = [linhas["regiao"], linhas["subclasse_id"], linhas["data"]]
-    soma_rw = rw.groupby(grupo, observed=True).transform("sum")
-    soma_w = w.groupby(grupo, observed=True).transform("sum")
-    resto = soma_w - w
-    linhas["retorno_subclasse"] = ((soma_rw - rw) / resto.where(resto > 0)).astype("float32")
-    del m, w, rw, soma_rw, soma_w, resto
+    # Variáveis 6 e 15: a subclasse pelo par (classe, subclasse), ou pelo código sozinho numa versão antiga.
+    linhas["subclasse_chave"] = chave_da_subclasse(linhas["classe_id"], linhas["subclasse_id"], cfg)
+    linhas["retorno_subclasse"] = retorno_da_subclasse(linhas, linhas["subclasse_chave"])
 
     tem_piso = linhas["preco_npc"].fillna(0) > 0
     linhas["f_tem_piso"] = tem_piso.astype("float32")
@@ -381,6 +401,11 @@ CONSTANTES_GLOBAIS: tuple[tuple[str, str, bool], ...] = (  # (variável bruta, v
     ("log_preco_npc", "f_preco_npc", True),
 )
 
+# Variável 15: (nome no vocabulário, coluna de origem, índice). O vocabulário da subclasse mantém o nome `subclasse_id`
+# e é montado com `subclasse_chave` (o par ou, numa versão antiga, o código sozinho).
+CATEGORICAS: tuple[tuple[str, str, str], ...] = (("classe_id", "classe_id", "classe_idx"),
+                                                 ("subclasse_id", "subclasse_chave", "subclasse_idx"))
+
 
 def ajustar(linhas: pd.DataFrame, treino: pd.Series, cfg: ConfigModelo) -> dict[str, Any]:
     """RN24 + RN25: constantes globais, faixa do nível de item e vocabulário das categorias, só com as linhas de
@@ -390,9 +415,9 @@ def ajustar(linhas: pd.DataFrame, treino: pd.Series, cfg: ConfigModelo) -> dict[
     niveis = linhas.loc[treino, ["item_id", "nivel_item"]].drop_duplicates("item_id")["nivel_item"].dropna()
     nmin, nmax = (float(niveis.min()), float(niveis.max())) if len(niveis) else (0.0, 1.0)
     vocab: dict[str, dict[str, int]] = {}
-    for col in ("classe_id", "subclasse_id"):
-        valores = sorted(int(v) for v in linhas.loc[treino, col].dropna().unique())
-        vocab[col] = {str(v): i + 1 for i, v in enumerate(valores)}  # 0 = desconhecida
+    for nome, origem, _ in CATEGORICAS:
+        valores = sorted(int(v) for v in linhas.loc[treino, origem].dropna().unique())
+        vocab[nome] = {str(v): i + 1 for i, v in enumerate(valores)}  # 0 = desconhecida
     return {"constantes": const, "nivel_item": {"min": nmin, "max": nmax}, "vocabulario": vocab}
 
 
@@ -423,9 +448,9 @@ def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: ConfigModelo,
     for col in VARIAVEIS_JA_FINAIS:  # já normalizadas no cálculo (z-score móvel, calendário, indicadores)
         norm[col] = linhas[col]
 
-    for col, idx_col in (("classe_id", "classe_idx"), ("subclasse_id", "subclasse_idx")):
-        mapa = {float(v): i for v, i in ajuste["vocabulario"][col].items()}
-        norm[idx_col] = linhas[col].map(mapa).fillna(0).astype("int32")
+    for nome, origem, idx_col in CATEGORICAS:
+        mapa = {float(v): i for v, i in ajuste["vocabulario"][nome].items()}
+        norm[idx_col] = linhas[origem].map(mapa).fillna(0).astype("int32")
     if variaveis is not None:
         faltando = [v for v in variaveis if v not in norm]
         if faltando:
@@ -531,7 +556,8 @@ class VariaveisBrutas:
 PARAMETROS_DAS_BRUTAS = ("janela", "horizonte", "zscore_janela", "zscore_min_periodos", "zscore_limite", "limite_dias",
                          "preenchimento_max_dias", "volatilidade_janela", "volatilidade_min_periodos", "qualidade_max",
                          "ema_span", "rn03_acima", "rn03_abaixo", "rn03_confirmacao", "rn03_salto_absurdo",
-                         "rn03_confirmacao_absurdo", "antecedencia_anuncio_dias", "commodities_por_regiao")
+                         "rn03_confirmacao_absurdo", "antecedencia_anuncio_dias", "commodities_por_regiao",
+                         "subclasse_por_classe")
 
 
 def mesmas_brutas(a: ConfigModelo, b: ConfigModelo) -> bool:

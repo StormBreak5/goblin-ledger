@@ -108,7 +108,7 @@ O quadro a seguir apresenta as variáveis de entrada do modelo preditivo global,
 | 3 | Quantidade ofertada | Mercado (passado) | −1 a 1 | ln(1 + quantidade), padronizado como a variável 2. |
 | 4 | Desvio em relação à média móvel | Mercado (passado) | −1 a 1 | ln(preço ÷ EMA de 14 dias da RN03), dividido por uma constante global e limitado ao intervalo. |
 | 5 | Volatilidade de 7 dias | Mercado (passado) | 0 a 1 | Desvio-padrão dos log-retornos dos últimos 7 dias (com ao menos 5 dias), dividido pelo percentil 99 do treinamento e limitado ao intervalo. |
-| 6 | Variação do índice da subclasse | Mercado (passado) | −1 a 1 | Média dos log-retornos dos demais itens da subclasse no dia, ponderada pela quantidade ofertada, dividida por uma constante global e limitada ao intervalo. |
+| 6 | Variação do índice da subclasse | Mercado (passado) | −1 a 1 | Média dos log-retornos dos demais itens da mesma classe e subclasse no dia, ponderada pela quantidade ofertada, dividida por uma constante global e limitada ao intervalo. A subclasse é identificada junto com a classe, porque o código da subclasse só é único dentro da classe. |
 | 7 | Distância ao preço de venda ao vendedor | Mercado (passado) | −1 a 1 | ln(preço ÷ preço pago pelo vendedor do jogo), dividido por uma constante global e limitado; vale 0 para itens sem esse preço. |
 | 8 | Dado observado | Mercado (passado) | 0 ou 1 | Indica se o registro do dia foi observado ou preenchido com o último valor (RN24). |
 | 9 | Dia da semana | Calendário (futuro conhecido) | −1 a 1 | Seno e cosseno de 2π × dia ÷ 7. |
@@ -117,7 +117,7 @@ O quadro a seguir apresenta as variáveis de entrada do modelo preditivo global,
 | 12 | Expansão ou pré-patch nos próximos 14 dias | Evento (futuro conhecido) | 0 ou 1 | Indicador; o pré-patch é o primeiro patch de cada nova versão maior do jogo. |
 | 13 | Temporada ativa e dias desde o seu início | Evento (futuro conhecido) | 0 a 1 | Indicador de temporada ativa e contagem de dias limitada a 60 e dividida por 60. |
 | 14 | Evento sazonal ativo | Evento (futuro conhecido) | 0 ou 1 | Indicador. |
-| 15 | Classe e subclasse do item | Item (fixa) | — | Vetor aprendido pelo modelo (*embedding*). |
+| 15 | Classe e subclasse do item | Item (fixa) | índice (0 = desconhecida) | A classe e o par classe e subclasse são convertidos em índices do vocabulário do período de treinamento (0 para os que não aparecem nele). Cada índice é convertido em um vetor aprendido pelo modelo (*embedding*), de 4 dimensões para a classe e 8 para a subclasse. Por ser categórica, a variável não é normalizada numericamente. |
 | 16 | Qualidade e nível de item | Item (fixa) | 0 a 1 | Qualidade dividida por 5; nível de item normalizado pelo mínimo e pelo máximo do treinamento. |
 | 17 | Possui preço de venda ao vendedor | Item (fixa) | 0 ou 1 | Indicador. |
 | 18 | Item do tipo commodity | Item (fixa) | 0 ou 1 | Indicador; commodity é o item cujo histórico vem do arquivo de commodities da região. |
@@ -332,6 +332,7 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
 - **Constantes e vocabulário (RN24 e RN25):** são calculados só com as linhas do período de treinamento do **conjunto de treinamento** e aplicados a todos os itens elegíveis. Uma classe ou subclasse que não existe no treino vira a categoria 0 (desconhecida). É exatamente o que o estudo faz com `preparar_dados.py --normalizacao-de` e `prever.py`.
 - **Avaliação (passos 9 e 10 do C1):** o modelo prevê o período de teste de **todos** os itens elegíveis, inclusive os que não integram o conjunto de treinamento. A situação de cada um sai da RN10.
 - **Variável 6 (índice da subclasse):** calcule-a com todos os itens selecionados no dia, não só com o conjunto de treinamento.
+- **Subclasse pelo par (classe, subclasse) nas variáveis 6 e 15** (etapa 2i do estudo, `docs/relatorio-etapa2i.md`): a chave é classe × 1000 + subclasse, porque o código da subclasse da API só é único dentro da classe (a subclasse 5 é "Comida e bebida" nos consumíveis e "Tecido" nos materiais de profissão). Um par que não aparece no treino vira a subclasse desconhecida (0).
 - **Itens novos:** um item lançado depois do treino entra como elegível quando completa 60 dias de histórico. Ele é avaliado no período de teste do próximo retreinamento e liberado quando tiver os 30 dias avaliados da RN10. Na prática, isso leva uns 3 meses a partir do lançamento, sem retreinar o modelo para isso.
 - **Itens fora do treino no resumo do C1:** informe quantos itens liberados não integram o conjunto de treinamento.
 - **Liberados sem amostra de treino (resumo do C1 e do C2):** informe também quantos itens liberados não têm nenhuma amostra no período de treinamento. São os lançados depois do fim desse período: integram o conjunto de treinamento pela RN15, mas não ajustaram os pesos. No treinamento inicial (versão 1, região US) foram 292 dos 1.307 liberados.
@@ -393,7 +394,8 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
   - constantes calculadas só com o treino do conjunto de treinamento;
   - descarte das amostras cujos dias previstos atravessam uma data de corte.
 - **Passo 8 (rede e treino):**
-  - arquitetura: LSTM(64) → Dropout(0,2) → junção com os atributos fixos e os embeddings de classe (4) e subclasse (8) → Dense(32, ReLU) → Dense(7);
+  - arquitetura: LSTM(64) → Dropout(0,2) → junção com os atributos fixos e os embeddings de classe (4) e subclasse (8) → Dense(32, GELU) → Dense(7). A GELU é da etapa 2g do estudo (`docs/relatorio-etapa2g.md`);
+  - **versões treinadas antes das etapas 2g e 2i** (v1 a v4 da região US): continuam com a ReLU e com o código da subclasse sozinho. O `normalizacao.json` delas não tem os campos `ativacao` e `subclasse_por_classe`, que são lidos como `relu` e `false`. O C2 avalia o vigente e o C3 faz as previsões com a chave da subclasse e a rede da própria versão;
   - **perda MAE**, sem máscara (decidido nas etapas 2b e 2e);
   - otimizador Adam, taxa fixa de 0,001;
   - lotes de 512 montados sob demanda, com 400 mil amostras sorteadas a cada época;

@@ -10,6 +10,7 @@ preço), para o vigente ser melhor ou pior que o novo de forma controlada. A com
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -23,8 +24,8 @@ import pandas as pd  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
-from apoio_treino import (CFG, FIM, TreinadorFalso, aptos_do, cenario, executar, pastas, projecoes,  # noqa: E402
-                          retreinar)
+from apoio_treino import (CFG, CFG_ANTIGA, FIM, TreinadorFalso, aptos_do, ativacao_da_rede, cenario,  # noqa: E402
+                          como_versao_antiga, executar, pastas, projecoes, retreinar)
 from sinteticos import gravar_no_banco, serie_constante  # noqa: E402
 from src.ml.rede import FalhaNoTreinamento, TreinadorKeras  # noqa: E402
 from src.ml.retreinamento import Retreinamento  # noqa: E402
@@ -34,11 +35,11 @@ DIA_DO_C1 = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
 DIA_DO_C2 = datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc)
 
 
-def vigente_treinado(pg_engine, db_session, relogio, pasta: Path, dados, treinador) -> int:
+def vigente_treinado(pg_engine, db_session, relogio, pasta: Path, dados, treinador, cfg=CFG) -> int:
     """O C1 de 06/09/2026, que deixa a versão vigente para o retreinamento."""
     gravar_no_banco(db_session, dados, aptos_do(dados))
     relogio.agora = DIA_DO_C1
-    resumo = executar(pg_engine, db_session, relogio, pasta, treinador)
+    resumo = executar(pg_engine, db_session, relogio, pasta, treinador, cfg)
     assert resumo.status == "SUCESSO", resumo.erro
     relogio.agora = DIA_DO_C2
     return resumo.modelo.versao
@@ -180,6 +181,35 @@ def test_cu11_c2_compara_os_dois_modelos_no_mesmo_periodo_com_as_constantes_de_c
     pd.testing.assert_frame_equal(do_novo["janelas"].reset_index(drop=True),
                                   do_vigente["janelas"].reset_index(drop=True))  # as mesmas amostras
     assert resumo.itens_comparados == 6
+    assert (resumo.mdape_novo < resumo.mdape_vigente) == (resumo.decisao == "SUBSTITUIDO")
+
+
+def test_cu11_c2_vigente_antigo_avaliado_com_a_propria_chave_e_ativacao(pg_engine, db_session, relogio, tmp_path,
+                                                                        caplog):
+    """Passos 6 e 7 (RN26) com um vigente de antes das etapas 2g e 2i do estudo, sem os campos no normalizacao.json
+    (como a v1 do banco real): as variáveis brutas são recalculadas com a configuração dele, e ele é avaliado com o
+    código da subclasse sozinho e a própria rede ReLU. A versão nova usa o par (classe, subclasse) e a GELU. As duas são
+    comparadas nas mesmas amostras de teste."""
+    v1 = vigente_treinado(pg_engine, db_session, relogio, tmp_path, cenario(), TreinadorKeras(), CFG_ANTIGA)
+    como_versao_antiga(db_session, v1)
+    treinador = TreinadorKerasQueAnota()
+
+    with caplog.at_level(logging.WARNING, logger="src.ml.retreinamento"):
+        resumo = retreinar(pg_engine, db_session, relogio, tmp_path, treinador)
+
+    assert resumo.status == "SUCESSO", resumo.erro
+    assert f"mudou desde a versão {v1}; recalculando-as" in caplog.text
+    do_novo, do_vigente = treinador.previsoes
+    norm_v1, norm_v2 = normalizacao_da_versao(db_session, v1), normalizacao_da_versao(db_session, resumo.modelo.versao)
+    assert "subclasse_por_classe" not in norm_v1["config"]
+    assert do_vigente["normalizacao"]["vocabulario"] == norm_v1["vocabulario"]
+    assert do_vigente["normalizacao"]["config"]["subclasse_por_classe"] is False
+    assert do_novo["normalizacao"]["vocabulario"] == norm_v2["vocabulario"]
+    assert "5" in norm_v1["vocabulario"]["subclasse_id"] and "7005" in norm_v2["vocabulario"]["subclasse_id"]
+    pd.testing.assert_frame_equal(do_novo["janelas"].reset_index(drop=True),
+                                  do_vigente["janelas"].reset_index(drop=True))  # as mesmas amostras
+    caminho = {v: Path(db_session.get(ModeloPreditivo, v).caminho_artefatos) for v in (v1, resumo.modelo.versao)}
+    assert ativacao_da_rede(caminho[v1]) == "relu" and ativacao_da_rede(caminho[resumo.modelo.versao]) == "gelu"
     assert (resumo.mdape_novo < resumo.mdape_vigente) == (resumo.decisao == "SUBSTITUIDO")
 
 

@@ -33,7 +33,15 @@ def assinatura_normalizacao(normalizacao: dict[str, Any]) -> str:
         "variaveis": normalizacao["variaveis"],
         "formato": {"janela": cfg["janela"], "horizonte": cfg["horizonte"]},
     }
+    _chave_da_subclasse(conteudo, cfg)
     return hashlib.sha256(json.dumps(conteudo, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def _chave_da_subclasse(conteudo: dict[str, Any], cfg: dict[str, Any]) -> None:
+    """Variáveis 6 e 15 pelo par (classe, subclasse): entra na assinatura só quando ligada, para que as versões
+    treinadas com o código da subclasse sozinho (sem o campo) mantenham a assinatura que gravaram."""
+    if cfg.get("subclasse_por_classe"):
+        conteudo["subclasse_por_classe"] = True
 
 
 def assinatura_das_constantes(normalizacao: dict[str, Any]) -> str:
@@ -48,6 +56,7 @@ def assinatura_das_constantes(normalizacao: dict[str, Any]) -> str:
         "variaveis": normalizacao["variaveis"],
         "formato": {"janela": cfg["janela"], "horizonte": cfg["horizonte"]},
     }
+    _chave_da_subclasse(conteudo, cfg)
     return hashlib.sha256(json.dumps(conteudo, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 

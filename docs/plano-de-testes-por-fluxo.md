@@ -4,8 +4,8 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 309 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 92 do CU10 e 60 do CU11). A suíte
-> completa tem 400 testes: 326 no backend (`pytest`, no host), 42 do pipeline do modelo no container do serviço
+> Os testes com identificador de fluxo ou de regra somam 315 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
+> completa tem 406 testes: 326 no backend (`pytest`, no host), 48 do pipeline do modelo no container do serviço
 > `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
@@ -381,7 +381,7 @@
 | regra | `test_cu11_migracao_8_situacao_ignorada` | `backend/tests/integration/test_migracoes.py` |
 | regra | `test_cu11_uma_versao_vigente_por_regiao` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 
-#### CU11 – Cenário 1 (18 testes)
+#### CU11 – Cenário 1 (19 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -398,13 +398,14 @@
 | regra | `test_cu11_c1_execucao_antiga_recebe_os_liberados_sem_amostra_de_treino` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
 | regra | `test_cu11_c1_fila_entrega_um_treinamento_por_vez` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 | regra | `test_cu11_c1_liberados_sem_amostra_de_treino` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
+| regra | `test_cu11_c1_passo8_rede_com_gelu` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
 | regra | `test_cu11_c1_passo1_registra_o_pedido_do_admin` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 | regra | `test_cu11_c1_passo2_elegiveis_e_conjunto_de_treinamento` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
 | regra | `test_cu11_c1_regiao_invalida` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 | regra | `test_cu11_c1_restrito_ao_admin` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 | regra | `test_cu11_c1_resumo_do_treinamento` | `backend/tests/integration/test_cu11_c1_pedido.py` |
 
-#### CU11 – Cenário 2 (15 testes)
+#### CU11 – Cenário 2 (16 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -423,8 +424,9 @@
 | regra | `test_cu11_c2_retreinamento_dormindo_roda_ao_acordar_uma_vez` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
 | regra | `test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_e_registrado_uma_vez` | `backend/tests/integration/test_cu11_c2_agendador.py` |
 | regra | `test_cu11_c2_retreinamento_perdido_com_o_computador_desligado_roda_ao_iniciar` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
+| regra | `test_cu11_c2_vigente_antigo_avaliado_com_a_propria_chave_e_ativacao` | `backend/tests/modelo/test_cu11_c2_retreinamento.py` |
 
-#### CU11 – Cenário 3 (11 testes)
+#### CU11 – Cenário 3 (12 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -438,9 +440,10 @@
 | regra | `test_cu11_c3_disparo_perdido_roda_ao_iniciar` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
 | regra | `test_cu11_c3_espera_a_importacao_diaria` | `backend/tests/integration/test_cu11_c3_consolidacao.py` |
 | regra | `test_cu11_c3_gera_previsoes_dos_proximos_7_dias_em_cobre_rn01` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
+| regra | `test_cu11_c3_previsao_com_vigente_antigo_usa_a_chave_antiga` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
 | regra | `test_cu11_c3_previsao_usa_so_dados_ate_o_dia_de_referencia_rn25` | `backend/tests/modelo/test_cu11_c3_ponta_a_ponta.py` |
 
-#### CU11 – Regras do modelo (RN03, RN10, RN24, RN25, RN27) (13 testes)
+#### CU11 – Regras do modelo (RN03, RN10, RN24, RN25, RN27) (16 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -452,6 +455,9 @@
 | regra | `test_rn24_calculos_por_item` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
 | regra | `test_rn24_ida_e_volta_recupera_o_preco` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
 | regra | `test_rn24_normalizacao_de_outra_versao_em_itens_fora_do_treino` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn24_par_desconhecido_vira_zero` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn24_subclasse_pelo_par_classe_subclasse` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
+| regra | `test_rn24_versao_antiga_mantem_o_codigo_da_subclasse` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
 | regra | `test_rn25_considera_somente_dias_encerrados` | `backend/tests/modelo/test_cu11_c1_treinamento.py` |
 | regra | `test_rn25_dias_ate_patch_respeita_antecedencia` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |
 | regra | `test_rn25_janelas_respeitam_os_cortes` | `backend/tests/modelo/test_cu11_regras_do_modelo.py` |

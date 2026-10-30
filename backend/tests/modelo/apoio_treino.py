@@ -5,6 +5,7 @@ Importado só depois do `pytest.importorskip` de pandas e TensorFlow, nos módul
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -12,15 +13,17 @@ import numpy as np
 import pandas as pd
 
 from sinteticos import gerar
-from src.ml.configuracao import ConfigModelo
+from src.ml.configuracao import PADROES_DAS_VERSOES_ANTIGAS, ConfigModelo
 from src.ml.dataset import DadosPreparados
 from src.ml.rede import ResultadoDoTreino, TreinadorKeras
 from src.ml.retreinamento import Retreinamento
 from src.ml.treinamento_inicial import TreinamentoInicial
-from src.models.modelo import ProjecaoItem
+from src.models.modelo import ModeloPreditivo, ProjecaoItem
 from src.services.treinamento_service import ResumoDoTreinamento, TreinamentoService
 
 CFG = ConfigModelo(unidades=4, epocas_max=1, paciencia=1, lote=64, amostras_por_epoca=256, amostras_validacao=256)
+# Uma versão de antes das etapas 2g e 2i do estudo: ReLU e o código da subclasse sozinho (como a v1 do banco real).
+CFG_ANTIGA = replace(CFG, **PADROES_DAS_VERSOES_ANTIGAS)
 FIM = "2026-10-05"
 FORA_DO_TREINO = 200_003  # elegível, mas não apto ao treinamento (RN15)
 
@@ -118,6 +121,27 @@ def retreinar(pg_engine, db_session, relogio, pasta: Path, treinador: Any,
     Retreinamento(pg_engine, cfg, pasta, treinador, relogio).executar(registro.id_execucao)
     db_session.expire_all()
     return servico.resumo(registro.id_execucao)
+
+
+def como_versao_antiga(db_session, versao: int) -> None:
+    """Tira do normalizacao.json e do treino.json da versão os campos que as versões treinadas antes das etapas 2g e 2i
+    não gravavam (a ativação e a subclasse pelo par), deixando os artefatos como os da v1 do banco real."""
+    pasta = Path(db_session.get(ModeloPreditivo, versao).caminho_artefatos)
+    for arquivo, chave in (("normalizacao.json", "config"), ("treino.json", "parametros")):
+        caminho = pasta / arquivo
+        conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+        for campo in PADROES_DAS_VERSOES_ANTIGAS:
+            del conteudo[chave][campo]
+        caminho.write_text(json.dumps(conteudo, ensure_ascii=False), encoding="utf-8")
+
+
+def ativacao_da_rede(caminho: Path) -> str:
+    """A ativação da camada densa de 32 gravada no modelo.keras de uma versão."""
+    import keras
+
+    rede = keras.models.load_model(caminho / "modelo.keras", compile=False)
+    [densa] = [c for c in rede.layers if isinstance(c, keras.layers.Dense) and c.units == 32]
+    return str(densa.get_config()["activation"])
 
 
 def projecoes(db_session) -> dict[int, ProjecaoItem]:

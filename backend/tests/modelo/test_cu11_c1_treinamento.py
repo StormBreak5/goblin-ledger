@@ -6,6 +6,7 @@ os demais usam um treinador falso, que controla as previsões de cada item.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,7 +20,7 @@ import pandas as pd  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 
 from apoio_treino import (CFG, FIM, FORA_DO_TREINO, TreinadorFalso, TreinadorKerasComPrevisaoPerfeita,  # noqa: E402
-                          aptos_do, cenario, executar, pastas, projecoes)
+                          aptos_do, ativacao_da_rede, cenario, executar, pastas, projecoes)
 from sinteticos import gravar_no_banco, serie_constante  # noqa: E402
 from src.ml.rede import FalhaNoTreinamento, TreinadorKeras  # noqa: E402
 from src.ml.treinamento_inicial import TreinamentoInicial  # noqa: E402
@@ -70,6 +71,25 @@ def test_cu11_c1_fluxo_principal_treina_e_libera_itens(pg_engine, db_session, re
     keras.models.load_model(destino / "modelo.keras", compile=False)
     _, yhat = treinador.previsao_real
     assert yhat.shape == (modelo.amostras_teste, 7) and np.isfinite(yhat).all()
+
+
+def test_cu11_c1_passo8_rede_com_gelu(pg_engine, db_session, relogio, tmp_path):
+    """Passo 8: a camada densa de 32 da rede é GELU (etapa 2g do estudo). A versão grava a ativação e a subclasse pelo
+    par (classe, subclasse) (etapa 2i) na configuração do treino.json e do normalizacao.json, para o C2 e o C3 a
+    tratarem como foi treinada."""
+    dados = cenario()
+    gravar_no_banco(db_session, dados, aptos_do(dados))
+
+    resumo = executar(pg_engine, db_session, relogio, tmp_path, TreinadorKeras())
+
+    assert resumo.status == "SUCESSO", resumo.erro
+    destino = Path(db_session.get(ModeloPreditivo, resumo.modelo.versao).caminho_artefatos)
+    assert ativacao_da_rede(destino) == "gelu"
+    treino = json.loads((destino / "treino.json").read_text(encoding="utf-8"))
+    normalizacao = json.loads((destino / "normalizacao.json").read_text(encoding="utf-8"))
+    assert treino["parametros"]["ativacao"] == normalizacao["config"]["ativacao"] == "gelu"
+    assert treino["parametros"]["subclasse_por_classe"] is normalizacao["config"]["subclasse_por_classe"] is True
+    assert "7005" in normalizacao["vocabulario"]["subclasse_id"]  # o tecido: classe 7, subclasse 5
 
 
 def test_cu11_c1_fa1_nenhum_item_apto(pg_engine, db_session, relogio, tmp_path):
