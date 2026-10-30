@@ -60,6 +60,11 @@ class Config:
     acesso_antecipado_dias: int = 7      # itens de uma expansão aparecem no leilão alguns dias antes do lançamento
     idade_limite_dias: int = 180
 
+    # Variáveis 6 e 15 (etapa 2i): o código da subclasse da API da Blizzard só é único dentro da classe (a subclasse 5 é
+    # "Comida e bebida" nos consumíveis e "Tecido" nos materiais de profissão). Com True, o índice da subclasse e o
+    # vocabulário da subclasse usam o par (classe, subclasse). False mantém o código sozinho, como nas bases até a 2h.
+    subclasse_por_classe: bool = False
+
     # RN25 - integridade temporal
     proporcao_treino: float = 0.70     # 70/20/10 por data de calendário, igual para todos os itens
     proporcao_validacao: float = 0.20  # o teste fica com o restante (10%)

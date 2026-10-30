@@ -39,6 +39,8 @@ def assinatura_normalizacao(normalizacao: dict[str, Any]) -> str:
         "variaveis": normalizacao["variaveis"],
         "formato": {"janela": cfg["janela"], "horizonte": cfg["horizonte"]},
     }
+    if cfg.get("subclasse_por_classe"):  # etapa 2i; só entra quando ligada, e as bases anteriores mantêm a assinatura
+        conteudo["subclasse_por_classe"] = True
     return hashlib.sha256(json.dumps(conteudo, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 

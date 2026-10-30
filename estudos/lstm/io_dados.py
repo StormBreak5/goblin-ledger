@@ -118,6 +118,14 @@ def carregar_csv(pasta: Path, cfg: Config) -> Entrada:
     )
 
 
+def carregar_itens_csv(pasta: Path) -> pd.DataFrame:
+    """Só o itens.csv (etapa 2i: refazer a subclasse de uma base pronta não precisa dos preços)."""
+    caminho = Path(pasta) / "itens.csv"
+    if not caminho.exists():
+        raise FileNotFoundError(f"{caminho} não encontrado")
+    return _padronizar_itens(pd.read_csv(caminho))
+
+
 def carregar_eventos_csv(pasta: Path) -> pd.DataFrame:
     """Só o eventos.csv (etapa 2h: o calendário futuro não precisa dos preços)."""
     caminho = Path(pasta) / "eventos.csv"
@@ -175,6 +183,24 @@ def _atributos_do_metadata(item_id: int, meta: Optional[dict[str, Any]],
 
 
 SQL_EVENTOS = "SELECT tipo, nome, versao, data_inicio, data_fim, regiao FROM evento_jogo"
+SQL_ITENS = "SELECT external_item_id, metadata_info FROM items WHERE game = 'wow'"
+
+
+def _itens_do_metadata(meta: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    ids_commodities = frozenset(str(v) for v in cfg.commodities_por_regiao.values())
+    atributos = pd.DataFrame([
+        _atributos_do_metadata(int(r.external_item_id), r.metadata_info, ids_commodities)
+        for r in meta.itertuples() if str(r.external_item_id).isdigit()
+    ])
+    return _padronizar_itens(atributos)
+
+
+def carregar_itens_banco(url: str, cfg: Config) -> pd.DataFrame:
+    """Só os atributos fixos dos itens (etapa 2i), com a mesma consulta e a mesma leitura de carregar_banco."""
+    from sqlalchemy import create_engine, text
+
+    with create_engine(url).connect() as con:
+        return _itens_do_metadata(pd.read_sql_query(text(SQL_ITENS), con), cfg)
 
 
 def carregar_eventos_banco(url: str) -> pd.DataFrame:
@@ -203,24 +229,19 @@ def carregar_banco(url: str, cfg: Config, itens: Optional[list[int]] = None) -> 
         partes = list(pd.read_sql_query(sql_precos, con, params=params, chunksize=2_000_000))
         precos = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame(columns=COLUNAS_PRECOS)
 
-        meta = pd.read_sql_query(text("SELECT external_item_id, metadata_info FROM items WHERE game = 'wow'"), con)
+        meta = pd.read_sql_query(text(SQL_ITENS), con)
         eventos = pd.read_sql_query(text(SQL_EVENTOS), con)
         reinos = {int(r.id_reino): str(r.regiao) for r in
                   pd.read_sql_query(text("SELECT id_reino, regiao FROM reino"), con).itertuples()}
         aptos_df = pd.read_sql_query(text("SELECT item_id, apto FROM aptidao_treinamento"), con)
 
-    ids_commodities = frozenset(str(v) for v in cfg.commodities_por_regiao.values())
-    atributos = pd.DataFrame([
-        _atributos_do_metadata(int(r.external_item_id), r.metadata_info, ids_commodities)
-        for r in meta.itertuples() if str(r.external_item_id).isdigit()
-    ])
     precos = _padronizar_precos(precos)
     aptos = None if aptos_df.empty else set(aptos_df.loc[aptos_df["apto"], "item_id"].astype(int))
     if aptos is None:
         logger.warning("aptidao_treinamento está vazia (CU10-C3 ainda não rodou): nenhum filtro de aptidão (RN15).")
     return Entrada(
         precos=precos,
-        itens=_padronizar_itens(atributos),
+        itens=_itens_do_metadata(meta, cfg),
         eventos=_padronizar_eventos(eventos),
         regiao_da_serie=_regiao_por_serie(sorted(precos["serie"].unique()), reinos, cfg),
         aptos=aptos,

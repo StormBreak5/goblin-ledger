@@ -234,6 +234,36 @@ python ativacoes.py --modelo saida/treino01_agr/modelos/lrelu_s42 --pasta saida/
 
 O resultado está em `docs/relatorio-etapa2g.md`.
 
+## Subclasse dentro da classe (etapa 2i)
+
+**O problema:** o código da subclasse da API da Blizzard só é único dentro da classe. A subclasse 5 é "Comida e bebida" nos consumíveis (classe 0) e "Tecido" nos materiais de profissão (classe 7). Até a etapa 2h, a preparação usava o código sozinho:
+- **Variável 6:** o índice da subclasse de um tecido incluía os itens de comida e bebida.
+- **Variável 15:** os dois dividiam o mesmo vetor de subclasse.
+
+**A opção:** `--subclasse-por-classe` na `preparar_dados.py` (`Config.subclasse_por_classe`, desligada por padrão).
+- As duas variáveis passam a usar o par, com a chave classe × 1000 + subclasse.
+- Um par que o treino não viu vira subclasse desconhecida (0), mesmo que a classe e o código sejam conhecidos.
+- A opção fica gravada na configuração da base e entra na assinatura da normalização. As bases sem ela mantêm a assinatura de antes.
+- Sem a opção, nada muda.
+
+**A comparação:** `refazer_subclasse.py` faz uma cópia de uma base pronta com só as duas variáveis refeitas. A base não é preparada de novo a partir do banco, que mudou desde então.
+- **Ficam idênticos:** as janelas, os alvos e as demais colunas.
+- **Conferência:** antes de gravar, o script confere que, com a chave antiga, o cálculo reproduz a variável 6, a constante, o vocabulário e os índices da base. Isso também confirma que os atributos dos itens no banco não mudaram. Se não bater, ele para e não grava nada.
+- **`subclasses.csv`:** traz, por item, o par e se o código da subclasse aparece em mais de uma classe.
+
+```bash
+python refazer_subclasse.py --banco --pasta saida/treino01_agr --saida saida/treino2i_sub
+python treinar.py --pasta saida/treino2i_sub --nome sub_s42 --semente 42 --ativacao gelu
+python avaliar.py --pasta saida/treino2i_sub --periodo validacao \
+    --previsoes saida/treino2i_sub/modelos/sub_s42/previsoes_validacao.parquet --rotulo sub_s42
+```
+
+**Regra de decisão (escolhida pelo autor):** como é a correção de uma diferença em relação ao TC, a correção é adotada se não piorar. Ou seja:
+- a mediana do MdAPE por item não pode piorar mais que o maior desvio entre sementes;
+- **e** os itens liberados pela RN10 não podem cair mais que o maior desvio dessa medida.
+
+A comparação é contra os `gelu_s*` da base `treino01_agr`.
+
 ## Calendário dos dias previstos (etapa 2h)
 
 **O que muda:** as variáveis 9 a 14 só entram com os 30 dias passados. Na etapa 2h, a rede ganha a entrada `X_fut` [7, 6], com o calendário de D+1 a D+7 como conhecido em D (RN25). Ela é achatada e juntada antes da camada densa de 32.

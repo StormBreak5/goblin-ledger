@@ -988,3 +988,162 @@ def test_eventos_no_horizonte_separa_as_amostras(preparado: tuple[Resultado, Pat
     assert r.loc["com evento", "amostras"] > 0 and r.loc["sem evento", "amostras"] > 0
     assert r.loc["com evento", "amostras"] + r.loc["sem evento", "amostras"] == r.loc["todos", "amostras"]
     assert np.allclose(r["razao_mdape"], 1.0)  # o ingênuo contra ele mesmo
+
+
+# ------------------------------------------------------------------------- etapa 2i: subclasse dentro da classe
+CFG_PAR = replace(CFG, subclasse_por_classe=True)
+
+
+def _mudar_classe(dados: dict[str, pd.DataFrame], classe: int, subclasse: int,
+                  nova_classe: int) -> tuple[dict[str, pd.DataFrame], set[int], set[int]]:
+    """Metade dos itens de (classe, subclasse) passa para `nova_classe`: o mesmo código de subclasse fica em duas
+    classes, como na API da Blizzard. Devolve os dados e os itens que mudaram e os que ficaram."""
+    dados = {k: v.copy() for k, v in dados.items()}
+    itens = dados["itens"]
+    ids = itens.loc[(itens["classe_id"] == classe) & (itens["subclasse_id"] == subclasse), "item_id"].to_numpy()
+    mudaram = set(int(i) for i in ids[::2])
+    itens.loc[itens["item_id"].isin(mudaram), "classe_id"] = nova_classe
+    return dados, mudaram, set(int(i) for i in ids) - mudaram
+
+
+@pytest.fixture(scope="module")
+def bases_2i(sinteticos: dict[str, pd.DataFrame], tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
+    """A subclasse 5 em duas classes (4 e 7), preparada com a chave antiga e com o par."""
+    dados, na_4, na_7 = _mudar_classe(sinteticos, 7, 5, 4)
+    off = preparar(entrada_de(dados), CFG, filtro_liquidez=False, **CORTES)
+    on = preparar(entrada_de(dados), CFG_PAR, filtro_liquidez=False, **CORTES)
+    pasta_off, pasta_on = tmp_path_factory.mktemp("off2i"), tmp_path_factory.mktemp("on2i")
+    salvar(off, pasta_off)
+    salvar(on, pasta_on)
+    return {"dados": dados, "na_4": na_4, "na_7": na_7, "off": off, "on": on, "pasta_off": pasta_off,
+            "pasta_on": pasta_on}
+
+
+def test_subclasse_por_classe_desligada_mantem_a_base(sinteticos: dict[str, pd.DataFrame],
+                                                      preparado: tuple[Resultado, Path]) -> None:
+    """Desligada (o padrão), a chave é o código da subclasse, e as bases sem o campo na configuração mantêm a
+    assinatura. Sem código repetido entre classes, ligar a opção não muda a variável 6, só a assinatura."""
+    import copy
+
+    from dataset import assinatura_normalizacao
+    from preparar_dados import chave_da_subclasse
+
+    res, _ = preparado
+    itens = _padronizar_itens(sinteticos["itens"])
+    assert chave_da_subclasse(itens["classe_id"], itens["subclasse_id"], CFG).equals(
+        itens["subclasse_id"].rename("subclasse_chave"))
+    assert res.normalizacao["config"]["subclasse_por_classe"] is False
+    sem_campo = copy.deepcopy(res.normalizacao)
+    del sem_campo["config"]["subclasse_por_classe"]
+    assert assinatura_normalizacao(sem_campo) == res.normalizacao["assinatura"]
+
+    ligada = preparar(entrada_de(sinteticos), CFG_PAR, filtro_liquidez=False, **CORTES)
+    assert np.array_equal(ligada.linhas_normalizadas["f_retorno_subclasse"],
+                          res.linhas_normalizadas["f_retorno_subclasse"])
+    assert ligada.normalizacao["constantes"] == res.normalizacao["constantes"]
+    assert ligada.normalizacao["assinatura"] != res.normalizacao["assinatura"]
+
+
+def test_subclasse_por_classe_separa_classes_diferentes(bases_2i: dict[str, object]) -> None:
+    """Comida e bebida (0, 5) não entra no índice do tecido (7, 5): com o par, cada um só vê a própria subclasse da
+    própria classe, e os dois ganham índices de subclasse diferentes. O resto da base não muda."""
+    from preparar_dados import chave_da_subclasse, retorno_da_subclasse
+
+    linhas = pd.DataFrame({"regiao": "US", "data": pd.Timestamp("2025-01-01"), "observado": True,
+                           "log_return": [0.10, 0.30, -0.20], "quantidade": [1.0, 3.0, 1.0],
+                           "classe_id": [7.0, 7.0, 0.0], "subclasse_id": [5.0, 5.0, 5.0]})
+    sozinho = retorno_da_subclasse(linhas, chave_da_subclasse(linhas["classe_id"], linhas["subclasse_id"], CFG))
+    par = retorno_da_subclasse(linhas, chave_da_subclasse(linhas["classe_id"], linhas["subclasse_id"], CFG_PAR))
+    assert sozinho[0] == pytest.approx((0.30 * 3 - 0.20 * 1) / 4)  # o tecido misturado com a comida
+    assert par[0] == pytest.approx(0.30) and par[1] == pytest.approx(0.10)
+    assert np.isnan(par[2])  # a comida não tem outro item da mesma classe e subclasse no dia
+
+    off, on = bases_2i["off"], bases_2i["on"]
+    assert "5" in off.normalizacao["vocabulario"]["subclasse_id"]
+    voc = on.normalizacao["vocabulario"]["subclasse_id"]
+    assert {"4005", "7005"} <= set(voc) and "5" not in voc
+
+    def indices(res: Resultado, ids: set[int]) -> set[int]:
+        n = res.linhas_normalizadas
+        return set(n.loc[n["item_id"].isin(ids), "subclasse_idx"].unique())
+
+    na_4, na_7 = bases_2i["na_4"], bases_2i["na_7"]
+    assert len(indices(off, na_4 | na_7)) == 1
+    assert indices(on, na_4).isdisjoint(indices(on, na_7))
+    n_off, n_on = off.linhas_normalizadas, on.linhas_normalizadas
+    v6 = n_off["item_id"].isin(na_4 | na_7)
+    assert not np.allclose(n_off.loc[v6, "f_retorno_subclasse"], n_on.loc[v6, "f_retorno_subclasse"])
+    resto = [c for c in n_off.columns if c not in ("f_retorno_subclasse", "subclasse_idx")]
+    pd.testing.assert_frame_equal(n_off[resto], n_on[resto])
+    pd.testing.assert_frame_equal(off.janelas, on.janelas)
+    assert on.normalizacao["config"]["subclasse_por_classe"] is True
+    assert on.normalizacao["assinatura"] != off.normalizacao["assinatura"]
+
+
+def test_subclasse_por_classe_par_desconhecido_vira_zero(sinteticos: dict[str, pd.DataFrame]) -> None:
+    """Um par que a versão do modelo não viu no treino vira subclasse desconhecida (0), mesmo com a classe e o código
+    da subclasse conhecidos separadamente. Com a chave antiga, o código sozinho seria reconhecido."""
+    dados, novos, _ = _mudar_classe(sinteticos, 7, 8, 4)  # (4, 8) não existe; a classe 4 e a subclasse 8 existem
+    for cfg in (CFG, CFG_PAR):
+        res_a = preparar(entrada_de(dados), cfg, filtro_liquidez=False, excluir_itens=novos, **CORTES)
+        res_b = preparar(entrada_de(dados), cfg, filtro_liquidez=False, normalizacao_base=res_a.normalizacao,
+                         excluir_itens=set(res_a.itens["item_id"]))
+        nb = res_b.linhas_normalizadas
+        assert set(nb["item_id"]) == novos and len(res_b.janelas[res_b.janelas["periodo"] == "validacao"]) > 0
+        assert (nb["classe_idx"] > 0).all()
+        if cfg.subclasse_por_classe:
+            assert "4008" not in res_a.normalizacao["vocabulario"]["subclasse_id"]
+            assert (nb["subclasse_idx"] == 0).all()
+        else:
+            assert (nb["subclasse_idx"] > 0).all()
+
+
+def test_refazer_subclasse_com_a_chave_antiga_reproduz_a_base(bases_2i: dict[str, object], tmp_path: Path) -> None:
+    """A conferência: com a chave da base de origem, o refazer_subclasse.py reproduz a variável 6, a constante, o
+    vocabulário e os índices gravados. Um item que mudou de subclasse depois da preparação faz a conferência falhar,
+    e nada é gravado."""
+    from refazer_subclasse import refazer
+
+    itens = _padronizar_itens(bases_2i["dados"]["itens"])
+    info = refazer(bases_2i["pasta_off"], itens, tmp_path / "ok")
+    assert info["conferencia"]["diferencas"] == 0
+    assert info["contagens"]["itens_com_codigo_compartilhado"] == len(bases_2i["na_4"] | bases_2i["na_7"])
+
+    alterado = itens.copy()
+    i = alterado.index[alterado["subclasse_id"] == 1][0]
+    alterado.loc[i, "subclasse_id"] = 8
+    with pytest.raises(ValueError, match="não batem"):
+        refazer(bases_2i["pasta_off"], alterado, tmp_path / "falha")
+    assert not (tmp_path / "falha").exists()
+    with pytest.raises(ValueError, match="já usa"):
+        refazer(tmp_path / "ok", itens, tmp_path / "de_novo")
+
+
+def test_refazer_subclasse_so_muda_a_variavel_6_e_a_subclasse(bases_2i: dict[str, object], tmp_path: Path) -> None:
+    """A cópia refeita é a mesma base que a preparação com o par daria: mesmas janelas e mesmas linhas, com só a
+    variável 6 e o índice da subclasse diferentes da base de origem, e a mesma assinatura da preparação com o par."""
+    import json
+
+    from refazer_subclasse import main
+
+    pasta_off, pasta_on, saida = bases_2i["pasta_off"], bases_2i["pasta_on"], tmp_path / "refeita"
+    bases_2i["dados"]["itens"].to_csv(tmp_path / "itens.csv", index=False)
+    assert main(["--csv", str(tmp_path), "--pasta", str(pasta_off), "--saida", str(saida)]) == 0
+
+    for p in PERIODOS:
+        pd.testing.assert_frame_equal(pd.read_parquet(saida / f"janelas_{p}.parquet"),
+                                      pd.read_parquet(pasta_off / f"janelas_{p}.parquet"))
+    pd.testing.assert_frame_equal(pd.read_parquet(saida / "linhas_originais.parquet"),
+                                  pd.read_parquet(pasta_off / "linhas_originais.parquet"))
+    refeita = pd.read_parquet(saida / "linhas_normalizadas.parquet")
+    pd.testing.assert_frame_equal(refeita, pd.read_parquet(pasta_on / "linhas_normalizadas.parquet"))
+    origem = pd.read_parquet(pasta_off / "linhas_normalizadas.parquet")
+    resto = [c for c in origem.columns if c not in ("f_retorno_subclasse", "subclasse_idx")]
+    pd.testing.assert_frame_equal(refeita[resto], origem[resto])
+
+    n_refeita = json.loads((saida / "normalizacao.json").read_text(encoding="utf-8"))
+    n_on = json.loads((pasta_on / "normalizacao.json").read_text(encoding="utf-8"))
+    for k in ("constantes", "vocabulario", "alvo", "variaveis", "nivel_item", "assinatura"):
+        assert n_refeita[k] == n_on[k], k
+    assert n_refeita["subclasse_refeita"]["assinatura_base"] == bases_2i["off"].normalizacao["assinatura"]
+    assert (saida / "subclasses.csv").exists()

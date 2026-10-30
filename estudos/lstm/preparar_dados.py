@@ -65,6 +65,10 @@ PADRAO_PRE_PATCH = re.compile(r"pr[ée][\s-]?patch", re.IGNORECASE)
 PADRAO_VERSAO = re.compile(r"(\d+)\.")
 CLASSES_EQUIPAMENTO = (2, 4)  # classes de item da Blizzard: 2 = arma, 4 = armadura (RN07)
 VERSAO_FORMATO = 1
+FATOR_CLASSE = 1000  # etapa 2i: chave do par = classe × 1000 + subclasse
+# Variável 15: (nome no vocabulário, coluna de onde vem o código, coluna do índice).
+CATEGORICAS: tuple[tuple[str, str, str], ...] = (("classe_id", "classe_id", "classe_idx"),
+                                                 ("subclasse_id", "subclasse_chave", "subclasse_idx"))
 
 
 @dataclass
@@ -505,6 +509,31 @@ def variaveis_do_ciclo_do_item(datas: np.ndarray, primeiro: np.ndarray, lancamen
     return f_vig, f_idade
 
 
+def chave_da_subclasse(classe: pd.Series, subclasse: pd.Series, cfg: Config) -> pd.Series:
+    """Variáveis 6 e 15: o código que identifica a subclasse. Com `subclasse_por_classe` (etapa 2i), é o par
+    classe × 1000 + subclasse, porque o código da subclasse só é único dentro da classe; sem a classe, o par fica
+    desconhecido. Sem a opção, é o código da subclasse sozinho, como nas bases até a etapa 2h."""
+    subclasse = subclasse.astype("float64")
+    if not cfg.subclasse_por_classe:
+        return subclasse.rename("subclasse_chave")
+    if (subclasse >= FATOR_CLASSE).any():
+        raise ValueError(f"código de subclasse maior que {FATOR_CLASSE}: a chave do par não seria única")
+    return (classe.astype("float64") * FATOR_CLASSE + subclasse).rename("subclasse_chave")
+
+
+def retorno_da_subclasse(linhas: pd.DataFrame, chave: pd.Series) -> pd.Series:
+    """Variável 6: média dos log-retornos da subclasse (`chave_da_subclasse`) no dia, ponderada pela quantidade, sem o
+    próprio item. Usa `regiao`, `data`, `observado`, `log_return` e `quantidade`."""
+    m = linhas["observado"] & linhas["log_return"].notna() & chave.notna() & (linhas["quantidade"] > 0)
+    w = linhas["quantidade"].where(m, 0.0)
+    rw = (linhas["log_return"] * w).where(m, 0.0)
+    grupo = [linhas["regiao"], chave, linhas["data"]]
+    soma_rw = rw.groupby(grupo, observed=True).transform("sum")
+    soma_w = w.groupby(grupo, observed=True).transform("sum")
+    resto = soma_w - w
+    return ((soma_rw - rw) / resto.where(resto > 0)).astype("float32")
+
+
 def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Config,
                               festivais: Optional[dict[str, str]] = None,
                               ciclo: Optional[dict[str, Any]] = None) -> pd.DataFrame:
@@ -526,16 +555,8 @@ def calcular_variaveis_brutas(linhas: pd.DataFrame, entrada: Entrada, cfg: Confi
     linhas["commodity"] = np.where(informado, linhas["commodity"].to_numpy() == True,  # noqa: E712
                                    linhas["serie"].isin(commod_ids).to_numpy())
 
-    # Variável 6: média dos log-retornos da subclasse no dia, ponderada pela quantidade, sem o próprio item.
-    m = linhas["observado"] & linhas["log_return"].notna() & linhas["subclasse_id"].notna() & (linhas["quantidade"] > 0)
-    w = linhas["quantidade"].where(m, 0.0)
-    rw = (linhas["log_return"] * w).where(m, 0.0)
-    grupo = [linhas["regiao"], linhas["subclasse_id"], linhas["data"]]
-    soma_rw = rw.groupby(grupo, observed=True).transform("sum")
-    soma_w = w.groupby(grupo, observed=True).transform("sum")
-    resto = soma_w - w
-    linhas["retorno_subclasse"] = ((soma_rw - rw) / resto.where(resto > 0)).astype("float32")
-    del m, w, rw, soma_rw, soma_w, resto
+    linhas["subclasse_chave"] = chave_da_subclasse(linhas["classe_id"], linhas["subclasse_id"], cfg)
+    linhas["retorno_subclasse"] = retorno_da_subclasse(linhas, linhas["subclasse_chave"])
 
     tem_piso = linhas["preco_npc"].fillna(0) > 0
     linhas["f_tem_piso"] = tem_piso.astype("float32")
@@ -608,11 +629,20 @@ def ajustar(linhas: pd.DataFrame, treino: pd.Series, cfg: Config) -> dict[str, A
              for bruto, final, simetrico in CONSTANTES_GLOBAIS}
     niveis = linhas.loc[treino, ["item_id", "nivel_item"]].drop_duplicates("item_id")["nivel_item"].dropna()
     nmin, nmax = (float(niveis.min()), float(niveis.max())) if len(niveis) else (0.0, 1.0)
-    vocab: dict[str, dict[str, int]] = {}
-    for col in ("classe_id", "subclasse_id"):
-        valores = sorted(int(v) for v in linhas.loc[treino, col].dropna().unique())
-        vocab[col] = {str(v): i + 1 for i, v in enumerate(valores)}  # 0 = desconhecida
+    vocab = {nome: montar_vocabulario(linhas.loc[treino, origem]) for nome, origem, _ in CATEGORICAS}
     return {"constantes": const, "nivel_item": {"min": nmin, "max": nmax}, "vocabulario": vocab}
+
+
+def montar_vocabulario(codigos: pd.Series) -> dict[str, int]:
+    """Variável 15: um índice por código visto no treino, a partir de 1 (0 = desconhecida)."""
+    valores = sorted(int(v) for v in codigos.dropna().unique())
+    return {str(v): i + 1 for i, v in enumerate(valores)}
+
+
+def indices_do_vocabulario(codigos: pd.Series, vocab: dict[str, int]) -> pd.Series:
+    """Variável 15: o índice de cada código; código fora do vocabulário (ou nulo) vira 0, desconhecida."""
+    mapa = {float(v): i for v, i in vocab.items()}
+    return codigos.map(mapa).fillna(0).astype("int32")
 
 
 def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: Config) -> None:
@@ -633,12 +663,11 @@ def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: Config) -> None:
     linhas["f_nivel_item"] = nivel.fillna(0.0).astype("float32")
     linhas["f_commodity"] = linhas["commodity"].astype("float32")
 
-    for col, idx_col in (("classe_id", "classe_idx"), ("subclasse_id", "subclasse_idx")):
-        mapa = {float(v): i for v, i in ajuste["vocabulario"][col].items()}
-        linhas[idx_col] = linhas[col].map(mapa).fillna(0).astype("int32")
+    for nome, origem, idx_col in CATEGORICAS:
+        linhas[idx_col] = indices_do_vocabulario(linhas[origem], ajuste["vocabulario"][nome])
     linhas.drop(columns=["log_return", "log_preco_ema14", "volatilidade_7d", "retorno_subclasse", "log_preco_npc",
-                         "ema14_anterior", "classe_id", "subclasse_id", "qualidade", "nivel_item", "preco_npc",
-                         "commodity"], inplace=True)
+                         "ema14_anterior", "classe_id", "subclasse_id", "subclasse_chave", "qualidade", "nivel_item",
+                         "preco_npc", "commodity"], inplace=True)
 
 
 def ajustar_e_aplicar(linhas: pd.DataFrame, treino: pd.Series, cfg: Config) -> dict[str, Any]:
@@ -923,6 +952,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="etapa 2d: variável 19, item da expansão vigente no dia")
     ap.add_argument("--variavel-idade-item", action="store_true",
                     help="etapa 2d: variável 20, idade do item (dias desde o primeiro registro)")
+    ap.add_argument("--subclasse-por-classe", action="store_true",
+                    help="etapa 2i: variáveis 6 e 15 pelo par (classe, subclasse), e não pelo código da subclasse sozinho")
     ap.add_argument("--reservar-itens", type=float, default=0.0,
                     help="etapa 2c: fração dos itens (ex.: 0.2) sorteada para ficar fora do treino, pela --semente")
     ap.add_argument("--normalizacao-de", type=Path,
@@ -940,7 +971,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                                     ("--rn03-ema-bruta", args.rn03_ema_bruta), ("--corte-validacao", args.corte_validacao),
                                     ("--corte-teste", args.corte_teste), ("--reservar-itens", args.reservar_itens),
                                     ("--variavel-expansao-item", args.variavel_expansao_item),
-                                    ("--variavel-idade-item", args.variavel_idade_item)) if v]
+                                    ("--variavel-idade-item", args.variavel_idade_item),
+                                    ("--subclasse-por-classe", args.subclasse_por_classe)) if v]
         if conflitos:
             ap.error(f"com --normalizacao-de, a configuração vem da outra base; tire {', '.join(conflitos)}")
         base = json.loads((args.normalizacao_de / "normalizacao.json").read_text(encoding="utf-8"))
@@ -967,6 +999,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg = replace(cfg, variavel_expansao_item=True)
     if args.variavel_idade_item:
         cfg = replace(cfg, variavel_idade_item=True)
+    if args.subclasse_por_classe:
+        cfg = replace(cfg, subclasse_por_classe=True)
 
     if args.banco:
         if args.env_arquivo:
