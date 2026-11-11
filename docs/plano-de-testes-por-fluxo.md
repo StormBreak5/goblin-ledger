@@ -1,13 +1,19 @@
 # Plano de testes por fluxo (apêndice para o TC)
 
-> Gerado em 19/10/2026 a partir dos nomes dos testes do repositório. Cada linha é um fluxo do documento (principal, alternativo FA
+> Gerado em 19/10/2026 e atualizado em 11/11/2026 a partir dos nomes dos testes do repositório. Cada linha é um fluxo do documento (principal, alternativo FA
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 412 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 25 do CU06, 27 do CU07, 20 do CU08, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
-> completa tem 513 testes: 387 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
-> `modelo` (`docker compose run --rm modelo-testes`) e 76 no frontend (`npm test`). Os demais são testes de apoio (migrações,
-> leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
+> As contagens deste plano são de **funções** de teste: um teste parametrizado (`parametrize` no backend, `it.each` no
+> frontend) conta uma vez, mesmo quando os seus casos aparecem em linhas separadas, um por fluxo. As funções com identificador
+> de fluxo ou de regra somam 407 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 20 do CU05, 25 do CU06, 27 do CU07, 20 do
+> CU08, 60 do CU09, 92 do CU10 e 66 do CU11). Há ainda 39 funções de apoio, sem prefixo de caso de uso (33 no backend:
+> migrações, leitor do arquivo da Undermine, leitores de eventos e outros; 6 no frontend: formatação de moeda), que não
+> substituem o teste de um fluxo.
+>
+> Na execução de 11/11/2026, a suíte completa rodou 513 testes, contando cada caso parametrizado como um teste, sem falhas:
+> 387 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço `modelo`
+> (`docker compose run --rm modelo-testes`) e 76 no frontend (`npm test`).
 >
 > Para rodar: `pytest` a partir de `backend/` (usando `.venv`), `docker compose run --rm modelo-testes` a partir de `backend/` e
 > `npm test` a partir de `frontend/`. Os testes de backend usam um PostgreSQL temporário, com o esquema criado pelas migrações;
@@ -176,9 +182,10 @@
 | FE1 | `test_cu04_c3_fe1_valor_atipico_omite_a_dica_e_registra_no_console` | `frontend/tests/cu04-c3-inspecionar-ponto.test.tsx` |
 | regra | `test_cu04_c3_sem_mouse_sobre_o_grafico_nao_ha_dica` | `frontend/tests/cu04-c3-inspecionar-ponto.test.tsx` |
 
-#### CU05 – Cenário 1 (20 testes)
+#### CU05 – Cenário 1 (15 testes)
 
-Os FA1 a FA6 do frontend são os casos de um mesmo `it.each`, um por fluxo, com o nome do fluxo (15 funções no total).
+As 20 linhas abaixo correspondem a 15 funções: os FA1 a FA6 do frontend são os casos de um mesmo `it.each`, um por fluxo, com o
+nome do fluxo, e contam como uma função.
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -314,14 +321,13 @@ O FA3 do backend é um `parametrize` com 11 casos de dados inválidos (tipo ou c
 
 O FA1 do C3 (exclusão cancelada) acontece só na tela: cancelar o diálogo não envia nada ao backend, por isso não tem teste de backend.
 
-#### CU08 – Regras gerais do caso de uso (4 testes)
+#### CU08 – Regras gerais do caso de uso (3 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
 | RN07 | `test_rn07_alerta_dispara_uma_unica_vez` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
 | RN20 | `test_cu08_exclusao_da_conta_remove_notificacoes_rn20` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
 | regra | `test_cu08_notificacao_permanece_quando_o_alerta_e_excluido` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
-| regra | `test_cu08_c3_so_as_notificacoes_do_proprio_usuario` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
 
 O teste da RN07 cobre o ciclo seguinte com o preço ainda além do alvo e dois ciclos simultâneos (a sessão B fica bloqueada no `UPDATE` condicional até o commit da A e não gera notificação).
 
@@ -347,7 +353,7 @@ O fluxo principal, o FA2 e o FE1 rodam dentro de um ciclo real do CU09 (API da B
 
 O envio de e-mail é substituído nos testes (`EmailFalso`). O C2 é só do sistema, sem tela.
 
-#### CU08 – Cenário 3 (8 testes)
+#### CU08 – Cenário 3 (9 testes)
 
 | Fluxo | Teste | Arquivo |
 |---|---|---|
@@ -359,6 +365,9 @@ O envio de e-mail é substituído nos testes (`EmailFalso`). O C2 é só do sist
 | FE1 | `test_cu08_c3_fe1_falha_no_banco` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
 | FE1 | `test_cu08_c3_fe1_falha_ao_carregar` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
 | FE1 | `test_cu08_c3_fe1_falha_ao_marcar_como_lidas` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
+| regra | `test_cu08_c3_so_as_notificacoes_do_proprio_usuario` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+
+A regra do C3 confere a pré-condição (sem sessão, 401) e que cada usuário vê e marca só as próprias notificações.
 
 #### CU09 – Regras gerais do caso de uso (2 testes)
 

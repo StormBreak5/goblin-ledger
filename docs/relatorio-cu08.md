@@ -87,8 +87,8 @@ No banco local, a `0012` foi aplicada em 11/11/2026, com o `worker` e o `modelo`
 |---|---|---|---|
 | C1 | 5 | 0 | 5 |
 | C2 | 3 | 0 | 3 |
-| C3 | 3 | 5 | 8 |
-| Regras gerais (RN07; RN20; a notificação permanece quando o alerta é excluído; só as notificações do próprio usuário) | 4 | 0 | 4 |
+| C3 (inclui a regra "só as notificações do próprio usuário") | 4 | 5 | 9 |
+| Regras gerais (RN07; RN20; a notificação permanece quando o alerta é excluído) | 3 | 0 | 3 |
 | **CU08** | **15** | **5** | **20** |
 
 - **Sem tela:** o C1 e o C2 são do sistema, por isso só têm testes de backend. Os testes do C1 rodam dentro de um ciclo real do CU09 (fluxo principal, FA2 e FE1), com a API da Blizzard falsa.
