@@ -2,6 +2,25 @@
 
 > Texto igual ao do TC (seção 6.4.7), conferido em 11/11/2026.
 
+**Situação no código (11/11/2026):** C1, C2 e C3 implementados (pedido `estudos/lstm/pedido-cu06-cu07.md`). O disparo e a notificação ficam para o CU08; até lá, um alerta só passa a `DISPARADO` nos testes, por inserção direta.
+
+- **Banco:** a tabela `alerta_preco` veio na migração `0011_favoritos_e_alertas` (commit do CU06), como no MR, com a chave estrangeira composta para `favorito` (remover o favorito remove os alertas, CU06-C2) e para `usuario` (RN20), ambas em cascata.
+- **API**, toda autenticada e só sobre os alertas do próprio usuário (o de outro usuário responde 404):
+  - `GET /api/items/{item_id}/alerts`: os alertas do item, os ativos do usuário em todos os itens e o limite;
+  - `GET /api/items/{item_id}/alerts/new`: C1 passos 2 a 4 (409 no FA1 ou no FA2; senão, o valor de mercado atual, RN06);
+  - `POST /api/items/{item_id}/alerts`: confere de novo o favorito e o limite e grava como `ATIVO`;
+  - `GET /api/alerts/{id}/edit`: C2 passos 1 e 2, com a cota conferida antes quando o alerta está `DISPARADO` (FA1 e FA2);
+  - `PUT /api/alerts/{id}`: altera e, se for o caso, reativa (`ATIVO`, `disparado_em` nulo, com a cota conferida de novo);
+  - `DELETE /api/alerts/{id}`: C3.
+  - Código: `backend/src/controllers/alerta_controller.py`, `src/services/alerta_service.py` e `src/repositories/alerta_repository.py`.
+- **RN08:** conta só os `ATIVO` do usuário, em todos os itens, até `ALERTAS_MAXIMO_ATIVOS` (20, no `.env.example`). A contagem e a gravação ficam na mesma transação, depois de `SELECT … FROM usuario … FOR UPDATE`, para dois pedidos simultâneos não passarem do limite.
+- **FA3 e RN01:** a validação é do serviço (tipo e canal escolhidos, total maior que zero, partes inteiras e não negativas, Prata e Cobre até 99), com a mensagem do cenário, e não o erro padrão do Pydantic. O preço-alvo é convertido para Cobre no backend.
+- **Tela:** a seção "Alertas de preço" na tela do item, só para o usuário autenticado (`components/AlertasDoItem.tsx`), e o formulário num diálogo (`components/FormularioDeAlerta.tsx`). No C1-FA1, a mensagem vem com o botão "Adicionar aos favoritos"; favoritando (CU06-C1), a tela confere de novo a cota e abre o formulário.
+- **Decisões tomadas na implementação:**
+  - o alerta de outro usuário, ou inexistente, responde 404 com "Alerta não encontrado", texto que o documento não define;
+  - uma falha ao carregar a seção mostra "Não foi possível carregar os alertas no momento. Tente novamente mais tarde", texto que o documento também não define;
+  - na situação "Disparado", a data e a hora ficam numa segunda linha, abaixo do selo, no fuso de quem vê (como o CU04).
+
 ## Descrição
 
 Este caso de uso tem como principal função permitir que o usuário autenticado crie, altere, reative e exclua alertas de preço para os itens da sua lista de favoritos, definindo o tipo de gatilho (compra ou venda), o preço-alvo e o canal pelo qual deseja ser notificado. Os alertas do item são exibidos e mantidos na seção "Alertas de preço" da tela de detalhes do item.

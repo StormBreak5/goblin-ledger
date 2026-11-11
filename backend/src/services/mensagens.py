@@ -72,6 +72,21 @@ FAVORITOS_VAZIO = "Você ainda não tem itens favoritos. Use a busca para encont
 FALHA_NOS_FAVORITOS = "Não foi possível atualizar os favoritos no momento. Tente novamente mais tarde"  # C1-FE1 e C2-FE1
 FALHA_NA_LISTA_DE_FAVORITOS = "Não foi possível carregar os seus favoritos no momento. Tente novamente mais tarde"  # C3-FE1
 
+# CU07 – Manter Alerta
+ALERTA_CRIADO = "Alerta criado com sucesso"  # C1 passo 8
+ALERTA_ATUALIZADO = "Alerta atualizado com sucesso"  # C2 passo 6
+ALERTA_EXCLUIDO = "Alerta excluído com sucesso"  # C3 passo 5
+ALERTA_FORA_DOS_FAVORITOS = "Para criar um alerta, adicione o item aos favoritos"  # C1-FA1
+LIMITE_DE_ALERTAS_AO_CRIAR = "Você atingiu o limite de {limite} alertas ativos. Exclua um alerta para criar outro"  # C1-FA2
+LIMITE_DE_ALERTAS_AO_REATIVAR = ("Você atingiu o limite de {limite} alertas ativos. Exclua um alerta para reativar "
+                                 "este")  # C2-FA2
+ALERTA_DADOS_INVALIDOS = "Informe o tipo de gatilho, um preço-alvo maior que zero e o canal de notificação"  # C1/C2-FA3
+FALHA_AO_SALVAR_ALERTA = "Não foi possível salvar o alerta no momento. Tente novamente mais tarde"  # C1-FE1 e C2-FE1
+FALHA_AO_EXCLUIR_ALERTA = "Não foi possível excluir o alerta no momento. Tente novamente mais tarde"  # C3-FE1
+# O documento não define os textos abaixo.
+FALHA_AO_CARREGAR_ALERTAS = "Não foi possível carregar os alertas no momento. Tente novamente mais tarde"
+ALERTA_NAO_ENCONTRADO = "Alerta não encontrado"
+
 # CU05-C1 – Exibir projeção de preços
 PROJECAO_MODELO_NAO_TREINADO = "A projeção de preços ainda não está disponível"  # FA1
 PROJECAO_POUCA_QUANTIDADE = "Projeção indisponível: este item tem pouca quantidade ofertada para uma previsão confiável"  # FA2 (RN02)

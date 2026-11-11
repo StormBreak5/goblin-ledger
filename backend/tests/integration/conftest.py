@@ -134,11 +134,12 @@ def favoritos_client(db_session: Session, relogio: RelogioFalso, email_falso: Em
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from src.controllers import auth_controller, deps, favorito_controller, item_controller, usuario_controller
+    from src.controllers import (alerta_controller, auth_controller, deps, favorito_controller, item_controller,
+                                 usuario_controller)
     from src.services.item_service import ItemService
 
     app = FastAPI()
-    for modulo in (usuario_controller, auth_controller, item_controller, favorito_controller):
+    for modulo in (usuario_controller, auth_controller, item_controller, favorito_controller, alerta_controller):
         app.include_router(modulo.router, prefix="/api")
     app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor_de_sessao_para(db_session)
     app.dependency_overrides[deps.get_relogio] = lambda: relogio

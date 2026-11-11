@@ -52,6 +52,7 @@ export function responder(rotas: Rota[] = [], item: { favorito?: boolean } = {})
         return json(200, { situacao: "NAO_ELEGIVEL", mensagem: "Projeção indisponível", data_referencia: null, preco_referencia: null,
           erro_tipico_pct: null, desatualizada: false, predicoes: [], avisos: [] });
       }
+      if (caminho.endsWith("/alerts") && metodo === "GET") return json(200, { alertas: [], ativos_do_usuario: 0, limite: 20 });
       if (/\/items\/\d+$/.test(caminho)) {
         const corpo: Record<string, unknown> = { id: 1001, name: "Mycobloom", icon_url: null };
         if (item.favorito !== undefined) corpo.favorito = item.favorito;

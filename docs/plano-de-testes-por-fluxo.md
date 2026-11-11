@@ -4,9 +4,9 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 365 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 25 do CU06, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
-> completa tem 456 testes: 348 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
-> `modelo` (`docker compose run --rm modelo-testes`) e 58 no frontend (`npm test`). Os demais são testes de apoio (migrações,
+> Os testes com identificador de fluxo ou de regra somam 392 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 25 do CU06, 27 do CU07, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
+> completa tem 493 testes: 372 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
+> `modelo` (`docker compose run --rm modelo-testes`) e 71 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
 > Para rodar: `pytest` a partir de `backend/` (usando `.venv`), `docker compose run --rm modelo-testes` a partir de `backend/` e
@@ -262,6 +262,57 @@ Os FA1 a FA6 do frontend são os casos de um mesmo `it.each`, um por fluxo, com 
 | FA2 | `test_cu06_c3_fa2_dados_desatualizados_rn09` | `frontend/tests/cu06-c3-lista.test.tsx` |
 | FE1 | `test_cu06_c3_fe1_falha_no_banco` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
 | FE1 | `test_cu06_c3_fe1_falha_no_banco` | `frontend/tests/cu06-c3-lista.test.tsx` |
+
+#### CU07 – Regras gerais do caso de uso (2 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| regra | `test_cu07_so_o_dono_altera_e_exclui_o_alerta` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| RN08 | `test_cu07_rn08_pedidos_simultaneos_nao_passam_do_limite` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+
+#### CU07 – Cenário 1 (10 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu07_c1_fluxo_principal_cria_alerta` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| principal | `test_cu07_c1_fluxo_principal_cria_alerta` | `frontend/tests/cu07-c1-criar-alerta.test.tsx` |
+| FA1 | `test_cu07_c1_fa1_item_fora_dos_favoritos` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FA1 | `test_cu07_c1_fa1_item_fora_dos_favoritos` | `frontend/tests/cu07-c1-criar-alerta.test.tsx` |
+| FA2 | `test_cu07_c1_fa2_limite_de_alertas_rn08` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FA2 | `test_cu07_c1_fa2_limite_de_alertas_rn08` | `frontend/tests/cu07-c1-criar-alerta.test.tsx` |
+| FA3 | `test_cu07_c1_fa3_dados_invalidos` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FA3 | `test_cu07_c1_fa3_dados_invalidos` | `frontend/tests/cu07-c1-criar-alerta.test.tsx` |
+| FE1 | `test_cu07_c1_fe1_falha_no_banco` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FE1 | `test_cu07_c1_fe1_falha_no_banco` | `frontend/tests/cu07-c1-criar-alerta.test.tsx` |
+
+O FA3 do backend é um `parametrize` com 11 casos de dados inválidos (tipo ou canal ausente ou desconhecido, preço vazio ou total zero, parte negativa, fracionária ou em texto, Prata ou Cobre acima de 99), numa só função.
+
+#### CU07 – Cenário 2 (10 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu07_c2_fluxo_principal_altera_alerta` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| principal | `test_cu07_c2_fluxo_principal_altera_alerta` | `frontend/tests/cu07-c2-alterar-alerta.test.tsx` |
+| FA1 | `test_cu07_c2_fa1_reativa_alerta_disparado` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FA1 | `test_cu07_c2_fa1_reativa_alerta_disparado` | `frontend/tests/cu07-c2-alterar-alerta.test.tsx` |
+| FA2 | `test_cu07_c2_fa2_limite_na_reativacao_rn08` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FA2 | `test_cu07_c2_fa2_limite_na_reativacao_rn08` | `frontend/tests/cu07-c2-alterar-alerta.test.tsx` |
+| FA3 | `test_cu07_c2_fa3_dados_invalidos` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FA3 | `test_cu07_c2_fa3_dados_invalidos` | `frontend/tests/cu07-c2-alterar-alerta.test.tsx` |
+| FE1 | `test_cu07_c2_fe1_falha_mantem_dados` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FE1 | `test_cu07_c2_fe1_falha_mantem_dados` | `frontend/tests/cu07-c2-alterar-alerta.test.tsx` |
+
+#### CU07 – Cenário 3 (5 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu07_c3_fluxo_principal_exclui_alerta` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| principal | `test_cu07_c3_fluxo_principal_exclui_alerta` | `frontend/tests/cu07-c3-excluir-alerta.test.tsx` |
+| FA1 | `test_cu07_c3_fa1_exclusao_cancelada` | `frontend/tests/cu07-c3-excluir-alerta.test.tsx` |
+| FE1 | `test_cu07_c3_fe1_falha_mantem_alerta` | `backend/tests/integration/test_cu07_manter_alerta.py` |
+| FE1 | `test_cu07_c3_fe1_falha_mantem_alerta` | `frontend/tests/cu07-c3-excluir-alerta.test.tsx` |
+
+O FA1 do C3 (exclusão cancelada) acontece só na tela: cancelar o diálogo não envia nada ao backend, por isso não tem teste de backend.
 
 #### CU09 – Regras gerais do caso de uso (2 testes)
 

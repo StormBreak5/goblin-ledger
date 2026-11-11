@@ -138,5 +138,33 @@ class FavoritoComAlertasError(ErroDeNegocio):
     mensagem_padrao = mensagens.FAVORITO_COM_ALERTAS
 
 
+class ItemForaDosFavoritosError(ErroDeNegocio):
+    """CU07-C1-FA1: o alerta só existe para um item da lista de favoritos do usuário."""
+    status_code = 409
+    mensagem_padrao = mensagens.ALERTA_FORA_DOS_FAVORITOS
+
+
+class LimiteDeAlertasError(ErroDeNegocio):
+    """CU07-C1-FA2 e C2-FA2 (RN08): o usuário já tem o máximo de alertas ativos. A mensagem diz se era para criar outro
+    alerta ou para reativar este."""
+    status_code = 409
+
+    def __init__(self, limite: int, ao_reativar: bool = False):
+        modelo = mensagens.LIMITE_DE_ALERTAS_AO_REATIVAR if ao_reativar else mensagens.LIMITE_DE_ALERTAS_AO_CRIAR
+        super().__init__(modelo.format(limite=limite))
+
+
+class DadosDoAlertaInvalidosError(ErroDeNegocio):
+    """CU07-C1-FA3 e C2-FA3: tipo de gatilho ou canal não escolhido, ou preço-alvo ausente, zerado ou inválido."""
+    status_code = 422
+    mensagem_padrao = mensagens.ALERTA_DADOS_INVALIDOS
+
+
+class AlertaNaoEncontradoError(ErroDeNegocio):
+    """CU07-C2/C3: o alerta não existe ou é de outro usuário (o documento não define o texto)."""
+    status_code = 404
+    mensagem_padrao = mensagens.ALERTA_NAO_ENCONTRADO
+
+
 class EmailIndisponivelError(Exception):
     """CU02-C2-FE1: o serviço de envio de e-mail não respondeu."""

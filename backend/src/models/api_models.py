@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -112,6 +112,49 @@ class FavoritoResponse(BaseModel):
     item_id: int
     favorito: bool
     message: Optional[str] = Field(default=None, description="Nula no CU06-C1-FA2 (o item já estava nos favoritos).")
+
+
+class AlertaRequest(BaseModel):
+    """CU07-C1 passo 5 / C2 passo 3: o tipo de gatilho, o preço-alvo em Ouro, Prata e Cobre e o canal. Os campos são
+    opcionais e soltos de propósito: a validação é do serviço, que responde com a mensagem do FA3 (e não com o erro
+    padrão de validação)."""
+    tipo: Optional[str] = None
+    canal: Optional[str] = None
+    ouro: Optional[Union[int, float, str]] = None
+    prata: Optional[Union[int, float, str]] = None
+    cobre: Optional[Union[int, float, str]] = None
+
+
+class Alerta(BaseModel):
+    """CU07: um alerta de preço, com o preço-alvo em Cobre (RN01)."""
+    id_alerta: int
+    item_id: int
+    tipo: Literal["COMPRA", "VENDA"]
+    preco_alvo: int
+    canal: Literal["WEB", "EMAIL", "AMBOS"]
+    situacao: Literal["ATIVO", "DISPARADO"]
+    disparado_em: Optional[datetime] = None
+
+
+class AlertasDoItemResponse(BaseModel):
+    """A seção "Alertas de preço" da tela do item: os alertas do usuário para o item e a cota da RN08."""
+    alertas: list[Alerta]
+    ativos_do_usuario: int = Field(description="RN08: alertas ativos do usuário em todos os itens.")
+    limite: int
+
+
+class FormularioDoAlertaResponse(BaseModel):
+    """CU07-C1 passo 4 / C2 passo 2: o valor de mercado atual do item como referência (RN06, em Cobre) e, na alteração,
+    os dados atuais do alerta."""
+    item_id: int
+    market_value: Optional[int] = None
+    alerta: Optional[Alerta] = None
+
+
+class AlertaSalvoResponse(BaseModel):
+    """CU07-C1 passo 8 / C2 passo 6: o alerta gravado e a mensagem do cenário."""
+    alerta: Alerta
+    message: str
 
 
 class ItemFavorito(BaseModel):

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import AlertasDoItem from "@/components/AlertasDoItem";
 import AvisosDoHistorico from "@/components/AvisosDoHistorico";
 import ControleDeFavorito from "@/components/ControleDeFavorito";
 import Dialogo from "@/components/Dialogo";
@@ -175,9 +176,15 @@ export default function ItemDetailsPage() {
           <ProjecaoDoItem estado={estadoDaProjecao} visivel={projecaoVisivel} diaDestacado={destaque?.dia ?? null}
             aoDestacarDia={destacarPelaTabela} />
         )}
+
+        {/* CU07: a seção "Alertas de preço", só para o usuário autenticado. */}
+        {token && item && (
+          <AlertasDoItem token={token} itemId={item.id} itemNome={itemName} iconUrl={iconUrl} favorito={favorito}
+            aoFavoritar={() => favoritos.adicionar(item.id)} />
+        )}
       </main>
       {toast && <Toast texto={toast} onFechar={fecharToast} />}
-      {favoritos.aviso && <Toast texto={favoritos.aviso.texto} tom={favoritos.aviso.tom} onFechar={favoritos.fecharAviso} />}
+      {favoritos.aviso && <Toast key={favoritos.aviso.id} texto={favoritos.aviso.texto} tom={favoritos.aviso.tom} onFechar={favoritos.fecharAviso} />}
       {favoritos.confirmacao && (
         <Dialogo titulo="Remover dos favoritos" aoConfirmar={favoritos.confirmar} aoCancelar={favoritos.cancelar}
           textoConfirmar="Remover" ocupado={favoritos.ocupado}>

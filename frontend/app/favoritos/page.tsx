@@ -170,7 +170,7 @@ export default function FavoritosPage() {
           </div>
         )}
       </main>
-      {acoes.aviso && <Toast texto={acoes.aviso.texto} tom={acoes.aviso.tom} onFechar={acoes.fecharAviso} />}
+      {acoes.aviso && <Toast key={acoes.aviso.id} texto={acoes.aviso.texto} tom={acoes.aviso.tom} onFechar={acoes.fecharAviso} />}
       {acoes.confirmacao && (
         <Dialogo titulo="Remover dos favoritos" aoConfirmar={acoes.confirmar} aoCancelar={acoes.cancelar}
           textoConfirmar="Remover" ocupado={acoes.ocupado}>

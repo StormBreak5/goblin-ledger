@@ -8,6 +8,15 @@ import { adicionarFavorito, LOGIN_PARA_FAVORITAR, removerFavorito } from "@/lib/
 export interface AvisoDaTela {
   texto: string;
   tom: "erro" | "sucesso";
+  id: number; // cada aviso é um novo: a tela usa como `key` do Toast, para o tempo recomeçar mesmo com o texto repetido
+}
+
+let sequenciaDeAvisos = 0;
+
+/** Um aviso novo (dois "Alerta criado com sucesso" seguidos são dois avisos, cada um com os seus segundos na tela). */
+export function novoAviso(texto: string, tom: AvisoDaTela["tom"]): AvisoDaTela {
+  sequenciaDeAvisos += 1;
+  return { texto, tom, id: sequenciaDeAvisos };
 }
 
 /**
@@ -24,23 +33,27 @@ export function useAcoesDeFavorito(aoMudar: (itemId: number, favorito: boolean) 
   const [confirmacao, setConfirmacao] = useState<{ itemId: number; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
-  const adicionar = useCallback(async (itemId: number) => {
+  /** Devolve se o item ficou nos favoritos (o CU07-C1-FA1 segue para o formulário depois de favoritar). */
+  const adicionar = useCallback(async (itemId: number): Promise<boolean> => {
     if (!token) {
       router.push(LOGIN_PARA_FAVORITAR); // C1-FA1
-      return;
+      return false;
     }
     setOcupado(true);
     const resultado = await adicionarFavorito(token, itemId);
     setOcupado(false);
     if (resultado.ok) {
       aoMudar(itemId, true);
-      if (resultado.data.message) setAviso({ texto: resultado.data.message, tom: "sucesso" }); // FA2: sem mensagem
-    } else if (resultado.status === 401) {
+      if (resultado.data.message) setAviso(novoAviso(resultado.data.message, "sucesso")); // FA2: sem mensagem
+      return true;
+    }
+    if (resultado.status === 401) {
       clearToken();
       router.push(LOGIN_PARA_FAVORITAR);
     } else {
-      setAviso({ texto: resultado.message, tom: "erro" }); // FE1
+      setAviso(novoAviso(resultado.message, "erro")); // FE1
     }
+    return false;
   }, [token, router, aoMudar]);
 
   const remover = useCallback(async (itemId: number, confirmar = false) => {
@@ -54,7 +67,7 @@ export function useAcoesDeFavorito(aoMudar: (itemId: number, favorito: boolean) 
     if (resultado.ok) {
       setConfirmacao(null);
       aoMudar(itemId, false);
-      if (resultado.data.message) setAviso({ texto: resultado.data.message, tom: "sucesso" });
+      if (resultado.data.message) setAviso(novoAviso(resultado.data.message, "sucesso"));
     } else if (resultado.status === 409) {
       setConfirmacao({ itemId, texto: resultado.message }); // FA1: o aviso dos alertas do item
     } else if (resultado.status === 401) {
@@ -62,7 +75,7 @@ export function useAcoesDeFavorito(aoMudar: (itemId: number, favorito: boolean) 
       router.replace("/login?aviso=sessao-expirada");
     } else {
       setConfirmacao(null);
-      setAviso({ texto: resultado.message, tom: "erro" }); // FE1
+      setAviso(novoAviso(resultado.message, "erro")); // FE1
     }
   }, [token, router, aoMudar]);
 
