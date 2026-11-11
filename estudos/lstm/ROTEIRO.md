@@ -190,16 +190,22 @@ A etapa 2e aprovou a perda MAE, e a configuração congelou. A 2f repete o exper
 
    - No plano, ele vai perguntar as decisões pendentes. As recomendações estão no próprio CU11: serviço `modelo` separado e a RN07 desligada até você definir o nível. A configuração da rede (perda MAE, sem máscara, eventos agregados) já está decidida.
    - Depois de pronto, **dispare o treinamento inicial pela tela do Admin**. Esse é o treino oficial da rede, com o teste de verdade.
-2. **Pedido 3: Cenário 02, retreinamento semanal.** Cole:
+2. **Pedido 3: Cenário 02, retreinamento semanal, com a importação diária da Undermine e os ajustes do C1.** Cole:
 
    ```
-   Implemente o CU11 Cenário 02 (retreinar o modelo periodicamente) conforme docs/casos-de-uso/CU11-treinar-modelo.md, nas mesmas regras do pedido do C1: plano primeiro, um teste por fluxo, mensagens exatas, valores configuráveis. A cada retreino, a situação de todos os itens elegíveis é recalculada com o modelo que ficar vigente (RN10 com o mínimo de dias avaliados). Commit: feat(CU11): retreinamento semanal (C2).
+   Leia estudos/lstm/pedido-cu11-c2.md e siga, começando pelo plano.
    ```
 
 3. **Pedido 4: Cenário 03, consolidação diária.** Cole:
 
    ```
-   Implemente o CU11 Cenário 03 (consolidar predições diárias) conforme docs/casos-de-uso/CU11-treinar-modelo.md, nas mesmas regras do pedido do C1. No plano, proponha como agendar a importação incremental diária da Undermine (decisão pendente do CU11) antes de implementar. Commit: feat(CU11): consolidação diária das predições (C3).
+   Leia estudos/lstm/pedido-cu11-c3.md e siga, começando pelo plano.
+   ```
+
+4. **Pedido 5: CU05, consultar previsão preditiva** (a tela que mostra a projeção ao usuário). Cole:
+
+   ```
+   Leia estudos/lstm/pedido-cu05.md e siga, começando pelo plano.
    ```
 
 ---
