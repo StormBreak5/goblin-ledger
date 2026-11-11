@@ -14,11 +14,13 @@ from src.models.api_models import (
     ItemSummary,
     PontoDoHistorico,
 )
+from src.repositories.favorito_repository import FavoritoRepository
 from src.repositories.item_repository import ItemRepository
 from src.repositories.item_price_repository import ItemPriceRepository
 from src.models.item_price import REGIAO_DA_FICHA, WOW_TOKEN_ID
 from src.repositories.mercado_repository import MercadoRepository
-from src.services import ingestao_config, mensagens, security
+from src.services import mensagens, security
+from src.services.frescor import frescor_do_item
 from src.services.valor_de_mercado import primeiro_quartil_ponderado
 
 # CU03: parâmetros da busca (RF02 - Termo de Busca: texto de até 100 caracteres).
@@ -131,27 +133,8 @@ class ItemService:
         ]
 
     def _frescor(self, item_id: int, agora: datetime) -> tuple[bool, Optional[datetime]]:
-        """
-        CU04-C1 passo 4 (RN09 / RN14): compara o momento com o último ciclo de ingestão do mercado do item. Fica
-        "desatualizado" se o mercado está sinalizado por falha (RN14) ou se o ciclo passou do limiar. A Ficha do WoW usa a
-        idade do último preço; um item que o ciclo da Blizzard nunca coletou usa o ciclo mais recente de qualquer mercado.
-        """
-        limiar = ingestao_config.LIMIAR_DE_DADOS_DESATUALIZADOS
-        if item_id == WOW_TOKEN_ID:
-            ultimo = ItemPriceRepository(self.session).latest(WOW_TOKEN_ID, REGIAO_DA_FICHA)
-            ultima = ultimo.created_at if ultimo is not None else None
-            return ultima is None or agora - ultima > limiar, ultima
-
-        repositorio = MercadoRepository(self.session)
-        estados = repositorio.estados()
-        id_reino = repositorio.mercado_do_item(item_id)
-        estado = next((e for e in estados if e.id_reino == id_reino), None) if id_reino is not None else None
-        if estado is not None:
-            ultima = estado.ultima_atualizacao_em
-            return estado.desatualizado or ultima is None or agora - ultima > limiar, ultima
-        ultimas = [e.ultima_atualizacao_em for e in estados if e.ultima_atualizacao_em is not None]
-        ultima = max(ultimas) if ultimas else None
-        return ultima is None or agora - ultima > limiar, ultima
+        """CU04-C1 passo 4 (RN09 / RN14): ver `frescor_do_item`, que a lista de favoritos (CU06-C3-FA2) também usa."""
+        return frescor_do_item(self.session, item_id, agora)
 
     def search_items(self, query: str, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> ItemSearchResponse:
         """CU03-C1 / CU03-C2 (RF02): busca itens por nome ou por identificador numérico, com paginação.
@@ -216,12 +199,16 @@ class ItemService:
             message=empty_message if total == 0 else None,
         )
 
-    def get_item(self, item_id: int) -> ItemDetail:
-        """CU03-C3 passo 3 / C3-FE1: dados do item selecionado; levanta ItemNotFoundError se ele não existir mais."""
+    def get_item(self, item_id: int, id_usuario: Optional[int] = None) -> ItemDetail:
+        """CU03-C3 passo 3 / C3-FE1: dados do item selecionado; levanta ItemNotFoundError se ele não existir mais.
+        CU06: com o usuário da sessão, informa se o item está nos favoritos dele (o controle "Favoritar"/"Favoritado")."""
         item = self.repository.find_by_external_id(str(item_id))
         if item is None:
             raise ItemNotFoundError(MSG_ITEM_INDISPONIVEL)
-        return ItemDetail(id=int(item.external_item_id), name=item.name, icon_url=item.icon_url)
+        if id_usuario is None:  # anônimo: `favorito` fica de fora da resposta (response_model_exclude_unset)
+            return ItemDetail(id=int(item.external_item_id), name=item.name, icon_url=item.icon_url)
+        favorito = FavoritoRepository(self.session).existe(id_usuario, int(item.external_item_id))
+        return ItemDetail(id=int(item.external_item_id), name=item.name, icon_url=item.icon_url, favorito=favorito)
 
     def get_current_auctions(self, item_id: int, region: str = "3209"):
         """

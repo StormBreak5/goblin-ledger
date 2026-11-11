@@ -26,6 +26,7 @@ export interface ItemDetail {
   id: number;
   name: string;
   icon_url: string | null;
+  favorito?: boolean; // CU06: só vem com uma sessão válida
 }
 
 export type SearchResult = { ok: true; data: ItemSearchResponse } | { ok: false; message: string };
@@ -63,9 +64,11 @@ export async function searchItems(term: string, page: number, signal?: AbortSign
 }
 
 /** CU03-C3: confirma que o item selecionado ainda existe e devolve nome e ícone. */
-export async function fetchItem(itemId: string, signal?: AbortSignal): Promise<ItemLookupResult> {
+export async function fetchItem(itemId: string, signal?: AbortSignal, token?: string | null): Promise<ItemLookupResult> {
   try {
-    const response = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(itemId)}`, { signal });
+    // CU06: com a sessão, a resposta também diz se o item está nos favoritos (o controle "Favoritar"/"Favoritado").
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    const response = await fetch(`${API_BASE_URL}/items/${encodeURIComponent(itemId)}`, { signal, headers });
     if (response.ok) {
       return { status: "found", item: (await response.json()) as ItemDetail };
     }

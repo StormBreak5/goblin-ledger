@@ -64,6 +64,14 @@ DADOS_DESATUALIZADOS = "Dados Desatualizados"  # CU04-C1-FA1 (RN09 / RN14)
 DADOS_LIMITADOS = "Dados limitados. Exibindo todo o histórico disponível para o período selecionado."  # CU04-C2-FA1
 FALHA_NO_HISTORICO = "Não foi possível carregar o histórico de mercado no momento. Tente novamente mais tarde"  # CU04-C1-FE1
 
+# CU06 – Manter Favoritos
+FAVORITO_ADICIONADO = "Item adicionado aos favoritos"  # C1 passo 5
+FAVORITO_REMOVIDO = "Item removido dos favoritos"  # C2 passo 4
+FAVORITO_COM_ALERTAS = "Este item possui alertas de preço, que também serão excluídos. Deseja continuar?"  # C2-FA1
+FAVORITOS_VAZIO = "Você ainda não tem itens favoritos. Use a busca para encontrar itens e favoritá-los"  # C3-FA1
+FALHA_NOS_FAVORITOS = "Não foi possível atualizar os favoritos no momento. Tente novamente mais tarde"  # C1-FE1 e C2-FE1
+FALHA_NA_LISTA_DE_FAVORITOS = "Não foi possível carregar os seus favoritos no momento. Tente novamente mais tarde"  # C3-FE1
+
 # CU05-C1 – Exibir projeção de preços
 PROJECAO_MODELO_NAO_TREINADO = "A projeção de preços ainda não está disponível"  # FA1
 PROJECAO_POUCA_QUANTIDADE = "Projeção indisponível: este item tem pouca quantidade ofertada para uma previsão confiável"  # FA2 (RN02)

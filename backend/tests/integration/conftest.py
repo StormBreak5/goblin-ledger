@@ -125,3 +125,24 @@ def historico_client(db_session: Session, relogio: RelogioFalso):
     app.include_router(item_controller.router, prefix="/api")
     app.dependency_overrides[item_controller.get_servico_do_historico] = lambda: ItemService(db_session, relogio)
     return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def favoritos_client(db_session: Session, relogio: RelogioFalso, email_falso: EmailFalso):
+    """TestClient dos CU06 e CU07 sobre o PostgreSQL de teste, com o relógio falso: as rotas de conta e sessão (para
+    cadastrar e entrar), as do item (CU03/CU04, com o controle "Favoritado") e as de favoritos e alertas."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from src.controllers import auth_controller, deps, favorito_controller, item_controller, usuario_controller
+    from src.services.item_service import ItemService
+
+    app = FastAPI()
+    for modulo in (usuario_controller, auth_controller, item_controller, favorito_controller):
+        app.include_router(modulo.router, prefix="/api")
+    app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor_de_sessao_para(db_session)
+    app.dependency_overrides[deps.get_relogio] = lambda: relogio
+    app.dependency_overrides[deps.get_email_service] = lambda: email_falso
+    app.dependency_overrides[item_controller.get_item_service] = lambda: ItemService(db_session, relogio)
+    app.dependency_overrides[item_controller.get_servico_do_historico] = lambda: ItemService(db_session, relogio)
+    return TestClient(app, raise_server_exceptions=False)

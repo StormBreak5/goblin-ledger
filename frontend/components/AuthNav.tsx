@@ -7,7 +7,7 @@ import { sair } from "@/lib/authApi";
 
 const linkClass = "text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors";
 
-/** CU01/CU02: "Entrar" e "Criar conta" para o anônimo; "Meu perfil" e "Sair" para o usuário autenticado. */
+/** CU01/CU02: "Entrar" e "Criar conta" para o anônimo; "Favoritos" (CU06-C3), "Meu perfil" e "Sair" para o autenticado. */
 export default function AuthNav() {
   const token = useAuthToken();
   const router = useRouter();
@@ -22,6 +22,9 @@ export default function AuthNav() {
   if (token) {
     return (
       <>
+        <Link href="/favoritos" className={linkClass}>
+          Favoritos
+        </Link>
         <Link href="/perfil" className={linkClass}>
           Meu perfil
         </Link>

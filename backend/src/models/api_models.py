@@ -101,3 +101,32 @@ class ItemDetail(BaseModel):
     id: int
     name: str
     icon_url: Optional[str] = None
+    favorito: Optional[bool] = Field(
+        default=None,
+        description="CU06: se o item está nos favoritos do usuário; só com uma sessão válida (sem ela, fica de fora).",
+    )
+
+
+class FavoritoResponse(BaseModel):
+    """CU06-C1 / C2: o estado do controle ("Favoritado" ou "Favoritar") e a mensagem do cenário, se houver."""
+    item_id: int
+    favorito: bool
+    message: Optional[str] = Field(default=None, description="Nula no CU06-C1-FA2 (o item já estava nos favoritos).")
+
+
+class ItemFavorito(BaseModel):
+    """CU06-C3 passo 4: um item da lista de favoritos e a situação de mercado dele."""
+    item_id: int
+    name: str
+    icon_url: Optional[str] = None
+    market_value: Optional[int] = Field(default=None, description="Valor de mercado atual (RN06), em Cobre (RN01).")
+    variacao_pct: Optional[float] = Field(default=None, description="Em relação ao dia anterior, em %; nula sem dado.")
+    alertas_ativos: int
+    desatualizado: bool = Field(description="CU06-C3-FA2 (RN09 / RN14).")
+    aviso: Optional[str] = Field(default=None, description="O selo do FA2, com o texto do cenário.")
+
+
+class FavoritosResponse(BaseModel):
+    """CU06-C3: a lista de favoritos em ordem alfabética, ou a mensagem do FA1."""
+    itens: list[ItemFavorito]
+    mensagem: Optional[str] = None

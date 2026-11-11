@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Aviso, AuthPage, BotaoPrimario, Campo, linkClass } from "@/components/AuthUi";
 import { saveToken, useAuthToken } from "@/lib/auth";
 import { entrar, MSG_CONTA_CRIADA, MSG_SENHA_REDEFINIDA, MSG_SESSAO_EXPIRADA } from "@/lib/authApi";
+import { MSG_ENTRE_PARA_FAVORITAR } from "@/lib/favoritosApi";
 
 function LoginForm() {
   const router = useRouter();
@@ -17,14 +18,16 @@ function LoginForm() {
   const [camposInvalidos, setCamposInvalidos] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
 
-  // Avisos vindos de outras telas: CU01-C1 passo 8, CU02-C3 passo 8 e CU02-C4-FA1.
+  // Avisos vindos de outras telas: CU01-C1 passo 8, CU02-C3 passo 8, CU02-C4-FA1 e CU06-C1-FA1.
   const aviso = searchParams.get("conta") === "criada"
     ? { tipo: "sucesso" as const, texto: MSG_CONTA_CRIADA }
     : searchParams.get("senha") === "redefinida"
       ? { tipo: "sucesso" as const, texto: MSG_SENHA_REDEFINIDA }
       : searchParams.get("aviso") === "sessao-expirada"
         ? { tipo: "erro" as const, texto: MSG_SESSAO_EXPIRADA }
-        : null;
+        : searchParams.get("aviso") === "favoritar"
+          ? { tipo: "erro" as const, texto: MSG_ENTRE_PARA_FAVORITAR } // CU06-C1-FA1
+          : null;
 
   // Pré-condição: o usuário não deve estar autenticado.
   useEffect(() => {

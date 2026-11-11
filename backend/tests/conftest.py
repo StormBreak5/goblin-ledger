@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.controllers import item_controller
 from src.models.cobertura import AptidaoTreinamento
 from src.models.evento import EventoJogo, ExtracaoEvento
+from src.models.favorito import AlertaPreco, Favorito
 from src.models.item import Item
 from src.models.item_price import ItemPrice
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
@@ -151,6 +152,8 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session.query(ScraperExecutionLog).delete()
     session.query(Item).delete()
     session.query(TentativaLogin).delete()
+    session.query(AlertaPreco).delete()
+    session.query(Favorito).delete()
     session.query(Usuario).delete()  # sessões e tokens saem por ON DELETE CASCADE
     session.query(Leilao).delete()
     session.query(EstadoMercado).delete()

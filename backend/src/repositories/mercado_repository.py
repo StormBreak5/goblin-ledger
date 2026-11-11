@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional, Sequence
 
 from psycopg2.extras import execute_values
-from sqlalchemy import func, text, update
+from sqlalchemy import extract, func, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -260,3 +260,41 @@ class MercadoRepository:
             .all()
         )
         return [(preco, quantidade) for preco, quantidade in linhas]
+
+    def leiloes_do_ultimo_ciclo_de_varios(self, item_ids: Sequence[int]) -> dict[int, list[tuple[int, int]]]:
+        """CU06-C3 passo 3: os leilões do último ciclo de cada mercado (como em `leiloes_do_ultimo_ciclo`) de vários itens
+        de uma vez, agrupados por item."""
+        if not item_ids:
+            return {}
+        linhas = (
+            self.session.query(Leilao.item_id, Leilao.preco_unitario, Leilao.quantidade)
+            .join(
+                EstadoMercado,
+                (EstadoMercado.id_reino == Leilao.id_reino) & (Leilao.data_ingestao == EstadoMercado.ultima_atualizacao_em),
+            )
+            .filter(Leilao.item_id.in_(list(item_ids)), Leilao.preco_unitario.isnot(None))
+            .all()
+        )
+        por_item: dict[int, list[tuple[int, int]]] = {}
+        for item_id, preco, quantidade in linhas:
+            por_item.setdefault(int(item_id), []).append((preco, quantidade))
+        return por_item
+
+    def valor_mais_proximo(self, item_id: int, id_reino: int, alvo: datetime, tolerancia: timedelta) -> Optional[int]:
+        """CU06-C3 passo 3: o valor de mercado (RN06) do ponto horário do ciclo da Blizzard do item, no mercado, mais
+        próximo de `alvo` (UTC) e a no máximo `tolerancia` dele; None se não houver."""
+        alvo_sem_fuso = alvo.astimezone(timezone.utc).replace(tzinfo=None)  # a coluna guarda UTC sem fuso
+        ponto = (
+            self.session.query(HistoricalItemPrice.price)
+            .filter(
+                HistoricalItemPrice.item_id == item_id,
+                HistoricalItemPrice.region == str(id_reino),
+                HistoricalItemPrice.origem == "BLIZZARD",
+                HistoricalItemPrice.timestamp >= alvo_sem_fuso - tolerancia,
+                HistoricalItemPrice.timestamp <= alvo_sem_fuso + tolerancia,
+            )
+            .order_by(func.abs(extract("epoch", HistoricalItemPrice.timestamp - alvo_sem_fuso)))
+            .limit(1)
+            .scalar()
+        )
+        return None if ponto is None else int(ponto)

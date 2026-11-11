@@ -4,9 +4,9 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 340 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
-> completa tem 431 testes: 335 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
-> `modelo` (`docker compose run --rm modelo-testes`) e 46 no frontend (`npm test`). Os demais são testes de apoio (migrações,
+> Os testes com identificador de fluxo ou de regra somam 365 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 25 do CU06, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
+> completa tem 456 testes: 348 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
+> `modelo` (`docker compose run --rm modelo-testes`) e 58 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
 > Para rodar: `pytest` a partir de `backend/` (usando `.venv`), `docker compose run --rm modelo-testes` a partir de `backend/` e
@@ -217,6 +217,51 @@ Os FA1 a FA6 do frontend são os casos de um mesmo `it.each`, um por fluxo, com 
 |---|---|---|
 | principal | `test_cu05_c3_fluxo_principal_oculta_a_projecao` | `frontend/tests/cu05-c3-ocultar-projecao.test.tsx` |
 | FA1 | `test_cu05_c3_fa1_exibe_novamente_a_projecao` | `frontend/tests/cu05-c3-ocultar-projecao.test.tsx` |
+
+#### CU06 – Regras gerais do caso de uso (1 teste)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| RN20 | `test_cu06_exclusao_da_conta_remove_favoritos_e_alertas_rn20` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+
+#### CU06 – Cenário 1 (8 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu06_c1_fluxo_principal_adiciona_favorito` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| principal | `test_cu06_c1_fluxo_principal_adiciona_favorito` | `frontend/tests/cu06-c1-favoritar.test.tsx` |
+| FA1 | `test_cu06_c1_fa1_usuario_nao_autenticado` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FA1 | `test_cu06_c1_fa1_usuario_nao_autenticado` | `frontend/tests/cu06-c1-favoritar.test.tsx` |
+| FA2 | `test_cu06_c1_fa2_item_ja_favoritado` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FA2 | `test_cu06_c1_fa2_item_ja_favoritado` | `frontend/tests/cu06-c1-favoritar.test.tsx` |
+| FE1 | `test_cu06_c1_fe1_falha_no_banco` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FE1 | `test_cu06_c1_fe1_falha_no_banco` | `frontend/tests/cu06-c1-favoritar.test.tsx` |
+
+#### CU06 – Cenário 2 (8 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu06_c2_fluxo_principal_remove_favorito` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| principal | `test_cu06_c2_fluxo_principal_remove_favorito` | `frontend/tests/cu06-c2-remover.test.tsx` |
+| FA1 | `test_cu06_c2_fa1_remove_os_alertas_do_item` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FA1 | `test_cu06_c2_fa1_remove_os_alertas_do_item` | `frontend/tests/cu06-c2-remover.test.tsx` |
+| FA2 | `test_cu06_c2_fa2_remocao_cancelada` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FA2 | `test_cu06_c2_fa2_remocao_cancelada` | `frontend/tests/cu06-c2-remover.test.tsx` |
+| FE1 | `test_cu06_c2_fe1_falha_desfaz_remocoes` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FE1 | `test_cu06_c2_fe1_falha_desfaz_remocoes` | `frontend/tests/cu06-c2-remover.test.tsx` |
+
+#### CU06 – Cenário 3 (8 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu06_c3_fluxo_principal_lista_favoritos` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| principal | `test_cu06_c3_fluxo_principal_lista_favoritos` | `frontend/tests/cu06-c3-lista.test.tsx` |
+| FA1 | `test_cu06_c3_fa1_lista_vazia` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FA1 | `test_cu06_c3_fa1_lista_vazia` | `frontend/tests/cu06-c3-lista.test.tsx` |
+| FA2 | `test_cu06_c3_fa2_dados_desatualizados_rn09` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FA2 | `test_cu06_c3_fa2_dados_desatualizados_rn09` | `frontend/tests/cu06-c3-lista.test.tsx` |
+| FE1 | `test_cu06_c3_fe1_falha_no_banco` | `backend/tests/integration/test_cu06_manter_favoritos.py` |
+| FE1 | `test_cu06_c3_fe1_falha_no_banco` | `frontend/tests/cu06-c3-lista.test.tsx` |
 
 #### CU09 – Regras gerais do caso de uso (2 testes)
 

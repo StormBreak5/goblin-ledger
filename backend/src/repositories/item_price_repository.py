@@ -1,7 +1,8 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
+from sqlalchemy import extract, func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -73,6 +74,16 @@ class ItemPriceRepository:
             self.session.query(ItemPrice)
             .filter(ItemPrice.item_id == item_id, ItemPrice.region == region)
             .order_by(ItemPrice.created_at.asc())
+            .first()
+        )
+
+    def mais_proximo(self, item_id: int, region: str, alvo: datetime, tolerancia: timedelta) -> Optional[ItemPrice]:
+        """CU06-C3 passo 3: o preço do item (Ficha do WoW) coletado mais perto de `alvo`, a no máximo `tolerancia`."""
+        return (
+            self.session.query(ItemPrice)
+            .filter(ItemPrice.item_id == item_id, ItemPrice.region == region,
+                    ItemPrice.created_at >= alvo - tolerancia, ItemPrice.created_at <= alvo + tolerancia)
+            .order_by(func.abs(extract("epoch", ItemPrice.created_at - alvo)))
             .first()
         )
 

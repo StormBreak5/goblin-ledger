@@ -3,13 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AvisosDoHistorico from "@/components/AvisosDoHistorico";
+import ControleDeFavorito from "@/components/ControleDeFavorito";
+import Dialogo from "@/components/Dialogo";
 import Header from "@/components/Header";
 import PrecoAtualDoItem from "@/components/PrecoAtualDoItem";
 import PriceChart from "@/components/PriceChart";
 import ProjecaoDoItem from "@/components/ProjecaoDoItem";
 import Toast from "@/components/Toast";
+import { useAuthToken } from "@/lib/auth";
 import { fetchItem, type ItemDetail } from "@/lib/itemSearch";
 import { projecaoExibida } from "@/lib/projecaoDoItem";
+import { useAcoesDeFavorito } from "@/lib/useAcoesDeFavorito";
 import { useHistoricoDoItem, usePrecoAtual } from "@/lib/useHistoricoDoItem";
 import { useProjecaoDoItem, useProjecaoVisivel } from "@/lib/useProjecaoDoItem";
 
@@ -27,6 +31,8 @@ export default function ItemDetailsPage() {
   const id = params.id as string;
 
   // CU03-C3: nome e ícone vêm do backend; item removido durante a navegação volta para a busca (C3-FE1).
+  // CU06: com a sessão, o backend também diz se o item está nos favoritos.
+  const token = useAuthToken();
   const [item, setItem] = useState<ItemDetail | null>(null);
   const [itemError, setItemError] = useState<string | null>(null);
   const itemName = item?.name ?? `Item ${id}`;
@@ -34,7 +40,7 @@ export default function ItemDetailsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchItem(id, controller.signal).then((lookup) => {
+    fetchItem(id, controller.signal, token).then((lookup) => {
       if (controller.signal.aborted) return;
       if (lookup.status === "found") {
         setItem(lookup.item);
@@ -45,7 +51,14 @@ export default function ItemDetailsPage() {
       }
     });
     return () => controller.abort();
-  }, [id, router]);
+  }, [id, router, token]);
+
+  // CU06-C1 e C2: o controle "Favoritar"/"Favoritado", com a confirmação do C2-FA1 num diálogo.
+  const aoMudarFavorito = useCallback((_: number, favorito: boolean) => {
+    setItem((atual) => (atual ? { ...atual, favorito } : atual));
+  }, []);
+  const favoritos = useAcoesDeFavorito(aoMudarFavorito);
+  const favorito = item?.favorito ?? false;
 
   // CU04: a série, os avisos (Dados Desatualizados / Dados limitados / sem histórico) e o preço atual vêm do backend.
   const { dados, janela, pendente, carregando, erro, toast, mudarJanela, fecharToast } = useHistoricoDoItem(id);
@@ -81,6 +94,13 @@ export default function ItemDetailsPage() {
               </h1>
               {itemError && (
                 <p role="alert" className="mt-1 text-sm text-[var(--color-negative)]">{itemError}</p>
+              )}
+              {item && (
+                <ControleDeFavorito
+                  favorito={favorito}
+                  ocupado={favoritos.ocupado}
+                  aoAlternar={() => (favorito ? favoritos.remover(item.id) : favoritos.adicionar(item.id))}
+                />
               )}
             </div>
           </div>
@@ -157,6 +177,13 @@ export default function ItemDetailsPage() {
         )}
       </main>
       {toast && <Toast texto={toast} onFechar={fecharToast} />}
+      {favoritos.aviso && <Toast texto={favoritos.aviso.texto} tom={favoritos.aviso.tom} onFechar={favoritos.fecharAviso} />}
+      {favoritos.confirmacao && (
+        <Dialogo titulo="Remover dos favoritos" aoConfirmar={favoritos.confirmar} aoCancelar={favoritos.cancelar}
+          textoConfirmar="Remover" ocupado={favoritos.ocupado}>
+          <p className="text-sm text-[var(--color-text-main)]">{favoritos.confirmacao.texto}</p>
+        </Dialogo>
+      )}
     </div>
   );
 }

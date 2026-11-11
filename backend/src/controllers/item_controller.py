@@ -1,11 +1,13 @@
 import logging
 from datetime import datetime
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from src.controllers.deps import get_relogio
+from src.controllers.deps import extrair_token, get_relogio
+from src.services.erros import SessaoInvalidaError
+from src.services.login_service import LoginService
 from src.models.api_models import HistoricoDoItemResponse, ItemDetail, ItemSearchResponse, ProjecaoDoItemResponse
 from src.repositories.database import get_session
 from src.services import mensagens
@@ -23,6 +25,16 @@ from src.services.item_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["items"])
+
+def usuario_opcional(db: Session, token: Optional[str], relogio: Callable[[], datetime]) -> Optional[int]:
+    """O usuário da sessão, em rotas públicas que mostram algo a mais para quem está autenticado (CU06: o controle
+    "Favoritado"). Sem token, ou com um token que não vale mais, a rota segue como anônima."""
+    if not token:
+        return None
+    try:
+        return LoginService(db, relogio).usuario_da_sessao(token).id_usuario
+    except SessaoInvalidaError:
+        return None
 
 def get_item_service() -> Iterator[ItemService]:
     """CU03-C1-FE1 / CU03-C2-FE1: falha ao obter a sessão do banco também resulta na mensagem do cenário."""
@@ -81,17 +93,21 @@ def search_items(
         logger.exception("CU03: falha ao consultar itens no banco de dados")
         raise HTTPException(status_code=503, detail=MSG_FALHA_NA_BUSCA) from e
 
-@router.get("/items/{item_id}", response_model=ItemDetail)
+@router.get("/items/{item_id}", response_model=ItemDetail, response_model_exclude_unset=True)
 def get_item(
     item_id: int,
+    token: Optional[str] = Depends(extrair_token),
+    relogio: Callable[[], datetime] = Depends(get_relogio),
     service: ItemService = Depends(get_item_service)
 ):
     """
     CU03-C3: recupera o item selecionado na relação de resultados.
     Item inexistente resulta em 404 com a mensagem do CU03-C3-FE1.
+    CU06: com uma sessão válida, informa se o item está nos favoritos do usuário; sem ela, a rota continua pública e a
+    resposta não muda.
     """
     try:
-        return service.get_item(item_id=item_id)
+        return service.get_item(item_id=item_id, id_usuario=usuario_opcional(service.session, token, relogio))
     except ItemNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except SQLAlchemyError as e:

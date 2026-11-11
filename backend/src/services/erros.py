@@ -132,5 +132,11 @@ class EventosNaoExtraidosError(ErroDeNegocio):
     mensagem_padrao = mensagens.EVENTOS_NAO_EXTRAIDOS
 
 
+class FavoritoComAlertasError(ErroDeNegocio):
+    """CU06-C2-FA1: o item tem alertas de preço do usuário; a remoção espera a confirmação, e nada é removido antes."""
+    status_code = 409
+    mensagem_padrao = mensagens.FAVORITO_COM_ALERTAS
+
+
 class EmailIndisponivelError(Exception):
     """CU02-C2-FE1: o serviço de envio de e-mail não respondeu."""

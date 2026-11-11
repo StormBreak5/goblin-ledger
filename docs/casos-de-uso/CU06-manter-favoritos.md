@@ -2,6 +2,17 @@
 
 > Texto igual ao do TC (seção 6.4.6), conferido em 11/11/2026.
 
+**Situação no código (11/11/2026):** C1, C2 e C3 implementados (pedido `estudos/lstm/pedido-cu06-cu07.md`).
+
+- **Banco:** migração `0011_favoritos_e_alertas` (`favorito` e `alerta_preco`, como no MR). A exclusão da conta (CU01-C3, RN20) remove os favoritos e os alertas pelas cascatas, sem mudar o CU01.
+- **API**, toda autenticada: `POST /api/favorites/{item_id}` (C1), `DELETE /api/favorites/{item_id}` (C2; com alertas e sem `?confirmar=true`, responde 409 com o aviso do FA1 e não remove nada) e `GET /api/favorites` (C3). O `GET /api/items/{item_id}` informa `favorito` só com uma sessão válida; sem ela, a resposta continua a mesma. Código: `backend/src/controllers/favorito_controller.py`, `src/services/favorito_service.py` e `src/repositories/favorito_repository.py`.
+- **Tela:** o controle "Favoritar"/"Favoritado" abaixo do nome do item (`components/ControleDeFavorito.tsx`), o link "Favoritos" no cabeçalho para o usuário autenticado e a página `/favoritos` (`app/favoritos/page.tsx`). A confirmação do FA1 é um diálogo (`components/Dialogo.tsx`).
+- **Decisões tomadas na implementação:**
+  - C1-FA1: a mensagem chega à tela de login por `/login?aviso=favoritar`. Depois do login, a tela vai para a página inicial, como no CU02-C1 passo 8, porque o CU02 não tem destino de retorno;
+  - C3, variação em relação ao dia anterior: o valor de mercado atual (RN06, o primeiro quartil do último ciclo) contra o ponto horário do ciclo da Blizzard, no mesmo mercado, mais próximo de 24 h antes do **instante do valor atual**, aceito numa janela de ±2 h (`FAVORITOS_VARIACAO_TOLERANCIA_HORAS`). Sem esse ponto (por exemplo, depois de dias sem coleta), a variação fica "—". Para a Ficha do WoW, a mesma regra na série dela;
+  - C3-FA2: a regra do CU04 (`src/services/frescor.py`, RN09 com o limiar de 24 h e RN14), agora compartilhada pelas duas telas;
+  - remover um item que não está nos favoritos responde com sucesso, sem erro.
+
 ## Descrição
 
 Este caso de uso tem como principal função permitir que o usuário autenticado adicione itens à sua lista de favoritos, remova-os e visualize a lista, que funciona como um painel de acesso rápido aos itens que ele acompanha e é a base para a configuração dos alertas de preço.
