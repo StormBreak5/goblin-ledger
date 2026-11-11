@@ -4,9 +4,9 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 315 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
-> completa tem 406 testes: 326 no backend (`pytest`, no host), 48 do pipeline do modelo no container do serviço
-> `modelo` (`docker compose run --rm modelo-testes`) e 32 no frontend (`npm test`). Os demais são testes de apoio (migrações,
+> Os testes com identificador de fluxo ou de regra somam 340 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
+> completa tem 431 testes: 335 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
+> `modelo` (`docker compose run --rm modelo-testes`) e 46 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
 > Para rodar: `pytest` a partir de `backend/` (usando `.venv`), `docker compose run --rm modelo-testes` a partir de `backend/` e
@@ -175,6 +175,48 @@
 | FE1 | `test_cu04_c3_fe1_o_usuario_pode_inspecionar_outro_ponto_normalmente` | `frontend/tests/cu04-c3-inspecionar-ponto.test.tsx` |
 | FE1 | `test_cu04_c3_fe1_valor_atipico_omite_a_dica_e_registra_no_console` | `frontend/tests/cu04-c3-inspecionar-ponto.test.tsx` |
 | regra | `test_cu04_c3_sem_mouse_sobre_o_grafico_nao_ha_dica` | `frontend/tests/cu04-c3-inspecionar-ponto.test.tsx` |
+
+#### CU05 – Cenário 1 (20 testes)
+
+Os FA1 a FA6 do frontend são os casos de um mesmo `it.each`, um por fluxo, com o nome do fluxo (15 funções no total).
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu05_c1_fluxo_principal_exibe_a_projecao_dos_proximos_7_dias` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| principal | `test_cu05_c1_fluxo_principal_exibe_a_projecao_dos_proximos_7_dias` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| principal | `test_cu05_c1_ponta_a_ponta_treino_consolidacao_e_projecao` | `backend/tests/modelo/test_cu05_projecao_ponta_a_ponta.py` |
+| FA1 | `test_cu05_c1_fa1_modelo_nao_treinado` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA1 | `test_cu05_c1_fa1_modelo_nao_treinado` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FA2 | `test_cu05_c1_fa2_item_nao_elegivel_rn02_rn27` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA2 | `test_cu05_c1_fa2_item_nao_elegivel_rn02_rn27` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FA2 | `test_cu05_c1_fa2_criterio_da_api_igual_ao_do_selecao` | `backend/tests/modelo/test_cu05_projecao_ponta_a_ponta.py` |
+| FA3 | `test_cu05_c1_fa3_projecao_reprovada_rn10` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA3 | `test_cu05_c1_fa3_projecao_reprovada_rn10` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FA4 | `test_cu05_c1_fa4_projecao_em_avaliacao` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA4 | `test_cu05_c1_fa4_projecao_em_avaliacao` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FA5 | `test_cu05_c1_fa5_projecao_suspensa_rn13` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA5 | `test_cu05_c1_fa5_projecao_suspensa_rn13` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FA6 | `test_cu05_c1_fa6_projecao_nao_disponivel` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA6 | `test_cu05_c1_fa6_projecao_nao_disponivel` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FA7 | `test_cu05_c1_fa7_projecao_desatualizada` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FA7 | `test_cu05_c1_fa7_projecao_desatualizada` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+| FE1 | `test_cu05_c1_fe1_falha_no_banco` | `backend/tests/integration/test_cu05_consultar_previsao.py` |
+| FE1 | `test_cu05_c1_fe1_falha_no_banco` | `frontend/tests/cu05-c1-exibir-projecao.test.tsx` |
+
+#### CU05 – Cenário 2 (3 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu05_c2_fluxo_principal_tooltip_do_dia_previsto` | `frontend/tests/cu05-c2-inspecionar-dia.test.tsx` |
+| FA1 | `test_cu05_c2_fa1_ponto_de_partida_usa_o_tooltip_do_historico` | `frontend/tests/cu05-c2-inspecionar-dia.test.tsx` |
+| FE1 | `test_cu05_c2_fe1_falha_na_conversao_omite_o_tooltip` | `frontend/tests/cu05-c2-inspecionar-dia.test.tsx` |
+
+#### CU05 – Cenário 3 (2 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu05_c3_fluxo_principal_oculta_a_projecao` | `frontend/tests/cu05-c3-ocultar-projecao.test.tsx` |
+| FA1 | `test_cu05_c3_fa1_exibe_novamente_a_projecao` | `frontend/tests/cu05-c3-ocultar-projecao.test.tsx` |
 
 #### CU09 – Regras gerais do caso de uso (2 testes)
 

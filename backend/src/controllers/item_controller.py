@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from src.controllers.deps import get_relogio
-from src.models.api_models import HistoricoDoItemResponse, ItemDetail, ItemSearchResponse
+from src.models.api_models import HistoricoDoItemResponse, ItemDetail, ItemSearchResponse, ProjecaoDoItemResponse
 from src.repositories.database import get_session
 from src.services import mensagens
+from src.services.projecao_service import ProjecaoService
 from src.services.item_service import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -44,6 +45,18 @@ def get_servico_do_historico(relogio: Callable[[], datetime] = Depends(get_relog
         raise HTTPException(status_code=503, detail=mensagens.FALHA_NO_HISTORICO) from e
     try:
         yield ItemService(db, relogio)
+    finally:
+        db.close()
+
+def get_servico_da_projecao(relogio: Callable[[], datetime] = Depends(get_relogio)) -> Iterator[ProjecaoService]:
+    """CU05-C1-FE1: falha ao obter a sessão do banco também resulta na mensagem do cenário."""
+    try:
+        db = get_session()
+    except SQLAlchemyError as e:
+        logger.exception("CU05: não foi possível obter a sessão do banco de dados")
+        raise HTTPException(status_code=503, detail=mensagens.FALHA_NA_PROJECAO) from e
+    try:
+        yield ProjecaoService(db, relogio)
     finally:
         db.close()
 
@@ -100,6 +113,22 @@ def get_item_history(
     except SQLAlchemyError as e:
         logger.exception("CU04: falha ao consultar o histórico do item %s no banco de dados", item_id)
         raise HTTPException(status_code=503, detail=mensagens.FALHA_NO_HISTORICO) from e
+
+@router.get("/items/{item_id}/projection", response_model=ProjecaoDoItemResponse)
+def get_item_projection(
+    item_id: int,
+    service: ProjecaoService = Depends(get_servico_da_projecao),
+):
+    """
+    CU05-C1 (RF04): a projeção do menor preço diário do item para os próximos 7 dias, na região do histórico (US), ou o
+    motivo da indisponibilidade com o texto do cenário. Lê as predições gravadas pelo CU11-C3; não executa o modelo. Falha
+    de banco resulta em 503 com a mensagem do CU05-C1-FE1; o detalhe técnico só vai para o log.
+    """
+    try:
+        return service.projecao_do_item(item_id=item_id)
+    except SQLAlchemyError as e:
+        logger.exception("CU05: falha ao consultar a projeção do item %s no banco de dados", item_id)
+        raise HTTPException(status_code=503, detail=mensagens.FALHA_NA_PROJECAO) from e
 
 @router.get("/items/{item_id}/current-auctions")
 def get_current_auctions(

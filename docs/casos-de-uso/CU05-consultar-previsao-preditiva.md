@@ -2,7 +2,17 @@
 
 > Texto igual ao do TC (seção 6.4.5), conferido em 11/11/2026.
 
-**Situação no código:** não implementado. Usa as predições diárias gravadas pelo CU11 - Cenário 03 (commit `83bebfb`). Pedido de implementação: `estudos/lstm/pedido-cu05.md` (revisado em 11/11/2026).
+**Situação no código (11/11/2026):** C1, C2 e C3 implementados (pedido `estudos/lstm/pedido-cu05.md`, revisado em 11/11/2026).
+
+- **API:** `GET /api/items/{item_id}/projection` (`backend/src/controllers/item_controller.py`, `src/services/projecao_service.py` e `src/repositories/projecao_repository.py`), sem autenticação, na região US. A API não carrega a rede: só lê as predições que o CU11-C3 grava todo dia em `predicao_diaria` (a inferência, em lote, com o modelo salvo) e a situação de cada item em `projecao_item`. A consulta do usuário fica leve e separada do treinamento.
+- **Tela:** `frontend/app/item/[id]/page.tsx`, com a linha tracejada e a faixa dos dias previstos no gráfico (`components/PriceChart.tsx`), a dica do dia previsto (`components/TooltipDaProjecao.tsx`), os textos e a tabela (`components/ProjecaoDoItem.tsx`) e o controle "Projeção" (`lib/useProjecaoDoItem.ts`, com a escolha no `sessionStorage`).
+- **Decisões tomadas na implementação:**
+  - item que ficou elegível depois do último treino e ainda não foi avaliado (fora de `projecao_item`, ou "deixou de ser elegível", mas atendendo agora à RN02 e à RN27): FA4, "em avaliação" (decisão do autor, 11/11/2026);
+  - FA7: a projeção é desatualizada quando o dia de referência fica mais de `PROJECAO_DESATUALIZADA_DIAS` (2) dias atrás do último dia encerrado (hoje − 1, em UTC), como no pedido. O texto do cenário diz "geradas há mais de 2 dias";
+  - o texto "Projeção gerada em DD/MM/AAAA, a partir do menor preço diário de DD/MM/AAAA" vem do protótipo do RF04 (o cenário não o define); a primeira data é a da gravação das predições e a segunda, o dia de referência, as duas em UTC;
+  - o critério do FA2 é recalculado em SQL com as definições do `selecao.py` do CU11 (o último dia da base da região, a média das quantidades dos últimos 7 dias e os dias desde o primeiro registro diário); um teste no serviço `modelo` confere que dá o mesmo resultado;
+  - com a projeção oculta (C3), somem a linha, a faixa, a legenda, os textos e a tabela.
+- **Capturas** (PNG, escala 2) em `docs/capturas/cu05-*.png`, com os dados reais vistos como em 21/10/2026, o dia seguinte à última consolidação do C3 antes de a importação diária da Undermine parar.
 
 ## Descrição
 

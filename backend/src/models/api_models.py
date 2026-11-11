@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -58,6 +58,42 @@ class HistoricoDoItemResponse(BaseModel):
     desatualizado: bool = Field(description="RN09 / RN14: o mercado do item está sinalizado ou passou do limiar.")
     ultima_atualizacao_em: Optional[datetime] = Field(default=None, description="Último ciclo de ingestão do mercado do item.")
     avisos: list[AvisoDoHistorico]
+
+
+SituacaoDaProjecao = Literal[
+    "DISPONIVEL",           # CU05-C1 fluxo principal (e FA7, com `desatualizada`)
+    "MODELO_NAO_TREINADO",  # FA1
+    "NAO_ELEGIVEL",         # FA2 (RN02 / RN27)
+    "REPROVADA",            # FA3 (RN10)
+    "EM_AVALIACAO",         # FA4 (RN10)
+    "SUSPENSA",             # FA5 (RN13)
+    "NAO_DISPONIVEL",       # FA6
+]
+
+
+class PredicaoDoDia(BaseModel):
+    """CU05-C1 passo 3: a predição de um dia, gravada pelo CU11-C3."""
+    data_prevista: date = Field(description="Dia previsto (o dia inteiro, em UTC).")
+    preco_previsto: int = Field(description="Menor preço diário previsto, em Cobre (RN01).")
+    variacao_pct: float = Field(description="Variação em relação ao preço diário do dia de referência, em %, com 1 casa.")
+
+
+class AvisoDaProjecao(BaseModel):
+    """CU05-C1 passo 7 e FA7: texto exibido junto à projeção; o cliente só o apresenta."""
+    codigo: Literal["ORIGEM", "ERRO_TIPICO", "ESTIMATIVA", "DESATUALIZADA"]
+    texto: str
+
+
+class ProjecaoDoItemResponse(BaseModel):
+    """CU05-C1: a projeção do item para os próximos 7 dias ou o motivo da indisponibilidade (mensagem do cenário)."""
+    situacao: SituacaoDaProjecao
+    mensagem: Optional[str] = Field(default=None, description="FA1 a FA6: texto exibido no lugar da projeção.")
+    data_referencia: Optional[date] = Field(default=None, description="Dia de referência D da projeção (o último preço diário).")
+    preco_referencia: Optional[int] = Field(default=None, description="Preço diário de D, em Cobre: o ponto de partida.")
+    erro_tipico_pct: Optional[int] = Field(default=None, description="MdAPE do item (RN10), em %, arredondado.")
+    desatualizada: bool = Field(default=False, description="FA7: D ficou mais de PROJECAO_DESATUALIZADA_DIAS atrás.")
+    predicoes: list[PredicaoDoDia] = Field(default_factory=list, description="Só os dias a partir de hoje (UTC), em ordem.")
+    avisos: list[AvisoDaProjecao] = Field(default_factory=list)
 
 
 class ItemDetail(BaseModel):

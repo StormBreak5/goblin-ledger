@@ -14,6 +14,7 @@
   --cta-hover: #F59E0B;
   --positive: #10B981;
   --negative: #EF4444;
+  --projection: #A78BFA; /* CU05: linha e tabela da projeção (protótipo do RF04) */
 }
 
 @theme inline {
@@ -29,6 +30,7 @@
   --color-cta-hover: var(--cta-hover);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
+  --color-projection: var(--projection);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }

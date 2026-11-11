@@ -64,6 +64,23 @@ DADOS_DESATUALIZADOS = "Dados Desatualizados"  # CU04-C1-FA1 (RN09 / RN14)
 DADOS_LIMITADOS = "Dados limitados. Exibindo todo o histórico disponível para o período selecionado."  # CU04-C2-FA1
 FALHA_NO_HISTORICO = "Não foi possível carregar o histórico de mercado no momento. Tente novamente mais tarde"  # CU04-C1-FE1
 
+# CU05-C1 – Exibir projeção de preços
+PROJECAO_MODELO_NAO_TREINADO = "A projeção de preços ainda não está disponível"  # FA1
+PROJECAO_POUCA_QUANTIDADE = "Projeção indisponível: este item tem pouca quantidade ofertada para uma previsão confiável"  # FA2 (RN02)
+PROJECAO_HISTORICO_INSUFICIENTE = "Projeção indisponível: este item ainda não tem histórico suficiente para a previsão"  # FA2 (RN27)
+PROJECAO_REPROVADA = "Projeção indisponível: as previsões deste item não atingiram a precisão mínima exigida"  # FA3 (RN10)
+PROJECAO_EM_AVALIACAO = ("A projeção deste item está em avaliação e será exibida quando houver dados suficientes para medir a "
+                         "sua precisão")  # FA4 (RN10)
+PROJECAO_SUSPENSA = ("A projeção deste item está suspensa porque as previsões recentes ficaram abaixo da precisão mínima. Ela "
+                     "será reavaliada na próxima atualização do modelo")  # FA5 (RN13)
+PROJECAO_NAO_DISPONIVEL = "A projeção deste item não está disponível no momento"  # FA6
+PROJECAO_DESATUALIZADA = "Projeção desatualizada"  # FA7
+PROJECAO_ESTIMATIVA = "A projeção é uma estimativa estatística e não garante o preço futuro"  # passo 7
+PROJECAO_ERRO_TIPICO = "Erro mediano de {pct}% nas previsões deste item"  # passo 7
+# O documento não define o texto abaixo (protótipo do RF04, Figura 14).
+PROJECAO_ORIGEM = "Projeção gerada em {gerada_em}, a partir do menor preço diário de {referencia}"
+FALHA_NA_PROJECAO = "Não foi possível carregar a projeção no momento. Tente novamente mais tarde"  # FE1
+
 # CU02-C4 – Encerrar sessão
 SESSAO_EXPIRADA = "Sua sessão expirou. Faça login novamente"  # CU02-C4-FA1
 

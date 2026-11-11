@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AvisosDoHistorico from "@/components/AvisosDoHistorico";
 import Header from "@/components/Header";
 import PrecoAtualDoItem from "@/components/PrecoAtualDoItem";
 import PriceChart from "@/components/PriceChart";
+import ProjecaoDoItem from "@/components/ProjecaoDoItem";
 import Toast from "@/components/Toast";
 import { fetchItem, type ItemDetail } from "@/lib/itemSearch";
+import { projecaoExibida } from "@/lib/projecaoDoItem";
 import { useHistoricoDoItem, usePrecoAtual } from "@/lib/useHistoricoDoItem";
+import { useProjecaoDoItem, useProjecaoVisivel } from "@/lib/useProjecaoDoItem";
 
 const JANELAS = [
   { value: "14D", label: "14 Dias" },
@@ -48,6 +51,19 @@ export default function ItemDetailsPage() {
   const { dados, janela, pendente, carregando, erro, toast, mudarJanela, fecharToast } = useHistoricoDoItem(id);
   const { preco, carregando: carregandoPreco } = usePrecoAtual(id);
   const semHistorico = dados?.avisos.find((aviso) => aviso.codigo === "SEM_HISTORICO");
+
+  // CU05: a projeção, com a situação e os textos vindos do backend. Pré-condição: o histórico está exibido na tela.
+  const estadoDaProjecao = useProjecaoDoItem(id);
+  const [projecaoVisivel, alternarProjecao] = useProjecaoVisivel(); // C3
+  // C2: o dia em destaque, apontado pelo ponto do gráfico ou pela linha da tabela.
+  const [destaque, setDestaque] = useState<{ dia: string; pelaTabela: boolean } | null>(null);
+  const destacarPeloGrafico = useCallback((dia: string | null) => setDestaque(dia ? { dia, pelaTabela: false } : null), []);
+  const destacarPelaTabela = useCallback((dia: string | null) => setDestaque(dia ? { dia, pelaTabela: true } : null), []);
+  const historicoExibido = !erro && (dados?.pontos.length ?? 0) > 0;
+  const projecao = useMemo(
+    () => (historicoExibido ? projecaoExibida(estadoDaProjecao.projecao) : null),
+    [historicoExibido, estadoDaProjecao.projecao],
+  );
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] flex flex-col">
@@ -91,6 +107,22 @@ export default function ItemDetailsPage() {
               {w.label}
             </button>
           ))}
+          {projecao && (
+            <button
+              onClick={alternarProjecao}
+              aria-pressed={projecaoVisivel}
+              className={`ml-2 flex items-center gap-2 px-3 py-1 rounded text-sm border transition-colors ${
+                projecaoVisivel
+                  ? 'border-[var(--color-projection)] text-[var(--color-projection)] bg-[var(--color-projection)]/10'
+                  : 'border-[var(--color-border)] text-[var(--color-text-secondary)] bg-[var(--color-surface-solid)] hover:text-[var(--color-text-main)]'
+              }`}
+            >
+              <span aria-hidden className={`relative inline-block h-3.5 w-6 rounded-full transition-colors ${projecaoVisivel ? 'bg-[var(--color-projection)]' : 'bg-[var(--color-border)]'}`}>
+                <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ${projecaoVisivel ? 'left-3' : 'left-0.5'}`} />
+              </span>
+              Projeção
+            </button>
+          )}
         </div>
 
         {dados && <AvisosDoHistorico avisos={dados.avisos} />}
@@ -108,9 +140,21 @@ export default function ItemDetailsPage() {
               <p className="text-[var(--color-negative)] font-medium">{erro}</p>
             </div>
           ) : (
-            <PriceChart data={dados?.pontos ?? []} mensagemVazia={semHistorico?.texto} />
+            <PriceChart
+              data={dados?.pontos ?? []}
+              mensagemVazia={semHistorico?.texto}
+              projecao={projecao && projecaoVisivel ? projecao : null}
+              diaDestacado={destaque?.dia ?? null}
+              aoDestacarDia={destacarPeloGrafico}
+              dicaNoPonto={destaque?.pelaTabela ?? false}
+            />
           )}
         </div>
+
+        {historicoExibido && (
+          <ProjecaoDoItem estado={estadoDaProjecao} visivel={projecaoVisivel} diaDestacado={destaque?.dia ?? null}
+            aoDestacarDia={destacarPelaTabela} />
+        )}
       </main>
       {toast && <Toast texto={toast} onFechar={fecharToast} />}
     </div>
