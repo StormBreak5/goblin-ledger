@@ -132,6 +132,7 @@ Os dias preenchidos e os descartados pela RN03 não entram no cálculo do erro, 
 | 14 (detalhada) | `f_feira_negrilua`, `f_feira_negrilua_prox` | O mesmo para a Feira de Negrilua (evento recorrente: uma semana por mês). |
 | 15 | `classe_idx`, `subclasse_idx` | Índice para embedding (0 = desconhecida) |
 | 16 | `f_qualidade`, `f_nivel_item` | Qualidade ÷ 5; nível pelo mínimo e máximo do treino |
+| 16 (one-hot) | `f_qualidade_pobre` … `f_qualidade_lendaria` | Uma coluna de 0 ou 1 por qualidade, no lugar da `f_qualidade` (lendária reúne artefato e herança; sem qualidade = todas em 0). **Desligada por padrão**; liga com `--qualidade-one-hot` (etapa 2j). |
 | 17 | `f_tem_piso` | Tem preço de venda ao vendedor |
 | 18 | `f_commodity` | Commodity: `source_region` do item é o id de commodities da região (32512 nos EUA) |
 | 19 (etapa 2d) | `f_item_expansao_vigente` | 1 quando o item é da expansão vigente no dia. A expansão do item é a do último lançamento até o primeiro registro dele, com 7 dias de folga (acesso antecipado). **Desligada por padrão**; liga com `--variavel-expansao-item`. |
@@ -263,6 +264,24 @@ python avaliar.py --pasta saida/treino2i_sub --periodo validacao \
 - **e** os itens liberados pela RN10 não podem cair mais que o maior desvio dessa medida.
 
 A comparação é contra os `gelu_s*` da base `treino01_agr`.
+
+## Qualidade em one-hot (etapa 2j)
+
+**O problema (orientação de 30/10):** a qualidade é uma categoria, mas entrava como número (qualidade ÷ 5). Isso cria uma ordem e uma distância que não existem (épico "vale o dobro" de incomum), junta lendária, artefato e herança no mesmo 1,0 e confunde o item sem qualidade com o "pobre" (os dois viram 0).
+
+**A opção:** `--qualidade-one-hot` na `preparar_dados.py` (`Config.qualidade_one_hot`, desligada por padrão).
+- A `f_qualidade` dá lugar a seis colunas de 0 ou 1 (`COLUNAS_DA_QUALIDADE`): pobre, comum, incomum, rara, épica e lendária ou acima.
+- O item sem qualidade fica com as seis em 0. As variáveis fixas passam de 4 para 9.
+- As variáveis da base mudam, e com elas a assinatura. Sem a opção, nada muda.
+
+**A comparação:** `refazer_qualidade.py` faz uma cópia de uma base pronta com só a qualidade refeita, como o `refazer_subclasse.py` da 2i. Antes de gravar, confere que a `f_qualidade` recalculada com a qualidade de cada item (do banco) é a gravada em todas as linhas; se não for, para e não grava nada. O `qualidades.csv` traz a qualidade de cada item.
+
+```bash
+python refazer_qualidade.py --banco --pasta saida/treino2i_sub --saida saida/treino2j_qual
+python treinar.py --pasta saida/treino2j_qual --nome qual_s42 --semente 42 --ativacao gelu
+```
+
+**Regra de decisão:** a mesma da 2i (não inferioridade), contra os `sub_s*` da base `treino2i_sub`.
 
 ## Calendário dos dias previstos (etapa 2h)
 

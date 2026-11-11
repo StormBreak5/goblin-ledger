@@ -52,8 +52,9 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from config import (PERIODOS, PREFIXO_FESTIVAL, SUFIXO_PROXIMOS, VARIAVEIS_CATEGORICAS, VARIAVEIS_ESTATICAS,
-                    VARIAVEIS_SEQUENCIA, VARIAVEL_EXPANSAO_ITEM, VARIAVEL_FEIRA, VARIAVEL_IDADE_ITEM, Config)
+from config import (COLUNAS_DA_QUALIDADE, PERIODOS, PREFIXO_FESTIVAL, SUFIXO_PROXIMOS, VARIAVEIS_CATEGORICAS,
+                    VARIAVEIS_SEQUENCIA, VARIAVEL_EXPANSAO_ITEM, VARIAVEL_FEIRA, VARIAVEL_IDADE_ITEM, Config,
+                    variaveis_estaticas)
 from dataset import assinatura_normalizacao
 from io_dados import Entrada, carregar_banco, carregar_csv, url_do_banco
 
@@ -645,6 +646,15 @@ def indices_do_vocabulario(codigos: pd.Series, vocab: dict[str, int]) -> pd.Seri
     return codigos.map(mapa).fillna(0).astype("int32")
 
 
+def qualidade_em_colunas(qualidade: pd.Series) -> dict[str, np.ndarray]:
+    """Variável 16 com `qualidade_one_hot` (etapa 2j): uma coluna de 0 ou 1 para cada qualidade (COLUNAS_DA_QUALIDADE),
+    sem ordem nem distância entre elas. Lendária, artefato e herança (5 a 7) ficam na última; o item sem qualidade, ou com
+    uma qualidade fora da tabela, fica com todas em 0, e não com a de "pobre"."""
+    codigo = pd.to_numeric(qualidade, errors="coerce").to_numpy(dtype="float64")
+    codigo = np.where(codigo >= len(COLUNAS_DA_QUALIDADE) - 1, len(COLUNAS_DA_QUALIDADE) - 1, codigo)
+    return {col: (codigo == k).astype("float32") for k, col in enumerate(COLUNAS_DA_QUALIDADE)}
+
+
 def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: Config) -> None:
     """Aplica a normalização (de agora ou de uma versão anterior do modelo) a todas as linhas. Categoria fora do
     vocabulário, como a de um item de uma subclasse nunca vista no treino, vira 0 (desconhecida)."""
@@ -656,8 +666,12 @@ def aplicar(linhas: pd.DataFrame, ajuste: dict[str, Any], cfg: Config) -> None:
     linhas["f_preco_npc"] = linhas["f_preco_npc"].fillna(0.0)
     linhas["f_observado"] = linhas["observado"].astype("float32")
 
-    qualidade = linhas["qualidade"].clip(0, cfg.qualidade_max) / cfg.qualidade_max
-    linhas["f_qualidade"] = qualidade.fillna(0.0).astype("float32")
+    if cfg.qualidade_one_hot:  # etapa 2j: uma coluna de 0 ou 1 por qualidade
+        for col, valores in qualidade_em_colunas(linhas["qualidade"]).items():
+            linhas[col] = valores
+    else:
+        qualidade = linhas["qualidade"].clip(0, cfg.qualidade_max) / cfg.qualidade_max
+        linhas["f_qualidade"] = qualidade.fillna(0.0).astype("float32")
     nmin, nmax = ajuste["nivel_item"]["min"], ajuste["nivel_item"]["max"]
     nivel = ((linhas["nivel_item"] - nmin) / max(nmax - nmin, EPS)).clip(0, 1)
     linhas["f_nivel_item"] = nivel.fillna(0.0).astype("float32")
@@ -851,7 +865,7 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
         variaveis_seq = VARIAVEIS_SEQUENCIA + extras
         variaveis_seq += [VARIAVEL_EXPANSAO_ITEM] if cfg.variavel_expansao_item else []
         variaveis_seq += [VARIAVEL_IDADE_ITEM] if cfg.variavel_idade_item else []
-    variaveis = variaveis_seq + VARIAVEIS_ESTATICAS
+    variaveis = variaveis_seq + variaveis_estaticas(cfg)
     linhas["apta"] = linhas["preco"].notna() & np.isfinite(linhas[variaveis].to_numpy(dtype="float32")).all(axis=1)
     jan = montar_janelas(linhas, cortes, cfg)
     alvo = normalizar_alvo(jan, cfg, None if normalizacao_base is None else normalizacao_base["alvo"])
@@ -887,7 +901,7 @@ def preparar(entrada: Entrada, cfg: Config, regiao: Optional[str] = "US", ignora
         "cortes": {k: v.date().isoformat() for k, v in cortes.items()},
         **ajuste,
         "alvo": alvo,
-        "variaveis": {"sequencia": variaveis_seq, "estaticas": VARIAVEIS_ESTATICAS,
+        "variaveis": {"sequencia": variaveis_seq, "estaticas": variaveis_estaticas(cfg),
                       "categoricas": VARIAVEIS_CATEGORICAS},
         "eventos_detalhados": {"colunas": festivais_usados, "sem_ocorrencia_no_treino": ignorados},
         "contagens": contagens,
@@ -954,6 +968,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="etapa 2d: variável 20, idade do item (dias desde o primeiro registro)")
     ap.add_argument("--subclasse-por-classe", action="store_true",
                     help="etapa 2i: variáveis 6 e 15 pelo par (classe, subclasse), e não pelo código da subclasse sozinho")
+    ap.add_argument("--qualidade-one-hot", action="store_true",
+                    help="etapa 2j: variável 16 com uma coluna de 0 ou 1 por qualidade, e não a qualidade dividida por 5")
     ap.add_argument("--reservar-itens", type=float, default=0.0,
                     help="etapa 2c: fração dos itens (ex.: 0.2) sorteada para ficar fora do treino, pela --semente")
     ap.add_argument("--normalizacao-de", type=Path,
@@ -972,7 +988,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                                     ("--corte-teste", args.corte_teste), ("--reservar-itens", args.reservar_itens),
                                     ("--variavel-expansao-item", args.variavel_expansao_item),
                                     ("--variavel-idade-item", args.variavel_idade_item),
-                                    ("--subclasse-por-classe", args.subclasse_por_classe)) if v]
+                                    ("--subclasse-por-classe", args.subclasse_por_classe),
+                                    ("--qualidade-one-hot", args.qualidade_one_hot)) if v]
         if conflitos:
             ap.error(f"com --normalizacao-de, a configuração vem da outra base; tire {', '.join(conflitos)}")
         base = json.loads((args.normalizacao_de / "normalizacao.json").read_text(encoding="utf-8"))
@@ -1001,6 +1018,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         cfg = replace(cfg, variavel_idade_item=True)
     if args.subclasse_por_classe:
         cfg = replace(cfg, subclasse_por_classe=True)
+    if args.qualidade_one_hot:
+        cfg = replace(cfg, qualidade_one_hot=True)
 
     if args.banco:
         if args.env_arquivo:

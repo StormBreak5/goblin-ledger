@@ -1158,3 +1158,100 @@ def test_refazer_subclasse_so_muda_a_variavel_6_e_a_subclasse(bases_2i: dict[str
         assert n_refeita[k] == n_on[k], k
     assert n_refeita["subclasse_refeita"]["assinatura_base"] == bases_2i["off"].normalizacao["assinatura"]
     assert (saida / "subclasses.csv").exists()
+
+
+# ============================================================================================ etapa 2j: qualidade
+CFG_QUAL = replace(CFG, qualidade_one_hot=True)
+
+
+def test_qualidade_em_colunas_sem_ordem_entre_as_qualidades() -> None:
+    """Variável 16 da etapa 2j: uma coluna de 0 ou 1 por qualidade, sem ordem nem distância entre elas. Lendária,
+    artefato e herança ficam na última coluna; sem qualidade, nenhuma coluna (e não a de "pobre", como na qualidade ÷ 5)."""
+    from config import COLUNAS_DA_QUALIDADE
+    from preparar_dados import qualidade_em_colunas
+
+    colunas = qualidade_em_colunas(pd.Series([0, 1, 2, 3, 4, 5, 6, 7, None, np.nan], dtype="object"))
+    assert list(colunas) == COLUNAS_DA_QUALIDADE
+    m = np.column_stack(list(colunas.values()))
+    assert m.dtype == np.float32 and m.shape == (10, 6)
+    np.testing.assert_array_equal(m[:6], np.eye(6, dtype="float32"))
+    assert (m[6:8, 5] == 1).all() and (m[6:8, :5] == 0).all()  # artefato e herança
+    assert (m[8:] == 0).all()
+
+
+def test_qualidade_one_hot_desligada_mantem_a_base(sinteticos: dict[str, pd.DataFrame],
+                                                    preparado: tuple[Resultado, Path]) -> None:
+    """Desligada (o padrão), as variáveis fixas são as de antes. Ligada, as seis colunas entram no lugar da f_qualidade:
+    as janelas, as linhas aptas e as demais variáveis não mudam, e a assinatura muda (as variáveis são outras)."""
+    from config import COLUNAS_DA_QUALIDADE, VARIAVEIS_ESTATICAS, variaveis_estaticas
+
+    res, _ = preparado
+    assert res.normalizacao["config"]["qualidade_one_hot"] is False
+    assert res.normalizacao["variaveis"]["estaticas"] == VARIAVEIS_ESTATICAS == variaveis_estaticas(CFG)
+
+    ligada = preparar(entrada_de(sinteticos), CFG_QUAL, filtro_liquidez=False, **CORTES)
+    assert ligada.normalizacao["variaveis"]["estaticas"] == COLUNAS_DA_QUALIDADE + ["f_nivel_item", "f_tem_piso",
+                                                                                     "f_commodity"]
+    pd.testing.assert_frame_equal(ligada.janelas, res.janelas)
+    n_on, n_off = ligada.linhas_normalizadas, res.linhas_normalizadas
+    resto = [c for c in n_off.columns if c != "f_qualidade"]
+    pd.testing.assert_frame_equal(n_on[resto], n_off[resto])
+    soma = n_on[COLUNAS_DA_QUALIDADE].sum(axis=1)
+    assert set(soma.unique()) <= {0.0, 1.0} and (soma == 0).any() and (soma == 1).any()  # há itens sem qualidade
+    assert ((soma == 0) == (n_off["f_qualidade"] == 0)).all()  # os sintéticos não têm item "pobre"
+    assert ligada.normalizacao["assinatura"] != res.normalizacao["assinatura"]
+
+
+def test_refazer_qualidade_confere_a_base_e_aborta_se_mudou(sinteticos: dict[str, pd.DataFrame],
+                                                            preparado: tuple[Resultado, Path], tmp_path: Path) -> None:
+    """A conferência: a f_qualidade recalculada com a qualidade de cada item é a gravada na base. Um item que mudou de
+    qualidade depois da preparação faz a conferência falhar, e nada é gravado. Uma base já em one-hot é recusada."""
+    from refazer_qualidade import refazer
+
+    _, pasta = preparado
+    itens = _padronizar_itens(sinteticos["itens"])
+    info = refazer(pasta, itens, tmp_path / "ok")
+    assert info["conferencia"]["diferencas"] == 0
+    na_base = pd.read_parquet(pasta / "linhas_originais.parquet", columns=["item_id"])["item_id"].nunique()
+    assert sum(info["contagens"]["itens_por_qualidade"].values()) == na_base
+    assert info["contagens"]["itens_por_qualidade"]["sem qualidade"] > 0
+
+    alterado = itens.copy()
+    i = alterado.index[alterado["qualidade"] == 2][0]
+    alterado.loc[i, "qualidade"] = 3
+    with pytest.raises(ValueError, match="não batem"):
+        refazer(pasta, alterado, tmp_path / "falha")
+    assert not (tmp_path / "falha").exists()
+    with pytest.raises(ValueError, match="já usa"):
+        refazer(tmp_path / "ok", itens, tmp_path / "de_novo")
+
+
+def test_refazer_qualidade_so_troca_a_variavel_16(sinteticos: dict[str, pd.DataFrame],
+                                                   preparado: tuple[Resultado, Path], tmp_path: Path) -> None:
+    """A cópia refeita é a mesma base que a preparação com a qualidade em one-hot daria: mesmas janelas e linhas
+    originais, as mesmas linhas normalizadas (na mesma ordem de colunas) e a mesma assinatura."""
+    import json
+
+    from refazer_qualidade import main
+
+    res, pasta_off = preparado
+    ligada = preparar(entrada_de(sinteticos), CFG_QUAL, filtro_liquidez=False, **CORTES)
+    pasta_on, saida = tmp_path / "on", tmp_path / "refeita"
+    salvar(ligada, pasta_on)
+    sinteticos["itens"].to_csv(tmp_path / "itens.csv", index=False)
+    assert main(["--csv", str(tmp_path), "--pasta", str(pasta_off), "--saida", str(saida)]) == 0
+
+    for p in PERIODOS:
+        pd.testing.assert_frame_equal(pd.read_parquet(saida / f"janelas_{p}.parquet"),
+                                      pd.read_parquet(pasta_off / f"janelas_{p}.parquet"))
+    pd.testing.assert_frame_equal(pd.read_parquet(saida / "linhas_originais.parquet"),
+                                  pd.read_parquet(pasta_off / "linhas_originais.parquet"))
+    pd.testing.assert_frame_equal(pd.read_parquet(saida / "linhas_normalizadas.parquet"),
+                                  pd.read_parquet(pasta_on / "linhas_normalizadas.parquet"))
+    n_refeita = json.loads((saida / "normalizacao.json").read_text(encoding="utf-8"))
+    n_on = json.loads((pasta_on / "normalizacao.json").read_text(encoding="utf-8"))
+    for k in ("constantes", "vocabulario", "alvo", "variaveis", "nivel_item", "assinatura"):
+        assert n_refeita[k] == n_on[k], k
+    assert n_refeita["config"]["qualidade_one_hot"] is True
+    assert n_refeita["qualidade_refeita"]["assinatura_base"] == res.normalizacao["assinatura"]
+    assert (saida / "qualidades.csv").exists()

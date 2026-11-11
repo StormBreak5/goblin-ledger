@@ -65,6 +65,11 @@ class Config:
     # vocabulário da subclasse usam o par (classe, subclasse). False mantém o código sozinho, como nas bases até a 2h.
     subclasse_por_classe: bool = False
 
+    # Variável 16 (etapa 2j, orientação de 30/10): a qualidade é uma categoria, não uma medida. Com True, ela vira seis
+    # colunas de 0 ou 1 (COLUNAS_DA_QUALIDADE: pobre, comum, incomum, rara, épica e lendária ou acima), e o item sem
+    # qualidade fica com todas em 0. False mantém a qualidade dividida por `qualidade_max`, como nas bases até a 2i.
+    qualidade_one_hot: bool = False
+
     # RN25 - integridade temporal
     proporcao_treino: float = 0.70     # 70/20/10 por data de calendário, igual para todos os itens
     proporcao_validacao: float = 0.20  # o teste fica com o restante (10%)
@@ -130,6 +135,25 @@ VARIAVEIS_ESTATICAS: list[str] = [
     "f_tem_piso",           # 17
     "f_commodity",          # 18
 ]
+
+# Variável 16 com `qualidade_one_hot` (etapa 2j): uma coluna por qualidade da API da Blizzard (POOR = 0 … EPIC = 4); a
+# última reúne lendária (5), artefato (6) e herança (7), que são raras entre os itens negociados no leilão.
+COLUNAS_DA_QUALIDADE: list[str] = [
+    "f_qualidade_pobre",    # POOR
+    "f_qualidade_comum",    # COMMON
+    "f_qualidade_incomum",  # UNCOMMON
+    "f_qualidade_rara",     # RARE
+    "f_qualidade_epica",    # EPIC
+    "f_qualidade_lendaria", # LEGENDARY, ARTIFACT e HEIRLOOM
+]
+
+
+def variaveis_estaticas(cfg: "Config") -> list[str]:
+    """Os atributos fixos do item na ordem da entrada X_est: com a qualidade em one-hot (etapa 2j), as seis colunas dela
+    no lugar da f_qualidade."""
+    if not cfg.qualidade_one_hot:
+        return list(VARIAVEIS_ESTATICAS)
+    return COLUNAS_DA_QUALIDADE + [v for v in VARIAVEIS_ESTATICAS if v != "f_qualidade"]
 
 # Variável 15: índices inteiros para as camadas de embedding (0 = desconhecida).
 VARIAVEIS_CATEGORICAS: list[str] = ["classe_idx", "subclasse_idx"]
