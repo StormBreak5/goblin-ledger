@@ -13,3 +13,14 @@ export function descreverInstante(timestamp: string, granularidade?: Granularida
   const hora = diario ? "dia inteiro" : instante.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
   return { data, hora };
 }
+
+/**
+ * Data e hora de um instante no fuso de quem vê, no formato `dd/mm/aaaa às hh:mm`: o disparo de um alerta (CU07, situação
+ * "Disparado") e de uma notificação (CU08-C3). Vazio se o instante faltar ou não for uma data válida.
+ */
+export function dataEHora(instante: string | null): string {
+  if (!instante) return "";
+  const data = new Date(instante);
+  if (Number.isNaN(data.getTime())) return "";
+  return `${data.toLocaleDateString("pt-BR")} às ${data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+}

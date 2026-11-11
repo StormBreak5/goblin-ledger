@@ -11,6 +11,7 @@ from src.models.favorito import AlertaPreco, Favorito  # noqa: F401
 from src.models.item import Item  # noqa: F401
 from src.models.item_price import ItemPrice  # noqa: F401
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino  # noqa: F401
+from src.models.notificacao import Notificacao  # noqa: F401
 from src.models.modelo import (ConsolidacaoDiaria, ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria,
                               ProjecaoItem)  # noqa: F401
 from src.models.usuario import Sessao, TentativaLogin, TokenRecuperacao, Usuario  # noqa: F401

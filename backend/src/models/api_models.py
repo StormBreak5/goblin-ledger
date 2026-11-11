@@ -173,3 +173,34 @@ class FavoritosResponse(BaseModel):
     """CU06-C3: a lista de favoritos em ordem alfabética, ou a mensagem do FA1."""
     itens: list[ItemFavorito]
     mensagem: Optional[str] = None
+
+
+class Notificacao(BaseModel):
+    """CU08-C3 passo 4: uma notificação do sino, com o item, o tipo de gatilho, o preço-alvo e o valor de mercado que o
+    atingiu (em Cobre, RN01) e a data e a hora do disparo."""
+    id_notificacao: int
+    item_id: int
+    name: str
+    icon_url: Optional[str] = None
+    tipo: Literal["COMPRA", "VENDA"]
+    preco_alvo: int
+    valor_mercado: int
+    disparada_em: datetime
+    lida: bool
+
+
+class NotificacoesResponse(BaseModel):
+    """CU08-C3: as notificações da tela, da mais recente para a mais antiga, as não lidas e a mensagem do FA1."""
+    notificacoes: list[Notificacao]
+    nao_lidas: int
+    mensagem: Optional[str] = None
+
+
+class NaoLidasResponse(BaseModel):
+    """CU08-C3 passos 1 e 5: o contador do sino."""
+    nao_lidas: int
+
+
+class MarcarLidasRequest(BaseModel):
+    """CU08-C3 passo 5: os ids das notificações exibidas."""
+    ids: list[int] = Field(default_factory=list, max_length=1000)

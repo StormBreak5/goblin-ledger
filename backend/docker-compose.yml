@@ -19,8 +19,8 @@ services:
       timeout: 5s
       retries: 5
 
-  # CU02-C2: servidor SMTP de desenvolvimento. Recebe o e-mail de recuperação de senha sem enviá-lo de verdade;
-  # as mensagens ficam em http://localhost:8025. Em produção, configure SMTP_* no .env.
+  # CU02-C2 e CU08-C2: servidor SMTP de desenvolvimento. Recebe os e-mails de recuperação de senha e de alerta de preço
+  # sem enviá-los de verdade; as mensagens ficam em http://localhost:8025. Em produção, configure SMTP_* no .env.
   mailpit:
     image: axllent/mailpit:latest
     container_name: goblinledger-mailpit
@@ -42,9 +42,13 @@ services:
       # o .env traz a porta publicada no host (5435), mas dentro da rede o Postgres escuta em 5432.
       DB_HOST: db
       DB_PORT: 5432
+      # CU08-C2: dentro da rede do Docker, o SMTP de desenvolvimento é o serviço "mailpit", e não localhost.
+      SMTP_HOST: ${SMTP_HOST_DOCKER:-mailpit}
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   # CU11: treino e avaliação do modelo preditivo global (pandas + TensorFlow). Consome a fila de treinamentos que a
   # API registra (POST /api/admin/model-training). Os artefatos de cada versão ficam em ./modelos/v{versao}.

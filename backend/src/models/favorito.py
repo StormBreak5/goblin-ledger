@@ -67,4 +67,5 @@ class AlertaPreco(Base):
         CheckConstraint(f"situacao IN ({_lista_sql(SITUACOES_DE_ALERTA)})", name="ck_alerta_preco_situacao"),
         Index("ix_alerta_preco_usuario_situacao", "id_usuario", "situacao"),
         Index("ix_alerta_preco_usuario_item", "id_usuario", "item_id"),
+        Index("ix_alerta_preco_situacao_item", "situacao", "item_id"),  # CU08-C1 passo 2: os ativos dos itens do ciclo
     )

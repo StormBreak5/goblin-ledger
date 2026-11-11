@@ -13,6 +13,7 @@ from src.controllers.admin_cobertura_controller import router as cobertura_route
 from src.controllers.admin_treinamento_controller import router as treinamento_router
 from src.controllers.favorito_controller import router as favorito_router
 from src.controllers.alerta_controller import router as alerta_router
+from src.controllers.notificacao_controller import router as notificacao_router
 
 # Load environment variables
 load_dotenv()
@@ -45,6 +46,7 @@ app.include_router(cobertura_router, prefix="/api")
 app.include_router(treinamento_router, prefix="/api")
 app.include_router(favorito_router, prefix="/api")
 app.include_router(alerta_router, prefix="/api")
+app.include_router(notificacao_router, prefix="/api")
 
 @app.get("/")
 def read_root():

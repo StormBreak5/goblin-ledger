@@ -17,7 +17,9 @@ from src.repositories.mercado_repository import MercadoRepository
 from src.scraper.models import GRANULARIDADE_HORARIA
 from src.services import ingestao_config, security
 from src.services.api_client import ApiIndisponivelError, BlizzardApiClient, PayloadDeLeiloes
+from src.services.email_service import EmailService
 from src.services.ingestao_config import Mercado
+from src.services.notificacao_service import NotificacaoService, ValorDoCiclo
 from src.services.sanitizacao import PayloadForaDoFormatoError, ResultadoSanitizacao, sanitizar
 from src.services.valor_de_mercado import primeiro_quartil_ponderado, volume_e_anomalo
 
@@ -54,10 +56,12 @@ class IngestaoService:
         session: Session,
         cliente: BlizzardApiClient,
         relogio: Callable[[], datetime] = security.agora,
+        email_service: Optional[EmailService] = None,
     ):
         self.session = session
         self.cliente = cliente
         self.relogio = relogio
+        self.email_service = email_service  # CU08-C2: e-mail das notificações (None: o SMTP configurado)
         self.repository = MercadoRepository(session)
 
     def executar(self, mercado: Mercado, origem: str = ORIGEM_AGENDADO) -> ResultadoCiclo:
@@ -94,10 +98,28 @@ class IngestaoService:
             )
 
         try:
-            return self._consolidar(id_ciclo, mercado, sanitizado, coletado.last_modified, agora)
+            resultado, valores_do_ciclo = self._consolidar(id_ciclo, mercado, sanitizado, coletado.last_modified, agora)
         except SQLAlchemyError as e:
             self.session.rollback()
             return self._falhar(id_ciclo, mercado, ETAPA_CONSOLIDACAO, e)
+
+        self._verificar_alertas(mercado, valores_do_ciclo)
+        return resultado
+
+    # ------------------------------------------------------------------ CU08: depois do ciclo concluído
+
+    def _verificar_alertas(self, mercado: Mercado, valores: list[ValorDoCiclo]) -> None:
+        """CU08-C1 (ativação) e C2: com o ciclo já consolidado e confirmado, verifica os alertas dos itens do ciclo e envia
+        os e-mails pendentes, numa transação própria. Vale para o ciclo agendado e para a ingestão manual do Admin
+        (CU09-C4). Uma falha aqui fica no log e não muda o resultado do ciclo."""
+        try:
+            NotificacaoService(self.session, self.relogio, self.email_service).processar_ciclo(valores, mercado.chave)
+        except Exception:
+            logger.exception("CU08: erro na verificação dos alertas depois do ciclo de %s.", mercado.chave)
+            try:
+                self.session.rollback()
+            except SQLAlchemyError:
+                logger.exception("CU08: não foi possível desfazer a transação da verificação.")
 
     # ------------------------------------------------------------------ C1: coletar
 
@@ -115,8 +137,9 @@ class IngestaoService:
         sanitizado: ResultadoSanitizacao,
         last_modified: Optional[datetime],
         agora: datetime,
-    ) -> ResultadoCiclo:
-        """CU09-C3 passos 1 a 6 numa única transação: se qualquer passo falhar, nada é gravado (FE1)."""
+    ) -> tuple[ResultadoCiclo, list[ValorDoCiclo]]:
+        """CU09-C3 passos 1 a 6 numa única transação: se qualquer passo falhar, nada é gravado (FE1). Devolve também o
+        valor de mercado e a marca de anomalia de cada ponto gravado, para a verificação dos alertas (CU08-C1)."""
         referencia = (last_modified or agora).astimezone(timezone.utc)
         referencia_sem_fuso = referencia.replace(tzinfo=None)  # historical_item_prices guarda UTC sem fuso
         regiao_do_historico = str(mercado.id_reino)
@@ -144,6 +167,7 @@ class IngestaoService:
             regiao_do_historico, (agora - ingestao_config.ANOMALIA_JANELA).replace(tzinfo=None)
         )
         pontos = []
+        valores_do_ciclo: list[ValorDoCiclo] = []
         anomalos = 0
         for item_id, oferta in ofertas.items():
             valor = primeiro_quartil_ponderado(oferta)
@@ -157,6 +181,7 @@ class IngestaoService:
                 item_id, regiao_do_historico, referencia_sem_fuso, valor, volumes[item_id], ORIGEM_BLIZZARD, anomalo,
                 GRANULARIDADE_HORARIA,
             ))
+            valores_do_ciclo.append(ValorDoCiclo(item_id, valor, bool(anomalo)))
         self.repository.registrar_pontos_de_historico(pontos)
 
         # Passos 5 e 6: data e hora da última atualização do mercado (RN09) e conclusão do ciclo.
@@ -180,7 +205,7 @@ class IngestaoService:
             mercado.chave, CICLO_SUCESSO,
             leiloes_coletados=len(leiloes), leiloes_descartados=sanitizado.descartados,
             itens_atualizados=len(pontos), itens_anomalos=anomalos, itens_cadastrados=len(novos),
-        )
+        ), valores_do_ciclo
 
     def _remover_expirados_antigos(self, agora: datetime) -> None:
         """Retenção dos leilões brutos já classificados (o resumo horário permanece). Falha aqui não invalida o ciclo."""

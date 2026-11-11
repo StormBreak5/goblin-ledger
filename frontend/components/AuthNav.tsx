@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { clearToken, useAuthToken } from "@/lib/auth";
 import { sair } from "@/lib/authApi";
+import SinoDeNotificacoes from "@/components/SinoDeNotificacoes";
 
 const linkClass = "text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors";
 
-/** CU01/CU02: "Entrar" e "Criar conta" para o anônimo; "Favoritos" (CU06-C3), "Meu perfil" e "Sair" para o autenticado. */
+/** CU01/CU02: "Entrar" e "Criar conta" para o anônimo; "Favoritos" (CU06-C3), o sino das notificações (CU08-C3), "Meu
+ * perfil" e "Sair" para o autenticado. */
 export default function AuthNav() {
   const token = useAuthToken();
   const router = useRouter();
@@ -25,6 +27,7 @@ export default function AuthNav() {
         <Link href="/favoritos" className={linkClass}>
           Favoritos
         </Link>
+        <SinoDeNotificacoes />
         <Link href="/perfil" className={linkClass}>
           Meu perfil
         </Link>

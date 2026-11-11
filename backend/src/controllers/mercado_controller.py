@@ -6,6 +6,7 @@ from src.controllers.deps import (
     exigir_admin,
     extrair_token,
     get_abridor_de_sessao,
+    get_email_service,
     get_fabrica_de_cliente_blizzard,
     get_relogio,
     traduzir_erros,
@@ -19,6 +20,7 @@ from src.models.mercado_api_models import (
 )
 from src.repositories.mercado_repository import MercadoRepository
 from src.services import mensagens, validacao
+from src.services.email_service import EmailService
 from src.services.erros import RegiaoInvalidaError
 from src.services.ingestao_config import TIPO_LEILOES, Mercado, carregar_mercados
 from src.services.ingestao_service import IngestaoService
@@ -40,12 +42,14 @@ def executar_ingestao_manual(
     abrir_sessao: Callable = Depends(get_abridor_de_sessao),
     relogio: Callable = Depends(get_relogio),
     fabrica_de_cliente: Callable = Depends(get_fabrica_de_cliente_blizzard),
+    email_service: EmailService = Depends(get_email_service),
 ):
     """
     CU09-C4: o Admin dispara a coleta, a sanitização e a consolidação (C1 a C3) da região ou do reino informado.
     O intervalo mínimo de 60 minutos vale também aqui (FA1: o resultado traz o horário em que a coleta é permitida);
     falhas de uma etapa vêm no resultado do mercado, com a etapa e o erro (FE1). Um mercado que falha ou é
-    cancelado não impede os demais.
+    cancelado não impede os demais. Cada ciclo concluído aciona a verificação dos alertas e o envio dos e-mails (CU08-C1 e
+    C2).
     """
     with traduzir_erros(mensagens.FALHA_NA_INGESTAO_MANUAL), abrir_sessao() as db:
         exigir_admin(db, token, relogio)
@@ -54,7 +58,7 @@ def executar_ingestao_manual(
         if not mercados:
             raise RegiaoInvalidaError()
 
-        servico = IngestaoService(db, fabrica_de_cliente(), relogio)
+        servico = IngestaoService(db, fabrica_de_cliente(), relogio, email_service)
         resultados = [servico.executar(mercado, ORIGEM_MANUAL) for mercado in mercados]
 
     return ResumoIngestaoResponse(

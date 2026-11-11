@@ -4,9 +4,9 @@
 > ou de exceção FE) com o teste automatizado que o cobre. O nome do teste começa pelo identificador do caso de uso e do cenário
 > (`test_cuXX_cY_...`), como pede o `CLAUDE.md`. Os testes das regras do modelo do CU11 (`test_rnXX_...`) ficam numa seção própria.
 >
-> Os testes com identificador de fluxo ou de regra somam 392 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 25 do CU06, 27 do CU07, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
-> completa tem 493 testes: 372 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
-> `modelo` (`docker compose run --rm modelo-testes`) e 71 no frontend (`npm test`). Os demais são testes de apoio (migrações,
+> Os testes com identificador de fluxo ou de regra somam 412 (15 do CU01, 17 do CU02, 17 do CU03, 48 do CU04, 25 do CU05, 25 do CU06, 27 do CU07, 20 do CU08, 60 do CU09, 92 do CU10 e 66 do CU11). A suíte
+> completa tem 513 testes: 387 no backend (`pytest`, no host), 50 do pipeline do modelo no container do serviço
+> `modelo` (`docker compose run --rm modelo-testes`) e 76 no frontend (`npm test`). Os demais são testes de apoio (migrações,
 > leitor do arquivo da Undermine, leitores de eventos, formatação de moeda) e não substituem o teste de um fluxo.
 >
 > Para rodar: `pytest` a partir de `backend/` (usando `.venv`), `docker compose run --rm modelo-testes` a partir de `backend/` e
@@ -313,6 +313,52 @@ O FA3 do backend é um `parametrize` com 11 casos de dados inválidos (tipo ou c
 | FE1 | `test_cu07_c3_fe1_falha_mantem_alerta` | `frontend/tests/cu07-c3-excluir-alerta.test.tsx` |
 
 O FA1 do C3 (exclusão cancelada) acontece só na tela: cancelar o diálogo não envia nada ao backend, por isso não tem teste de backend.
+
+#### CU08 – Regras gerais do caso de uso (4 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| RN07 | `test_rn07_alerta_dispara_uma_unica_vez` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| RN20 | `test_cu08_exclusao_da_conta_remove_notificacoes_rn20` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| regra | `test_cu08_notificacao_permanece_quando_o_alerta_e_excluido` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| regra | `test_cu08_c3_so_as_notificacoes_do_proprio_usuario` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+
+O teste da RN07 cobre o ciclo seguinte com o preço ainda além do alvo e dois ciclos simultâneos (a sessão B fica bloqueada no `UPDATE` condicional até o commit da A e não gera notificação).
+
+#### CU08 – Cenário 1 (5 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu08_c1_fluxo_principal_dispara_alerta_de_compra_e_de_venda_rn07` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FA1 | `test_cu08_c1_fa1_nenhum_alerta_atingido` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FA2 | `test_cu08_c1_fa2_item_com_volume_anomalo_rn12` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FE1 | `test_cu08_c1_fe1_falha_desfaz_a_verificacao` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| decisão | `test_cu08_c1_ficha_do_wow_dispara_alerta_sem_rn12` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+
+O fluxo principal, o FA2 e o FE1 rodam dentro de um ciclo real do CU09 (API da Blizzard falsa). O C1 é só do sistema, sem tela.
+
+#### CU08 – Cenário 2 (3 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu08_c2_fluxo_principal_envia_email_rn18` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FA1 | `test_cu08_c2_fa1_falha_no_envio_tenta_ate_3_vezes` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FE1 | `test_cu08_c2_fe1_falha_no_banco` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+
+O envio de e-mail é substituído nos testes (`EmailFalso`). O C2 é só do sistema, sem tela.
+
+#### CU08 – Cenário 3 (8 testes)
+
+| Fluxo | Teste | Arquivo |
+|---|---|---|
+| principal | `test_cu08_c3_fluxo_principal_lista_e_marca_como_lidas` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| principal | `test_cu08_c3_fluxo_principal_lista_destaca_e_marca_como_lidas` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
+| passo 1 | `test_cu08_c3_passo1_contador_ao_carregar_e_a_cada_5_minutos` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
+| FA1 | `test_cu08_c3_fa1_nenhuma_notificacao` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FA1 | `test_cu08_c3_fa1_nenhuma_notificacao` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
+| FE1 | `test_cu08_c3_fe1_falha_no_banco` | `backend/tests/integration/test_cu08_manter_notificacoes.py` |
+| FE1 | `test_cu08_c3_fe1_falha_ao_carregar` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
+| FE1 | `test_cu08_c3_fe1_falha_ao_marcar_como_lidas` | `frontend/tests/cu08-c3-notificacoes.test.tsx` |
 
 #### CU09 – Regras gerais do caso de uso (2 testes)
 

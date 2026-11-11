@@ -2,7 +2,7 @@
 
 > Texto igual ao do TC (seção 6.4.7), conferido em 11/11/2026.
 
-**Situação no código (11/11/2026):** C1, C2 e C3 implementados (pedido `estudos/lstm/pedido-cu06-cu07.md`). O disparo e a notificação ficam para o CU08; até lá, um alerta só passa a `DISPARADO` nos testes, por inserção direta.
+**Situação no código (11/11/2026):** C1, C2 e C3 implementados (pedido `estudos/lstm/pedido-cu06-cu07.md`). O disparo e a notificação são do CU08, implementado depois: o alerta passa a `DISPARADO` na verificação que roda ao fim de cada ciclo de ingestão.
 
 - **Banco:** a tabela `alerta_preco` veio na migração `0011_favoritos_e_alertas` (commit do CU06), como no MR, com a chave estrangeira composta para `favorito` (remover o favorito remove os alertas, CU06-C2) e para `usuario` (RN20), ambas em cascata.
 - **API**, toda autenticada e só sobre os alertas do próprio usuário (o de outro usuário responde 404):
@@ -13,7 +13,7 @@
   - `PUT /api/alerts/{id}`: altera e, se for o caso, reativa (`ATIVO`, `disparado_em` nulo, com a cota conferida de novo);
   - `DELETE /api/alerts/{id}`: C3.
   - Código: `backend/src/controllers/alerta_controller.py`, `src/services/alerta_service.py` e `src/repositories/alerta_repository.py`.
-- **RN08:** conta só os `ATIVO` do usuário, em todos os itens, até `ALERTAS_MAXIMO_ATIVOS` (20, no `.env.example`). A contagem e a gravação ficam na mesma transação, depois de `SELECT … FROM usuario … FOR UPDATE`, para dois pedidos simultâneos não passarem do limite.
+- **RN08:** conta só os `ATIVO` do usuário, em todos os itens, até `ALERTAS_MAXIMO_ATIVOS` (20, no `.env.example`). A contagem e a gravação ficam na mesma transação, depois de `SELECT … FROM usuario … FOR NO KEY UPDATE`, para dois pedidos simultâneos não passarem do limite. (Era `FOR UPDATE`; o CU08 trocou para `FOR NO KEY UPDATE`, que serializa os pedidos do mesmo jeito e não bloqueia a gravação de uma notificação desse usuário, evitando que o CU07 e o disparo do mesmo alerta se travem mutuamente.)
 - **FA3 e RN01:** a validação é do serviço (tipo e canal escolhidos, total maior que zero, partes inteiras e não negativas, Prata e Cobre até 99), com a mensagem do cenário, e não o erro padrão do Pydantic. O preço-alvo é convertido para Cobre no backend.
 - **Tela:** a seção "Alertas de preço" na tela do item, só para o usuário autenticado (`components/AlertasDoItem.tsx`), e o formulário num diálogo (`components/FormularioDeAlerta.tsx`). No C1-FA1, a mensagem vem com o botão "Adicionar aos favoritos"; favoritando (CU06-C1), a tela confere de novo a cota e abre o formulário.
 - **Decisões tomadas na implementação:**

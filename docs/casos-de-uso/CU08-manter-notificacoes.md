@@ -2,6 +2,23 @@
 
 > Texto igual ao do TC (seção 6.4.8), conferido em 11/11/2026.
 
+**Situação no código (11/11/2026):** C1, C2 e C3 implementados (pedido `estudos/lstm/pedido-cu08.md`). Relatório em `docs/relatorio-cu08.md`.
+
+- **Banco:** a tabela `notificacao` veio na migração `0012_notificacoes`, como no MR, com `id_alerta` em `ON DELETE SET NULL` (a notificação continua no histórico quando o alerta é excluído, CU07-C3, ou o favorito removido, CU06-C2) e `id_usuario` em cascata (RN20). `envio_email` é `PENDENTE`, `ENVIADO` ou `FALHOU`, e nulo só quando o canal é só tela. A mesma migração criou o índice (situação, item) em `alerta_preco`, para o passo 2 do C1.
+- **C1 (onde entra):** no `IngestaoService.executar` (CU09), logo depois do commit da consolidação de cada ciclo concluído com sucesso, numa transação própria. Vale para o ciclo agendado e para a ingestão manual do Admin (CU09-C4). Uma falha no CU08 fica no log e não muda o resultado do ciclo.
+  - Itens do ciclo: os que tiveram ponto gravado; o valor de mercado (RN06) e a marca de anomalia (RN12) são os desse ponto.
+  - Disparo único (RN07): `UPDATE alerta_preco … WHERE situacao = 'ATIVO'` (e o tipo e o preço-alvo verificados), um alerta por vez, em ordem de id. Um ciclo simultâneo fica bloqueado na linha e não gera a segunda notificação.
+  - Código: `backend/src/services/notificacao_service.py` (`verificar_alertas`, `gatilho_atingido`) e `src/repositories/notificacao_repository.py`.
+- **Ficha do WoW:** a cotação vem da rotina de 15 minutos do `worker.py`, fora do ciclo do CU09. A cada preço novo gravado, a rotina chama o mesmo serviço (`processar_coleta_da_ficha`), sem a RN12, que não se aplica.
+- **C2:** logo depois de cada C1 (ciclo do CU09 ou cotação nova da Ficha), na mesma rotina, processa todas as notificações `PENDENTE`. Cada uma é travada só durante o próprio envio (`FOR UPDATE SKIP LOCKED`), fora da transação do C1. Até `NOTIFICACAO_EMAIL_TENTATIVAS` (3) tentativas, uma por execução; na última falha, `FALHOU` e log. A mensagem segue a Figura 18 (`src/services/email_de_alerta.py`), em texto e HTML, enviada pelo `EmailService` do CU02-C2 ao e-mail cadastrado (RN18).
+- **C3 (API, autenticada):**
+  - `GET /api/notifications/unread-count`: as não lidas do canal tela (`WEB` ou `AMBOS`);
+  - `GET /api/notifications`: as notificações do canal tela, da mais recente para a mais antiga, com o nome e o ícone do item; FA1 com a mensagem do cenário. Não marca nada;
+  - `POST /api/notifications/read`: marca como lidas as exibidas (passo 5), só as do próprio usuário.
+  - Código: `backend/src/controllers/notificacao_controller.py`.
+- **Tela:** o sino no cabeçalho, entre "Favoritos" e "Meu perfil", só para o usuário autenticado (`frontend/components/SinoDeNotificacoes.tsx`), com o contador consultado ao carregar a página e a cada 5 minutos. O painel mostra as notificações (Figura 17), marca as exibidas como lidas e zera o contador; selecionar uma abre a tela do item.
+- **Decisões tomadas na implementação:** ver o relatório (Ficha do WoW, tentativas por execução do C2, separação entre a consulta e a marcação, trava do CU07, SMTP do worker no Docker).
+
 ## Descrição
 
 Este caso de uso tem como principal função verificar, a cada ciclo de ingestão dos dados de mercado, os alertas de preço ativos, disparar as notificações dos alertas atingidos pela interface web e por e-mail, conforme o canal escolhido pelo usuário, e permitir que o usuário consulte as suas notificações.

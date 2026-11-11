@@ -21,6 +21,7 @@ from src.models.evento import EventoJogo, ExtracaoEvento
 from src.models.favorito import AlertaPreco, Favorito
 from src.models.item import Item
 from src.models.item_price import ItemPrice
+from src.models.notificacao import Notificacao
 from src.models.mercado import CicloIngestao, EstadoMercado, Leilao, Reino
 from src.models.modelo import (ConsolidacaoDiaria, ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria,
                               ProjecaoItem)
@@ -152,6 +153,7 @@ def db_session(pg_engine: Engine) -> Iterator[Session]:
     session.query(ScraperExecutionLog).delete()
     session.query(Item).delete()
     session.query(TentativaLogin).delete()
+    session.query(Notificacao).delete()
     session.query(AlertaPreco).delete()
     session.query(Favorito).delete()
     session.query(Usuario).delete()  # sessões e tokens saem por ON DELETE CASCADE

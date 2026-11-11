@@ -53,6 +53,7 @@ export function responder(rotas: Rota[] = [], item: { favorito?: boolean } = {})
           erro_tipico_pct: null, desatualizada: false, predicoes: [], avisos: [] });
       }
       if (caminho.endsWith("/alerts") && metodo === "GET") return json(200, { alertas: [], ativos_do_usuario: 0, limite: 20 });
+      if (caminho.endsWith("/notifications/unread-count")) return json(200, { nao_lidas: 0 }); // o sino do cabeçalho (CU08)
       if (/\/items\/\d+$/.test(caminho)) {
         const corpo: Record<string, unknown> = { id: 1001, name: "Mycobloom", icon_url: null };
         if (item.favorito !== undefined) corpo.favorito = item.favorito;

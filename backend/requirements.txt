@@ -9,6 +9,7 @@ uvicorn[standard]>=0.29.0
 apscheduler>=3.10.0
 alembic>=1.13.0
 bcrypt>=4.1.0
+tzdata>=2024.1  # CU08-C2: fuso de Brasília (zoneinfo) no e-mail; a imagem alpine do worker não traz a base de fusos
 PyJWT>=2.8.0
 
 # Testing

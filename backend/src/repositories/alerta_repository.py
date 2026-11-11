@@ -13,8 +13,12 @@ class AlertaRepository:
 
     def travar_usuario(self, id_usuario: int) -> None:
         """RN08: bloqueia a linha do usuário até o fim da transação, para a contagem dos alertas ativos e a gravação não
-        serem intercaladas por outro pedido do mesmo usuário (dois pedidos simultâneos não passam do limite)."""
-        self.session.execute(text("SELECT id_usuario FROM usuario WHERE id_usuario = :id FOR UPDATE"), {"id": id_usuario})
+        serem intercaladas por outro pedido do mesmo usuário (dois pedidos simultâneos não passam do limite).
+        `FOR NO KEY UPDATE` (e não `FOR UPDATE`): serializa os pedidos do usuário do mesmo jeito, mas não bloqueia a
+        conferência da chave estrangeira de quem grava uma notificação desse usuário (CU08-C1), o que travaria os dois
+        lados quando o ciclo dispara o mesmo alerta que o usuário está salvando."""
+        self.session.execute(text("SELECT id_usuario FROM usuario WHERE id_usuario = :id FOR NO KEY UPDATE"),
+                             {"id": id_usuario})
 
     def ativos(self, id_usuario: int) -> int:
         """RN08: os alertas com a situação "Ativo" do usuário, em todos os itens."""

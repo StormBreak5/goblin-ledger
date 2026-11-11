@@ -14,6 +14,7 @@ import {
 import type { ApiFailure } from "@/lib/authApi";
 import { formatarMoeda, partesDaMoeda } from "@/lib/moeda";
 import { novoAviso, type AvisoDaTela } from "@/lib/useAcoesDeFavorito";
+import { dataEHora } from "@/lib/instante";
 
 interface Props {
   token: string;
@@ -50,10 +51,8 @@ function preco(cobre: number): string {
 
 /** "Disparado em dd/mm/aaaa às hh:mm", no fuso de quem vê (como o CU04). */
 function quando(instante: string | null): string {
-  if (!instante) return "";
-  const data = new Date(instante);
-  if (Number.isNaN(data.getTime())) return "";
-  return ` em ${data.toLocaleDateString("pt-BR")} às ${data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+  const texto = dataEHora(instante);
+  return texto ? ` em ${texto}` : "";
 }
 
 /**

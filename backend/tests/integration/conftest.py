@@ -47,11 +47,19 @@ class EmailFalso:
     def __init__(self) -> None:
         self.enviados: list[dict] = []
         self.indisponivel = False
+        self.falhar_para: set[str] = set()  # CU08-C2-FA1: destinatários cujo e-mail o servidor não aceita
+        self.alertas: list[dict] = []  # CU08-C2: e-mails de alerta de preço atingido
 
     def enviar_link_de_recuperacao(self, destinatario: str, link: str, validade_minutos: int) -> None:
         if self.indisponivel:
             raise EmailIndisponivelError("SMTP fora do ar")
         self.enviados.append({"para": destinatario, "link": link, "validade_minutos": validade_minutos})
+
+    def enviar_notificacao_de_alerta(self, destinatario: str, mensagem) -> None:
+        if self.indisponivel or destinatario in self.falhar_para:
+            raise EmailIndisponivelError("SMTP fora do ar")
+        self.alertas.append({"para": destinatario, "assunto": mensagem.assunto, "texto": mensagem.texto,
+                             "html": mensagem.html})
 
     def token_do_ultimo_link(self) -> str:
         return parse_qs(urlparse(self.enviados[-1]["link"]).query)["token"][0]
@@ -135,11 +143,12 @@ def favoritos_client(db_session: Session, relogio: RelogioFalso, email_falso: Em
     from fastapi.testclient import TestClient
 
     from src.controllers import (alerta_controller, auth_controller, deps, favorito_controller, item_controller,
-                                 usuario_controller)
+                                 notificacao_controller, usuario_controller)
     from src.services.item_service import ItemService
 
     app = FastAPI()
-    for modulo in (usuario_controller, auth_controller, item_controller, favorito_controller, alerta_controller):
+    for modulo in (usuario_controller, auth_controller, item_controller, favorito_controller, alerta_controller,
+                   notificacao_controller):
         app.include_router(modulo.router, prefix="/api")
     app.dependency_overrides[deps.get_abridor_de_sessao] = lambda: abridor_de_sessao_para(db_session)
     app.dependency_overrides[deps.get_relogio] = lambda: relogio
@@ -147,3 +156,9 @@ def favoritos_client(db_session: Session, relogio: RelogioFalso, email_falso: Em
     app.dependency_overrides[item_controller.get_item_service] = lambda: ItemService(db_session, relogio)
     app.dependency_overrides[item_controller.get_servico_do_historico] = lambda: ItemService(db_session, relogio)
     return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def notificacoes_client(favoritos_client):
+    """TestClient do CU08-C3: o mesmo dos CU06 e CU07, que também registra as rotas das notificações."""
+    return favoritos_client

@@ -45,7 +45,8 @@ _rodada_em_andamento = threading.Lock()
 # ITEM_IDS agora são dinâmicos através da tabela Item
 
 def job_fetch_wow_token_price():
-    """Ficha do WoW (item 122284): a única rotina a cada 15 minutos. Não pertence a nenhum caso de uso detalhado."""
+    """Ficha do WoW (item 122284): a única rotina a cada 15 minutos. A coleta não pertence a nenhum caso de uso detalhado;
+    a cada preço novo, verifica os alertas da Ficha e envia os e-mails pendentes (CU08-C1 e C2, sem a RN12)."""
     client_id = os.getenv("BLIZZARD_CLIENT_ID")
     client_secret = os.getenv("BLIZZARD_CLIENT_SECRET")
 
@@ -63,7 +64,10 @@ def job_fetch_wow_token_price():
         token_data = api_client.get_wow_token_price(region="us")
 
         # Salva o preco exclusivo para a Ficha do WoW (ID: 122284)
-        repo.save_price(item_id=122284, region="us", token_response=token_data)
+        novo = repo.save_price(item_id=122284, region="us", token_response=token_data)
+        if novo is not None:  # a Blizzard só atualiza a cotação a cada 20 min; leitura repetida não verifica de novo
+            from src.services.notificacao_service import NotificacaoService
+            NotificacaoService(session).processar_coleta_da_ficha(novo.price_copper)
 
     except Exception as e:
         logger.error(f"Ocorreu um erro recuperando ou salvando a ficha: {e}")

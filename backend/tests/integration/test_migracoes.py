@@ -11,6 +11,7 @@ from src.models.evento import EventoJogo, ExtracaoEvento  # noqa: F401
 from src.models.favorito import AlertaPreco, Favorito  # noqa: F401
 from src.models.item import Item
 from src.models.item_price import ItemPrice
+from src.models.notificacao import Notificacao  # noqa: F401
 from src.models.modelo import (ConsolidacaoDiaria, ExecucaoTreinamento, ModeloPreditivo, PredicaoDiaria,
                               ProjecaoItem)  # noqa: F401
 from src.models.usuario import Sessao, TentativaLogin, TokenRecuperacao, Usuario
@@ -24,7 +25,7 @@ TODAS_AS_TABELAS = {
     "reino", "leilao", "ciclo_ingestao", "estado_mercado",
     "evento_jogo", "extracao_evento", "aptidao_treinamento",
     "modelo_preditivo", "execucao_treinamento", "projecao_item", "predicao_diaria", "consolidacao_diaria",
-    "favorito", "alerta_preco",
+    "favorito", "alerta_preco", "notificacao",
 }
 
 
@@ -58,7 +59,7 @@ def test_migracao_baseline_roda_sobre_banco_que_ja_tem_as_tabelas(banco_vazio):
     with banco_vazio.connect() as conexao:
         assert set(inspect(conexao).get_table_names()) - {"alembic_version"} == TODAS_AS_TABELAS
         assert conexao.execute(text("SELECT count(*) FROM historical_item_prices")).scalar() == 1  # dados preservados
-        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0011"
+        assert conexao.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0012"
         # linhas antigas ganham os valores padrão das colunas novas, sem reescrever a tabela
         assert conexao.execute(text("SELECT origem, anomalia, granularidade FROM historical_item_prices")).one() == (
             "UNDERMINE", False, "DIARIA",

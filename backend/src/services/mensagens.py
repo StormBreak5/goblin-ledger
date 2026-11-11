@@ -87,6 +87,10 @@ FALHA_AO_EXCLUIR_ALERTA = "Não foi possível excluir o alerta no momento. Tente
 FALHA_AO_CARREGAR_ALERTAS = "Não foi possível carregar os alertas no momento. Tente novamente mais tarde"
 ALERTA_NAO_ENCONTRADO = "Alerta não encontrado"
 
+# CU08 – Manter Notificações
+NOTIFICACOES_VAZIO = "Você não tem notificações"  # C3-FA1
+FALHA_NAS_NOTIFICACOES = "Não foi possível carregar as notificações no momento. Tente novamente mais tarde"  # C3-FE1
+
 # CU05-C1 – Exibir projeção de preços
 PROJECAO_MODELO_NAO_TREINADO = "A projeção de preços ainda não está disponível"  # FA1
 PROJECAO_POUCA_QUANTIDADE = "Projeção indisponível: este item tem pouca quantidade ofertada para uma previsão confiável"  # FA2 (RN02)
