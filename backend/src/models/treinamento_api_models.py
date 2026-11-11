@@ -45,7 +45,7 @@ class ResumoTreinamentoResponse(BaseModel):
     iniciado_em: Optional[datetime] = None
     concluido_em: Optional[datetime] = None
     andamento: Optional[str] = Field(default=None, description="Etapa atual (e a época, durante o treino).")
-    itens_elegiveis: Optional[int] = Field(default=None, description="RN02, RN07 e RN27.")
+    itens_elegiveis: Optional[int] = Field(default=None, description="RN02 e RN27.")
     itens_treino: Optional[int] = Field(default=None, description="Elegíveis aptos ao treinamento (RN15).")
     itens_liberados: Optional[int] = None
     itens_bloqueados: Optional[int] = None

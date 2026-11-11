@@ -10,7 +10,7 @@
 | RN04 | Janela de Retenção e Expiração de Dados | Leilões extraídos da API que não tenham sido atualizados nos últimos 48 horas (tempo máximo de duração de um leilão no jogo) devem ser classificados como "Expirados" ou "Vendidos", encerrando sua influência na cotação em tempo real, mas sendo mantidos no banco de dados sumarizado para compor o histórico de longo prazo. Os leilões classificados como "Expirados" ou "Vendidos" permanecem no detalhamento de leilões por 7 dias; após esse prazo, permanecem somente no histórico consolidado. | RF07 |
 | RN05 | Ciclo de Consumo da API (Restrição de Rate Limit) | O sistema não pode realizar requisições à API oficial da Blizzard Entertainment em intervalos menores que 60 minutos para o mesmo endpoint de Auction House, respeitando as políticas de uso da desenvolvedora e garantindo que o IP do servidor não sofra bloqueios temporários. | RF07 |
 | RN06 | Cálculo de Valor de Mercado | O "Preço Atual" exibido no dashboard não deve ser o lance mais baixo isolado (Minimum Buyout), que pode ser uma anomalia temporal, mas sim o primeiro quartil (25%) dos preços dos leilões ativos daquele item, garantindo uma representação realista do custo de aquisição para o usuário. O primeiro quartil é ponderado pela quantidade de cada leilão e calculado sobre o preço unitário de compra imediata (Buyout); leilões que possuem somente lance (Bid) não entram no cálculo. | RF03 |
-| RN07 | Relevância de Equipamento (iLvl) | O modelo de Machine Learning deve somente processar equipamentos (armaduras/armas) se forem relevantes para o endgame. Equipamentos obsoletos têm a predição bloqueada para economizar processamento. | RF04, RNF04 |
+| RN07 | Gatilho e Disparo Único do Alerta | Um alerta de compra é atingido quando o valor de mercado do item for igual ou inferior ao preço-alvo, e um alerta de venda, quando for igual ou superior ao preço-alvo. Os alertas ativos são verificados a cada ciclo de ingestão dos dados de mercado, de 60 em 60 minutos, exceto os dos itens cujo registro no ciclo foi marcado como anomalia de volume. Ao ser atingido, o alerta gera uma única notificação e passa à situação "Disparado", na qual permanece até ser reativado pelo usuário, evitando notificações repetidas enquanto o preço se mantiver além do alvo. | RF05, RF06 |
 | RN08 | Cota de Alertas por Usuário | O sistema restringe a criação de rastreadores de preços visando performance. | RF05 |
 | RN09 | Frescor dos Dados (Cache TTL) | O sistema deve classificar e alertar sobre a latência da informação exibida. Os dados são considerados desatualizados quando a última coleta do mercado do item ocorreu há mais de 24 horas ou quando a última coleta falhou (RN14). | RNF07 |
 | RN10 | Limiar de Precisão Preditiva | O sistema deve omitir projeções de ML que não atinjam um padrão mínimo de acurácia matemática. | RF04 |
@@ -33,11 +33,13 @@
 - RF01 (Autenticação de Usuário): Validado por RN11, RN18, RN19, RN20, RN21, RN22.
 - RF02 (Busca de Itens): Não possui regras de negócio associadas.
 - RF03 (Visualização de Histórico): Processado via RN06, RN09.
-- RF04 (Projeção Preditiva com ML): Estritamente governado por RN02, RN03, RN07, RN10.
-- RF05 (Sistema de Alertas ao Usuário): Limitado por RN08.
+- RF04 (Projeção Preditiva com ML): Estritamente governado por RN02, RN10, RN13, RN27.
+- RF05 (Configuração de Alertas): Limitado por RN07, RN08, RN12, RN20.
+- RF06 (Disparo de Notificações Ativa): Validado por RN06, RN07, RN12, RN18, RN20.
 - RF07 (Ingestão de Dados via Providers): Validado por RN04, RN05, RN06, RN09, RN11, RN14.
-- RF09 (Gestão de Itens Favoritos): Restringido por RN20.
+- RF08 (Retreinamento do Modelo): Validado por RN02, RN03, RN10, RN13, RN15, RN17, RN24, RN25, RN26, RN27.
+- RF09 (Gestão de Itens Favoritos): Validado por RN06, RN09, RN20.
 - RF10 (Sanitização e Padronização de Dados): Validado por RN01, RN12.
 - RNF01 / RNF04 / RNF07 (Performance e Confiabilidade): Garantidos por RN09, RN13, RN14.
-- RF11 (Ingestão do Histórico Passado): Validado por RN11, RN16, RN17, RN23.
-- RF12 (Treinamento Inicial do Modelo): Estritamente governado por RN15, RN16, RN17.
+- RF11 (Ingestão do Histórico Passado): Validado por RN11, RN15, RN16, RN17, RN23.
+- RF12 (Treinamento Inicial do Modelo): Estritamente governado por RN02, RN03, RN10, RN15, RN16, RN17, RN24, RN25, RN27.

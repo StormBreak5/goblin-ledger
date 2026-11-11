@@ -1,6 +1,6 @@
 """
 Atributos fixos dos itens (classe, subclasse, qualidade, nível e preço de venda ao vendedor) gravados em
-`items.metadata_info` para o modelo preditivo (variáveis 6, 7 e 15 a 17 e filtro da RN07), e a sincronização diária de
+`items.metadata_info` para o modelo preditivo (variáveis 6, 7 e 15 a 17), e a sincronização diária de
 itens, que mescla o `metadata_info` em vez de substituí-lo (o CU10-C1 guarda nele o ETag e a origem do arquivo).
 
 Rodam contra um PostgreSQL temporário (ver tests/conftest.py), porque a mescla usa o `||` do JSONB e o upsert usa

@@ -1,7 +1,7 @@
 """
 Completa os itens pela API de dados do jogo da Blizzard (`/data/wow/item/{id}` e `/data/wow/media/item/{id}`): nome e
 ícone dos itens cadastrados com nome provisório (CU09-C3-FA1, CU10-C1-FA2) e os atributos fixos que o modelo preditivo
-usa (variáveis 6, 7 e 15 a 17 do quadro de variáveis e filtro da RN07), gravados em `items.metadata_info`.
+usa (variáveis 6, 7 e 15 a 17 do quadro de variáveis), gravados em `items.metadata_info`.
 
 Para preencher de uma vez todos os itens existentes: `python -m src.scraper.populate_item_details` (a partir de backend/).
 """
@@ -79,7 +79,7 @@ class ResumoDoPreenchimento:
 
 def extrair_atributos(dados: Dict[str, Any]) -> Dict[str, Any]:
     """Atributos fixos do item na resposta de `/data/wow/item/{id}`: classe e subclasse (variáveis 6 e 15), qualidade e
-    nível (variável 16, filtro da RN07) e preço de venda ao vendedor (variáveis 7 e 17), que a API já dá em Cobre (RN01).
+    nível (variável 16) e preço de venda ao vendedor (variáveis 7 e 17), que a API já dá em Cobre (RN01).
     O que a resposta não trouxer fica nulo."""
     def _campo(chave: str, subchave: str) -> Any:
         valor = dados.get(chave)

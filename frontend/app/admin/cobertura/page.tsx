@@ -97,7 +97,8 @@ function Coberturas({ token }: { token: string }) {
     <>
       <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
         Verifica se o histórico de cada item ativo tem um período contínuo de pelo menos 6 meses de registros, o mínimo para o
-        treinamento inicial do modelo preditivo. Os itens inaptos continuam com a predição bloqueada. Lacunas curtas na série não
+        treinamento inicial do modelo preditivo. Os itens inaptos não participam do ajuste dos pesos do modelo, mas podem ter a
+        projeção liberada se atenderem à RN27 e à RN10. Lacunas curtas na série não
         interrompem o período.
       </p>
 

@@ -1,6 +1,6 @@
 # CU06 – Manter Favoritos
 
-> **PROVISÓRIO (20/10/2026).** Texto para o TC em `docs/Alterações do TC - CU06 a CU08 (para colar).docx`. Enquanto o TC e o `docs/` não forem reexportados, vale este arquivo.
+> Texto igual ao do TC (seção 6.4.6), conferido em 11/11/2026.
 
 ## Descrição
 

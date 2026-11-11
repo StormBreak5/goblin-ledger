@@ -44,7 +44,8 @@ def test_cu11_c1_fluxo_principal_treina_e_libera_itens(pg_engine, db_session, re
     assert (resumo.itens_elegiveis, resumo.itens_treino) == (6, 5)
     assert resumo.itens_liberados + resumo.itens_bloqueados + resumo.itens_ignorados == 6
     assert resumo.itens_liberados >= 5 and resumo.liberados_fora_do_treino == 1
-    assert resumo.andamento == "Concluído" and "RN07 desligada" in resumo.avisos
+    assert resumo.andamento == "Concluído"
+    assert resumo.avisos == "série diária desatualizada (último dia encerrado: 05/10/2026)"  # o único aviso do cenário
 
     # Passos 2, 8 e 9: o item fora do conjunto de treinamento não treina, mas é avaliado e pode ser liberado.
     assert FORA_DO_TREINO not in treinador.itens_do_treino and len(treinador.itens_do_treino) == 5

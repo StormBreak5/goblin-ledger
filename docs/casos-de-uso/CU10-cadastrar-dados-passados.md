@@ -31,7 +31,7 @@ Este caso de uso tem como principal função carregar para o banco de dados o hi
 - **Objetivo:** Carregar para o banco de dados o histórico retroativo de preços dos itens obtido de fontes de terceiros, viabilizando o treinamento inicial do modelo preditivo.
 - **Pré-condição:** O Admin deve possuir acesso às funções administrativas da plataforma.
 - **Pós-condição:** O histórico retroativo é harmonizado ao padrão do sistema e persistido no banco de dados.
-- **Atores:** Admin, Provider
+- **Atores:** Admin
 - **Ativação:** O Admin solicita a importação de histórico retroativo de preços.
 
 ### Fluxo principal
@@ -100,7 +100,7 @@ Este caso de uso tem como principal função carregar para o banco de dados o hi
 - **Objetivo:** Registrar as datas dos eventos do jogo que influenciam os preços (expansões, patches, temporadas, eventos sazonais e eventos recorrentes) para que sejam utilizadas como variáveis categóricas pelo modelo preditivo.
 - **Pré-condição:** O Admin deve possuir acesso às funções administrativas da plataforma.
 - **Pós-condição:** Os eventos de atualização são registrados na base histórica e ficam disponíveis para o treinamento do modelo.
-- **Atores:** Admin, Provider
+- **Atores:** Admin
 - **Ativação:** O Admin solicita a extração dos eventos de atualização do jogo.
 
 ### Fluxo principal

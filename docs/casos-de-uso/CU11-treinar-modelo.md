@@ -21,7 +21,6 @@ Texto do TC atual, com as mudanças da v4 (RN10 e RN15 alteradas; RN27 nova).
 
 - **RN02 – Filtro de Liquidez para Modelagem Preditiva:** Os algoritmos de Machine Learning só devem processar e gerar projeções preditivas para itens que possuam quantidade média ofertada superior a 50 unidades nos últimos 7 dias. A quantidade ofertada é utilizada como indicador de liquidez, pois a API oficial não informa as vendas realizadas. Itens com baixa liquidez não possuem dados estatísticos suficientes para inferências estocásticas confiáveis, devendo exibir apenas o histórico gráfico. Na prática, o critério restringe a projeção às commodities, negociadas em grande volume em toda a região; os equipamentos, vendidos em poucas unidades por reino, exibem apenas o histórico.
 - **RN03 – Mitigação de Outliers e Market Spoofing:** Para evitar que o treinamento do modelo preditivo seja corrompido por manipulações de mercado, o pipeline de dados deve descartar registros cujo preço diário seja 300% superior ou 90% inferior à Média Móvel Exponencial (EMA) de 14 dias do referido item, calculada somente com os registros anteriores já aceitos. Quando o preço permanecer fora dessa faixa, do mesmo lado, por 7 registros seguidos, considera-se uma mudança real de patamar: os registros próximos da mediana dessa sequência são aceitos e a EMA recomeça a partir deles. Se a mudança for de 1.000 vezes ou mais em relação ao patamar anterior, são exigidos 28 registros seguidos. No início da série, o primeiro patamar só é considerado confirmado depois de 7 registros aceitos.
-- **RN07 – Relevância de Equipamento (iLvl):** O modelo de Machine Learning deve somente processar equipamentos (armas e armaduras) se forem relevantes para o endgame, ou seja, se o seu nível de item (iLvl) for igual ou superior ao mínimo definido para a temporada vigente. Equipamentos obsoletos têm a predição bloqueada para economizar processamento.
 - **RN10 – Limiar de Precisão Preditiva:** O sistema deve omitir projeções de ML que não atinjam um padrão mínimo de acurácia matemática. A projeção de um item só é exibida se a mediana do erro percentual absoluto (MdAPE) das previsões do modelo para o item, medida no período de teste sobre os dias com preço observado, for igual ou inferior a 15% e menor que a do modelo ingênuo, que repete o último preço observado. A avaliação exige no mínimo 30 dias com previsões avaliadas; o item que ainda não os possui, como um item lançado recentemente, permanece com a projeção bloqueada e é reavaliado no retreinamento seguinte. A mediana é usada no lugar da média (MAPE) porque os erros percentuais crescem muito quando o valor real é pequeno (HYNDMAN; ATHANASOPOULOS, 2018), e o preço diário, por ser o menor anúncio do dia, está sujeito a quedas isoladas que distorceriam a média. *(alterada na v4)*
 - **RN13 – Snapshot de Estado (Auditoria ML):** O sistema deve consolidar diariamente suas predições contra a realidade para fins de auditoria acadêmica, registrando, para cada item com projeção liberada, a data, a versão do modelo, o valor predito, o valor real observado e o erro. Se a mediana do erro percentual dos últimos 7 dias ultrapassar o limiar da RN10, a projeção do item é bloqueada até o próximo retreinamento.
 - **RN15 – Volume Mínimo para Treinamento:** Um item só integra o conjunto de treinamento do modelo preditivo se a base de dados contiver um período histórico contínuo predeterminado de mínimo 6 meses de registros consolidados para o respectivo ativo. O período mínimo corresponde a 180 dias contínuos, e lacunas de até 3 dias sem registros não interrompem a continuidade do período. A regra seleciona os itens usados para ajustar o modelo; a projeção de um item que não integra o conjunto de treinamento segue a RN27. *(alterada na v4)*
@@ -34,15 +33,15 @@ Texto do TC atual, com as mudanças da v4 (RN10 e RN15 alteradas; RN27 nova).
 
 Mapeamento de rastreabilidade (seção 3.6.2, com a v4):
 
-- **RF04 (Projeção Preditiva com ML):** Estritamente governado por RN02, RN03, RN07, RN10, RN17, RN27.
-- **RF08 (Retreinamento do Modelo):** Validado por RN02, RN03, RN07, RN10, RN13, RN15, RN24, RN25, RN26, RN27.
+- **RF04 (Projeção Preditiva com ML):** Estritamente governado por RN02, RN10, RN13, RN27.
+- **RF08 (Retreinamento do Modelo):** Validado por RN02, RN03, RN10, RN13, RN15, RN17, RN24, RN25, RN26, RN27.
 - **RF11 (Ingestão do Histórico Passado):** Validado por RN11, RN15, RN16, RN17, RN23.
-- **RF12 (Treinamento Inicial do Modelo):** Estritamente governado por RN02, RN03, RN07, RN10, RN15, RN16, RN17, RN24, RN25, RN27.
+- **RF12 (Treinamento Inicial do Modelo):** Estritamente governado por RN02, RN03, RN10, RN15, RN16, RN17, RN24, RN25, RN27.
 
 Termos do glossário (novos na v4):
 
 - **Conjunto de Treinamento:** Itens elegíveis à projeção que também são aptos ao treinamento (RN15), cujo histórico é usado para ajustar os pesos do modelo preditivo.
-- **Item Elegível à Projeção:** Item que atende ao filtro de liquidez (RN02), ao critério de relevância de equipamentos (RN07) e ao histórico mínimo para projeção (RN27), tenha ou não integrado o conjunto de treinamento; a sua projeção é liberada ou bloqueada conforme a RN10.
+- **Item Elegível à Projeção:** Item que atende ao filtro de liquidez (RN02) e ao histórico mínimo para projeção (RN27), tenha ou não integrado o conjunto de treinamento; a sua projeção é liberada ou bloqueada conforme a RN10.
 
 ## Requisito Funcional 04 – [RF 04]: Projeção Preditiva
 
@@ -52,7 +51,7 @@ O sistema deve calcular e exibir no gráfico uma linha de tendência preditiva b
 
 A projeção cobre os próximos 7 dias e só deve ser calculada e renderizada para itens que tenham uma quantidade ofertada aceitável (RN02) e o histórico mínimo para projeção (RN27), tenham ou não sido utilizados no treinamento do modelo. O sistema omitirá a linha preditiva caso a acurácia matemática do modelo para aquele item não atinja o limiar mínimo exigido (RN10).
 
-- **Regras de negócio:** RN02; RN03; RN07; RN10; RN17; RN27
+- **Regras de negócio:** RN02; RN10; RN13; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -65,9 +64,9 @@ O sistema deve possuir um trabalho automatizado para retreinar periodicamente os
 
 **Intenção do sistema:** "Atualizar os pesos matemáticos do modelo de *Machine Learning* baseando-se nas últimas flutuações do mercado, para evitar que a linha de tendência fique defasada."
 
-Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja higienizado: descartando valores absurdos (*outliers* gerados por *spoofing*/*market manipulation*), ignorando itens sem quantidade ofertada suficiente e focando em equipamentos que ainda tenham relevância no jogo (iLvl). O retreinamento atualiza o modelo global com os dados mais recentes e só substitui o modelo vigente quando o novo apresenta desempenho superior (RN26). A cada retreinamento, a projeção de todos os itens elegíveis, inclusive os que não integram o conjunto de treinamento, é reavaliada (RN10, RN27).
+Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja higienizado: descartando valores absurdos (*outliers* gerados por *spoofing*/*market manipulation*) e ignorando itens sem quantidade ofertada suficiente. O retreinamento atualiza o modelo global com os dados mais recentes e só substitui o modelo vigente quando o novo apresenta desempenho superior (RN26). A cada retreinamento, a projeção de todos os itens elegíveis, inclusive os que não integram o conjunto de treinamento, é reavaliada (RN10, RN27).
 
-- **Regras de negócio:** RN02; RN03; RN07; RN10; RN13; RN15; RN24; RN25; RN26; RN27
+- **Regras de negócio:** RN02; RN03; RN10; RN13; RN15; RN17; RN24; RN25; RN26; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -85,7 +84,7 @@ O sistema deve possuir uma rotina dedicada para processar o histórico consolida
 
 O treinamento utiliza a base harmonizada e aplica a marcação estocástica de eventos para refinar a precisão. As variáveis de entrada do modelo, a sua normalização e o treinamento estão descritos na seção 5.12.2.
 
-- **Regras de negócio:** RN02; RN03; RN07; RN10; RN15; RN16; RN17; RN24; RN25; RN27
+- **Regras de negócio:** RN02; RN03; RN10; RN15; RN16; RN17; RN24; RN25; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -204,7 +203,7 @@ Fundamentação (seção 3.1.2.3): Quando há um grande número de séries tempo
 - **Objetivo:** Atualizar o modelo preditivo global com os dados mais recentes ingeridos, evitando que a linha de tendência fique defasada em relação às últimas flutuações do mercado.
 - **Pré-condição:** Deve existir um modelo preditivo treinado (Cenário 01).
 - **Pós-condição:** O modelo vigente é substituído pelo novo modelo, quando este apresenta desempenho superior, ou é mantido, e a situação da projeção de cada item é atualizada.
-- **Atores:** Sistema
+- **Atores:** Admin
 - **Ativação:** O agendador de tarefas dispara a rotina de retreinamento após o reinício semanal do jogo (RN26).
 
 ### Fluxo principal
@@ -248,7 +247,7 @@ Fundamentação (seção 3.1.2.3): Quando há um grande número de séries tempo
 - **Objetivo:** Registrar diariamente as predições do modelo para os itens com projeção liberada e confrontá-las com os valores reais observados, mantendo o histórico de desempenho para auditoria acadêmica e para a identificação de projeções defasadas.
 - **Pré-condição:** Deve existir ao menos um item com a projeção liberada.
 - **Pós-condição:** As predições do dia e o erro observado de cada item ficam registrados no banco de dados.
-- **Atores:** Sistema
+- **Atores:** Admin
 - **Ativação:** O agendador de tarefas dispara a rotina diária de consolidação.
 
 ### Fluxo principal
@@ -326,7 +325,7 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
 
 | Conjunto | Critérios | Uso |
 | --- | --- | --- |
-| **Itens elegíveis à projeção** | RN02 (quantidade média > 50 nos últimos 7 dias), RN07 (equipamentos relevantes) e RN27 (ao menos 60 dias de histórico diário) | são avaliados no período de teste e recebem a situação "Liberada" ou "Bloqueada" (RN10) |
+| **Itens elegíveis à projeção** | RN02 (quantidade média > 50 nos últimos 7 dias) e RN27 (ao menos 60 dias de histórico diário) | são avaliados no período de teste e recebem a situação "Liberada" ou "Bloqueada" (RN10) |
 | **Conjunto de treinamento** | os elegíveis que também são aptos ao treinamento (RN15, tabela `aptidao_treinamento`) | ajustam os pesos e as constantes de normalização |
 
 - **Constantes e vocabulário (RN24 e RN25):** são calculados só com as linhas do período de treinamento do **conjunto de treinamento** e aplicados a todos os itens elegíveis. Uma classe ou subclasse que não existe no treino vira a categoria 0 (desconhecida). É exatamente o que o estudo faz com `preparar_dados.py --normalizacao-de` e `prever.py`.
@@ -375,11 +374,8 @@ A base completa tem 6.562 séries (6.547 commodities), cerca de 8,07 milhões de
   - `GET /admin/model-training/{id}` e `GET /admin/model-training`, para o resumo;
   - tela em `frontend/src/app/admin/treinamento`.
 - **Passo 2 (seleção):**
-  - elegíveis: RN02 pela quantidade média dos últimos 7 dias; RN27 pelo número de dias desde o primeiro registro diário do item; RN07 pela classe e pelo nível do item em `items.metadata_info` (`item_class_id`, `level`);
-  - conjunto de treinamento: os elegíveis que estão como aptos em `aptidao_treinamento` (RN15);
-  - na prática, só commodities passam pela RN02 (6.547 das 6.562 séries aptas). A RN07 fica praticamente sem efeito, mas deve continuar implementada.
-
-  **Decisão pendente:** o nível mínimo da temporada vigente. Deixe configurável (`MODELO_ILVL_MINIMO`), desligado por padrão, e avise no resumo.
+  - elegíveis: RN02 pela quantidade média dos últimos 7 dias; RN27 pelo número de dias desde o primeiro registro diário do item;
+  - conjunto de treinamento: os elegíveis que estão como aptos em `aptidao_treinamento` (RN15).
 - **Passo 3 (RN16):** só entram registros com `origem = 'UNDERMINE'`, `granularidade = 'DIARIA'` e sem `anomalia`. O preço da Undermine é o menor preço do dia. A série horária da Blizzard (1º quartil, RN06) não entra.
 - **Passo 4 (RN03):** como em `rn03_por_serie` do estudo:
   - a EMA de 14 dias usa só os preços anteriores já aceitos;
@@ -470,7 +466,6 @@ Os valores marcados como decididos já foram fixados pelo autor. Os demais são 
 | `MODELO_RN03_CONFIRMACAO` / `MODELO_RN03_SALTO_ABSURDO` / `MODELO_RN03_CONFIRMACAO_ABSURDO` | 7 / 1000 / 28 (decidido) | RN03 |
 | `MODELO_DEGRADACAO_DIAS` | 7 | RN13 |
 | `MODELO_DEGRADACAO_GERAL` | 0,20 | C3-FA4 |
-| `MODELO_ILVL_MINIMO` | vazio (desligado) | RN07 |
 | `MODELO_EPOCAS_MAX` / `MODELO_PACIENCIA` / `MODELO_LOTE` | 100 / 10 / 512 | treino |
 | `MODELO_AMOSTRAS_POR_EPOCA` | 400000 | treino |
 | `MODELO_PERDA` / `MODELO_MASCARA` | mae / false (decidido) | treino |

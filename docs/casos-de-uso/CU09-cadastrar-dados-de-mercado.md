@@ -33,7 +33,7 @@ Este caso de uso tem como principal função coletar periodicamente os dados de 
 - **Objetivo:** Obter da API oficial do provedor do jogo, por meio do Provider, os dados mais recentes de leilões dos reinos monitorados.
 - **Pré-condição:** Os Providers devem estar configurados com as credenciais de acesso à API e com a relação de jogos e reinos a serem monitorados.
 - **Pós-condição:** O payload bruto de leilões é coletado e encaminhado para a etapa de sanitização.
-- **Atores:** Provider
+- **Atores:** Admin
 - **Ativação:** O agendador de tarefas dispara a rotina de ingestão ao completar o intervalo de coleta.
 
 ### Fluxo principal
@@ -81,7 +81,7 @@ Este caso de uso tem como principal função coletar periodicamente os dados de 
 - **Objetivo:** Transformar o payload bruto recebido do Provider em registros íntegros e padronizados, prontos para o armazenamento persistente.
 - **Pré-condição:** O payload bruto deve ter sido coletado pelo Provider (Cenário 01).
 - **Pós-condição:** Os registros de leilões são padronizados em Cobre, livres de anomalias estruturais, e encaminhados para consolidação.
-- **Atores:** Provider
+- **Atores:** Admin
 - **Ativação:** O sistema recebe o payload bruto encaminhado pelo Provider.
 
 ### Fluxo principal
@@ -115,7 +115,7 @@ Este caso de uso tem como principal função coletar periodicamente os dados de 
 - **Objetivo:** Registrar os leilões padronizados no banco de dados e atualizar o valor de mercado de cada item.
 - **Pré-condição:** Os registros devem ter sido sanitizados e padronizados (Cenário 02).
 - **Pós-condição:** Os leilões do ciclo são persistidos, os leilões encerrados são classificados e o valor de mercado dos itens é atualizado.
-- **Atores:** Provider
+- **Atores:** Admin
 - **Ativação:** O sistema recebe os registros padronizados da etapa de sanitização.
 
 ### Fluxo principal

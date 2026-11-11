@@ -13,7 +13,7 @@ A especificação está em `docs/` (exportada do documento do TC no Google Drive
 
 Regras:
 
-1. **Implemente somente os casos de uso detalhados em `docs/casos-de-uso/`: CU01, CU02, CU03, CU04, CU09, CU10 e CU11** (CU11 provisório: especificado em `docs/casos-de-uso/CU11-treinar-modelo.md`, com a v4 do documento de alterações; as RNs desse arquivo prevalecem sobre `docs/regras-de-negocio.md` e `docs/requisitos.md`). CU05, CU06, CU07 e CU08 não estão especificados — não implemente, nem "adiante" partes deles (exceção: chaves estrangeiras preparadas para a exclusão em cascata do CU01).
+1. **Implemente somente os casos de uso detalhados em `docs/casos-de-uso/`: CU01 a CU11** (CU05, CU06, CU07 e CU08 especificados em `docs/casos-de-uso/CU05-…` a `CU08-…`, com o texto igual ao do TC; CU11 provisório: especificado em `docs/casos-de-uso/CU11-treinar-modelo.md`, com a v4 do documento de alterações; as RNs desse arquivo prevalecem sobre `docs/regras-de-negocio.md` e `docs/requisitos.md`).
 2. Cada fluxo (principal, alternativo e de exceção) de cada cenário deve ter comportamento correspondente no código. Mensagens exibidas ao usuário devem usar **exatamente** o texto do cenário.
 3. Não invente regra de negócio. Os pontos marcados como **Decisão pendente** nas observações de cada CU devem ser perguntados ao autor antes de implementar (ou implementados com a sugestão indicada, deixando o valor configurável e avisando no resumo final).
 4. Se encontrar divergência entre o documento e o código, siga o documento e avise. Se encontrar divergência dentro do próprio documento, siga a seção "Observações para a implementação" do CU.
@@ -81,4 +81,4 @@ Não leia nem altere arquivos `.env` (contêm credenciais). Para novas variávei
 3. Um commit por caso de uso (ou por cenário, se for grande), com mensagem citando o CU, por exemplo `feat(CU02): bloqueio por tentativas (RN21)`.
 4. Ao terminar um CU, liste o que ficou pendente e quais decisões foram tomadas, para que o autor atualize o documento do TC.
 
-Ordem sugerida: CU03 (ajustes) → CU01 + CU02 → CU10 → CU09 → CU04 (verificação dos fluxos alternativos, que dependem do CU09) → CU11 (C1 → C2 → C3).
+Ordem sugerida: CU03 (ajustes) → CU01 + CU02 → CU10 → CU09 → CU04 (verificação dos fluxos alternativos, que dependem do CU09) → CU11 (C1 → C2 → C3) → CU05 → CU06 + CU07 → CU08.

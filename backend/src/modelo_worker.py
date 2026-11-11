@@ -221,8 +221,7 @@ def servico(SessionLocal: Callable[[], Any], cfg: ConfigModelo) -> None:
         registrar_retreinamentos_perdidos(SessionLocal)
     except Exception:
         logger.exception("CU11-C2: não foi possível conferir se o retreinamento agendado foi perdido.")
-    logger.info("Serviço modelo pronto: fila a cada %.0f s, artefatos em %s, RN07 %s.", intervalo_da_fila(),
-                pasta.resolve(), "desligada" if cfg.ilvl_minimo is None else f"com nível mínimo {cfg.ilvl_minimo}")
+    logger.info("Serviço modelo pronto: fila a cada %.0f s, artefatos em %s.", intervalo_da_fila(), pasta.resolve())
     while True:
         try:
             if atender_um(SessionLocal, treinamentos):

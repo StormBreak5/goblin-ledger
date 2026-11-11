@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Optional
+from typing import Any
 
 from src.services.ingestao_config import COMMODITIES_ID_POR_REGIAO
 
@@ -50,11 +50,10 @@ class ConfigModelo:
     proporcao_validacao: float = 0.20
     antecedencia_anuncio_dias: int = 14
 
-    # Elegíveis à projeção: RN02 (liquidez), RN27 (histórico mínimo) e RN07 (equipamentos relevantes)
+    # Elegíveis à projeção: RN02 (liquidez) e RN27 (histórico mínimo)
     liquidez_min_quantidade: float = 50
     liquidez_dias: int = 7
     historico_minimo_dias: int = 60
-    ilvl_minimo: Optional[float] = None  # RN07: decisão pendente; None = desligada
 
     # RN10 - MdAPE ≤ 15%, menor que o do ingênuo, com ao menos 30 dias avaliados
     metrica_rn10: str = "mdape"
@@ -115,7 +114,6 @@ class ConfigModelo:
                 raise ValueError(f"{nome}=true não é suportado: a opção foi reprovada no estudo (etapa 2b) e não foi "
                                  "portada para o sistema")
         padrao = cls()
-        ilvl = os.getenv("MODELO_ILVL_MINIMO", "").strip()
         return cls(
             janela=_inteiro("MODELO_JANELA_DIAS", padrao.janela),
             horizonte=_inteiro("MODELO_HORIZONTE_DIAS", padrao.horizonte),
@@ -137,7 +135,6 @@ class ConfigModelo:
             rn03_confirmacao=_inteiro("MODELO_RN03_CONFIRMACAO", padrao.rn03_confirmacao),
             rn03_salto_absurdo=_decimal("MODELO_RN03_SALTO_ABSURDO", padrao.rn03_salto_absurdo),
             rn03_confirmacao_absurdo=_inteiro("MODELO_RN03_CONFIRMACAO_ABSURDO", padrao.rn03_confirmacao_absurdo),
-            ilvl_minimo=float(ilvl) if ilvl else None,
             unidades=_inteiro("MODELO_UNIDADES", padrao.unidades),
             perda=os.getenv("MODELO_PERDA", padrao.perda).strip().lower() or padrao.perda,
             epocas_max=_inteiro("MODELO_EPOCAS_MAX", padrao.epocas_max),

@@ -73,7 +73,7 @@ O sistema deve renderizar gráficos interativos exibindo a série temporal hist�
 
 O sistema deve calcular e exibir no gráfico uma linha de tendência preditiva baseada no modelo de Machine Learning. Intenção do usuário: "Quero visualizar a projeção matemática para o preço desse item nos próximos dias para decidir se estoco ou vendo meus materiais agora. "A projeção só deve ser calculada e renderizada para itens que tenham um volume de negociação aceitável (mais de 50 unidades nos últimos 7 dias). O sistema omitirá a linha preditiva caso a acurácia matemática do modelo para aquele item não atinja o limiar mínimo exigido.
 
-**Regras de negócio:** RN02; RN03; RN07; RN10; RN17
+**Regras de negócio:** RN02; RN10; RN13; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -84,7 +84,7 @@ O sistema deve calcular e exibir no gráfico uma linha de tendência preditiva b
 
 O sistema deve permitir que um usuário autenticado configure alertas de preço (alvo de compra ou venda) para itens específicos que estejam presentes em sua lista de favoritos, podendo estabelecer limites numéricos para gatilhos. Intenção do usuário: "Quero criar uma regra para o sistema me avisar automaticamente quando um item que eu quero flipar atingir o valor que eu considero barato. "O sistema deve checar se o limite de rastreadores ativos do usuário não foi excedido (Cota de Alertas) e filtrar injeções artificiais de itens por bots antes de consolidar o monitoramento.
 
-**Regras de negócio:** RN08; RN12
+**Regras de negócio:** RN07; RN08; RN12; RN20
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -97,7 +97,7 @@ O sistema deve permitir que um usuário autenticado configure alertas de preço 
 
 O sistema deve notificar o usuário (via interface web ou e-mail) quando o preço atual de um item favoritado e monitorado cruzar o limite configurado no alerta (RF05), consultando a última base consolidada pelo Provider .Intenção do usuário: "Quero receber uma mensagem no meu e-mail ou na tela do app assim que a condição de preço que eu configurei for atingida, para que eu possa logar no jogo e realizar a transação. "Para evitar falsos positivos causados por anomalias (como um único item postado muito barato), o gatilho só deve ser ativado validando o "Preço Atual" baseado no primeiro quartil (25%) dos preços dos leilões ativos.
 
-**Regras de negócio:** RN06
+**Regras de negócio:** RN06; RN07; RN12; RN18; RN20
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -120,9 +120,9 @@ O sistema deve, de forma autônoma e assíncrona, consumir os dados de mercado a
 
 ### RF08 – Retreinamento do Modelo
 
-O sistema deve possuir um trabalho automatizado para retreinar periodicamente os algoritmos preditivos com os dados mais recentes ingeridos. Intenção do sistema: "Atualizar os pesos matemáticos do modelo de Machine Learning baseando-se nas últimas flutuações do mercado, para evitar que a linha de tendência fique defasada. "Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja higienizado: descartando valores absurdos (outliers gerados por spoofing/market manipulation), ignorando itens sem volume de negociação suficiente e focando em equipamentos que ainda tenham relevância no jogo (iLvl).
+O sistema deve possuir um trabalho automatizado para retreinar periodicamente os algoritmos preditivos com os dados mais recentes ingeridos. Intenção do sistema: "Atualizar os pesos matemáticos do modelo de Machine Learning baseando-se nas últimas flutuações do mercado, para evitar que a linha de tendência fique defasada. "Antes do retreinamento, o sistema deve garantir que o conjunto de dados esteja higienizado: descartando valores absurdos (outliers gerados por spoofing/market manipulation) e ignorando itens sem quantidade ofertada suficiente.
 
-**Regras de negócio:** RN02; RN03; RN07
+**Regras de negócio:** RN02; RN03; RN10; RN13; RN15; RN17; RN24; RN25; RN26; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -134,7 +134,7 @@ O sistema deve possuir um trabalho automatizado para retreinar periodicamente os
 
 O sistema deve permitir que o usuário autenticado adicione, remova e visualize uma lista customizada de "Itens Favoritos", criando um dashboard de acesso rápido para monitoramento focado. Intenção do usuário: "Quero favoritar os itens que eu mais negocio na Auction House para ter um painel de acesso rápido, sem precisar pesquisar o nome deles toda vez que eu entrar no sistema. "
 
-**Regras de negócio:** —
+**Regras de negócio:** RN06; RN09; RN20
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -158,7 +158,7 @@ A camada de backend deve aplicar transformações nos dados brutos recebidos pel
 
 O sistema deverá consumir o histórico de preço dos itens e também dos eventos/atualizações via dados expostos por serviços como a Undermine Exchange (itens) e por páginas como a Wikipedia e a Warcraft Wiki, além da API da Blizzard (eventos). Intenção do sistema: "Necessito carregar uma grande base de dados retroativa (meses ou anos) de fontes de terceiros para não começar o banco de dados vazio, viabilizando o treinamento inicial da IA." Os dados obtidos de terceiros devem ser obrigatoriamente harmonizados, convertidos para o padrão de moeda do sistema (Cobre) e higienizados. Além disso, as datas de grandes atualizações (patches) capturadas via web scraping devem ser injetadas como variáveis categóricas, impedindo que o modelo interprete quedas abruptas de preço por obsolescência como flutuações naturais de mercado.
 
-**Regras de negócio:** RN15; RN16; RN17; RN11; RN23
+**Regras de negócio:** RN11; RN15; RN16; RN17; RN23
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |
@@ -171,7 +171,7 @@ O sistema deverá consumir o histórico de preço dos itens e também dos evento
 
 O sistema deve possuir uma rotina dedicada para processar o histórico consolidado de dados (proveniente do RF11) e realizar o treinamento primário dos algoritmos de Machine Learning, estabelecendo o modelo preditivo inicial para cada item antes de sua disponibilização no ambiente de produção. Intenção do sistema: "Preciso analisar todo o histórico de preços já higienizado para gerar o primeiro modelo matemático preditivo de cada item, garantindo que o sistema já nasça com inteligência ao entrar em produção. "O treinamento utiliza a base harmonizada e aplica a marcação estocástica de eventos para refinar a precisão.
 
-**Regras de negócio:** RN15; RN16; RN17
+**Regras de negócio:** RN02; RN03; RN10; RN15; RN16; RN17; RN24; RN25; RN27
 
 | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
 | --- | --- | --- | --- | --- |

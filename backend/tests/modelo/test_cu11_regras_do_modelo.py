@@ -199,8 +199,9 @@ def test_rn24_subclasse_pelo_par_classe_subclasse(sinteticos: dict[str, pd.DataF
 
 def test_rn24_versao_antiga_mantem_o_codigo_da_subclasse(sinteticos: dict[str, pd.DataFrame]) -> None:
     """RN24 (CU11-C2 e C3): o normalizacao.json de uma versão treinada antes da mudança não tem `subclasse_por_classe`
-    nem `ativacao`. Ela é lida com o código da subclasse sozinho e a ReLU, e a normalização dela, aplicada de novo,
-    reproduz a base e a assinatura que ela gravou."""
+    nem `ativacao`, e pode ter campos que a configuração não tem mais (as v1 a v5 gravaram o nível mínimo dos
+    equipamentos, que saiu do TC). Ela é lida com o código da subclasse sozinho e a ReLU, e a normalização dela,
+    aplicada de novo, reproduz a base e a assinatura que ela gravou."""
     assert (CFG_ANTIGA.subclasse_por_classe, CFG_ANTIGA.ativacao) == (False, "relu")
     assert (CFG.subclasse_por_classe, CFG.ativacao) == (True, "gelu")
 
@@ -209,6 +210,8 @@ def test_rn24_versao_antiga_mantem_o_codigo_da_subclasse(sinteticos: dict[str, p
     sem_campos = copy.deepcopy(gravada)
     for campo in ("subclasse_por_classe", "ativacao"):
         del sem_campos["config"][campo]
+    sem_campos["config"]["campo_retirado"] = None  # campo desconhecido: o de_dict ignora
+    assert not hasattr(ConfigModelo.de_dict(sem_campos["config"]), "campo_retirado")
     assert assinatura_normalizacao(sem_campos) == gravada["assinatura"]
     assert set(gravada["vocabulario"]["subclasse_id"]) == {"1", "2", "5", "7", "8"}  # os códigos sozinhos
 
@@ -400,8 +403,8 @@ def test_rn27_historico_minimo_para_projecao() -> None:
 
 
 def test_cu11_c1_passo2_elegiveis_e_conjunto_de_treinamento() -> None:
-    """Elegíveis: RN02 (quantidade média > 50 nos últimos 7 dias) e RN07 (equipamento abaixo do nível mínimo, só com
-    MODELO_ILVL_MINIMO definido). Conjunto de treinamento: os elegíveis aptos (RN15); os demais ficam fora do treino."""
+    """Elegíveis: RN02 (quantidade média > 50 nos últimos 7 dias) e RN27; equipamentos são elegíveis qualquer que seja o
+    nível de item. Conjunto de treinamento: os elegíveis aptos (RN15); os demais ficam fora do treino."""
     fim = "2026-10-05"
     iliquido = serie_constante(2, "2024-01-01", fim, quantidade=500.0)
     iliquido.loc[pd.to_datetime(iliquido["data"]) > pd.Timestamp(fim) - pd.Timedelta(days=7), "quantidade"] = 50.0
@@ -414,16 +417,15 @@ def test_cu11_c1_passo2_elegiveis_e_conjunto_de_treinamento() -> None:
                                {"item_id": 4, "classe_id": 2, "nivel_item": 700}]),
     }
     entrada = entrada_de(dados, aptos={1, 2, 3, 4})
-    sem_rn07 = selecionar(entrada, CFG, "US")
-    itens = sem_rn07.itens.set_index("item_id")
-    assert not sem_rn07.rn07_ativa
+    selecao = selecionar(entrada, CFG, "US")
+    itens = selecao.itens.set_index("item_id")
     assert itens["elegivel"].to_dict() == {1: True, 2: False, 3: True, 4: True, 5: True}
     assert itens["integra_treino"].to_dict() == {1: True, 2: False, 3: True, 4: True, 5: False}
-    assert sem_rn07.fora_do_treino == {("32512", 5)}
-    assert set(sem_rn07.precos["item_id"]) == {1, 3, 4, 5}
+    assert selecao.fora_do_treino == {("32512", 5)}
+    assert set(selecao.precos["item_id"]) == {1, 3, 4, 5}
 
-    com_rn07 = selecionar(entrada, replace(CFG, ilvl_minimo=600), "US").itens.set_index("item_id")
-    assert com_rn07["elegivel"].to_dict() == {1: True, 2: False, 3: False, 4: True, 5: True}
+    # A armadura de nível 200 e a arma de nível 700 são elegíveis: o nível de item não filtra equipamentos.
+    assert itens.loc[3, "elegivel"] and itens.loc[4, "elegivel"]
 
 
 def test_cu11_conjunto_de_treinamento_nao_entra_nas_constantes(sinteticos: dict[str, pd.DataFrame]) -> None:

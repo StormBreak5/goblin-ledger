@@ -1,8 +1,8 @@
 # CU05 – Consultar Previsão Preditiva
 
-> **PROVISÓRIO (20/10/2026; texto igual ao do TC, com o ajuste do FA6 e do FA7 no Cenário 01).** O CU05 ainda não está no TC. O texto para colar no TC, com os diagramas de atividades e o protótipo do RF04, está em `docs/Alterações do TC - CU05 (para colar).docx`. Enquanto o TC e o `docs/` não forem reexportados, vale este arquivo.
+> Texto igual ao do TC (seção 6.4.5), conferido em 11/11/2026.
 
-**Situação no código:** não implementado. Usa as predições diárias gravadas pelo CU11 - Cenário 03 (commit `83bebfb`). Pedido de implementação: `estudos/lstm/pedido-cu05.md`.
+**Situação no código:** não implementado. Usa as predições diárias gravadas pelo CU11 - Cenário 03 (commit `83bebfb`). Pedido de implementação: `estudos/lstm/pedido-cu05.md` (revisado em 11/11/2026).
 
 ## Descrição
 
@@ -20,7 +20,6 @@ Conforme o quadro do RF04, com a RN13 acrescentada (ver "Mudanças no RF04", ao 
 
 - **RN01 – Padronização de Moeda Base:** os valores financeiros são armazenados em Cobre (1 Ouro = 10.000 Cobre; 1 Prata = 100 Cobre) e exibidos convertidos em Ouro, Prata e Cobre.
 - **RN02 – Filtro de Liquidez para Modelagem Preditiva:** só itens com quantidade média ofertada superior a 50 unidades nos últimos 7 dias recebem projeção.
-- **RN07 – Relevância de Equipamento (iLvl):** equipamentos abaixo do nível mínimo da temporada vigente não recebem projeção.
 - **RN10 – Limiar de Precisão Preditiva:** a projeção só é exibida se o MdAPE do item no período de teste for de no máximo 15%, menor que o do modelo ingênuo e medido em pelo menos 30 dias de previsões avaliadas.
 - **RN13 – Snapshot de Estado (Auditoria ML):** a projeção de um item cujo erro nos últimos 7 dias ultrapassa o limiar da RN10 é bloqueada até o próximo retreinamento.
 - **RN27 – Histórico Mínimo para Projeção:** o item precisa de ao menos 60 dias de histórico diário.
@@ -53,8 +52,8 @@ Conforme o quadro do RF04, com a RN13 acrescentada (ver "Mudanças no RF04", ao 
 
 #### Fluxo Alternativo 2 - Item não elegível à projeção
 
-- **2.1** No passo 2, o sistema identifica que o item não atende a um dos critérios de elegibilidade à projeção (RN02, RN07 ou RN27).
-- **2.2** O sistema exibe, no lugar da projeção, a mensagem do critério não atendido: "Projeção indisponível: este item tem pouca quantidade ofertada para uma previsão confiável" (RN02), "Projeção indisponível: este item ainda não tem histórico suficiente para a previsão" (RN27) ou "Projeção indisponível para equipamentos abaixo do nível de item da temporada atual" (RN07).
+- **2.1** No passo 2, o sistema identifica que o item não atende a um dos critérios de elegibilidade à projeção (RN02 ou RN27).
+- **2.2** O sistema exibe, no lugar da projeção, a mensagem do critério não atendido: "Projeção indisponível: este item tem pouca quantidade ofertada para uma previsão confiável" (RN02) ou "Projeção indisponível: este item ainda não tem histórico suficiente para a previsão" (RN27).
 - **2.3** Fim.
 
 #### Fluxo Alternativo 3 - Projeção reprovada na avaliação
@@ -154,7 +153,7 @@ Conforme o quadro do RF04, com a RN13 acrescentada (ver "Mudanças no RF04", ao 
 
 ## Mudanças no RF04 (Quadro 12 do TC)
 
-- **Regras de negócio:** acrescentar a RN13, que bloqueia a exibição quando a projeção degrada. Fica: RN02; RN03; RN07; RN10; RN13; RN17; RN27. No Quadro 07, a RN13 passa a citar o RF04, e o mapeamento da seção 3.6.2 também ganha a RN13 na linha do RF04.
+- **Regras de negócio:** acrescentar a RN13, que bloqueia a exibição quando a projeção degrada. Fica: RN02; RN03; RN10; RN13; RN17; RN27. No Quadro 07, a RN13 passa a citar o RF04, e o mapeamento da seção 3.6.2 também ganha a RN13 na linha do RF04.
 - **Variáveis:** hoje só há "ID do Item" e "Data da Projeção". Proposta:
 
   | Variável | Tipo de dado | Tamanho | Obrigatório | Domínio |
@@ -181,7 +180,7 @@ Conforme o quadro do RF04, com a RN13 acrescentada (ver "Mudanças no RF04", ao 
   | Situação no banco | Fluxo |
   | --- | --- |
   | sem modelo vigente na região | FA1 |
-  | item fora de `projecao_item`, ou "deixou de ser elegível" | FA2, com o critério atual recalculado (RN02, RN27 ou RN07) |
+  | item fora de `projecao_item`, ou "deixou de ser elegível" | FA2, com o critério atual recalculado (RN02 ou RN27) |
   | `IGNORADA` ("série insuficiente") | FA2, com a mensagem da RN27 |
   | `BLOQUEADA`, "acima do limiar" ou "não supera o ingênuo" | FA3 |
   | `BLOQUEADA`, "avaliação insuficiente" | FA4 |
@@ -198,7 +197,7 @@ Conforme o quadro do RF04, com a RN13 acrescentada (ver "Mudanças no RF04", ao 
 - C1:
   - `test_cu05_c1_fluxo_principal_exibe_a_projecao_dos_proximos_7_dias`
   - `test_cu05_c1_fa1_modelo_nao_treinado`
-  - `test_cu05_c1_fa2_item_nao_elegivel_rn02_rn27_rn07`
+  - `test_cu05_c1_fa2_item_nao_elegivel_rn02_rn27`
   - `test_cu05_c1_fa3_projecao_reprovada_rn10`
   - `test_cu05_c1_fa4_projecao_em_avaliacao`
   - `test_cu05_c1_fa5_projecao_suspensa_rn13`

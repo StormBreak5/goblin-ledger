@@ -13,21 +13,23 @@
 | CU05 | Consultar Previsão Preditiva | RF04 | Usuário |
 | CU06 | Manter Favoritos | RF09 | Usuário |
 | CU07 | Manter Alerta | RF05 | Usuário |
-| CU08 | Manter Notificações | RF06 | Sistema/Usuário |
-| CU09 | Cadastrar Dados de Mercado | RF07; RF10 | Admin/Provider |
-| CU10 | Cadastrar Dados Passados | RF11 | Admin/Provider |
-| CU11 | Treinar Modelo | RF08; RF12 | Admin/Sistema |
+| CU08 | Manter Notificações | RF06 | Usuário |
+| CU09 | Cadastrar Dados de Mercado | RF07; RF10 | Admin |
+| CU10 | Cadastrar Dados Passados | RF11 | Admin |
+| CU11 | Treinar Modelo | RF08; RF12 | Admin |
 
 ## Escopo da implementação atual
 
-Os casos de uso **detalhados** em `docs/casos-de-uso/` (CU01, CU02, CU03, CU04, CU09, CU10) estão implementados; cada arquivo traz a situação no código, as decisões tomadas e o que ficou pendente. A relação de testes por fluxo está em `docs/plano-de-testes-por-fluxo.md`. O CU11 (Treinar Modelo) é **provisório**: está especificado em `CU11-treinar-modelo.md`, com a v4 do documento de alterações do TC, ainda não reexportada do TC; as RNs desse arquivo prevalecem sobre `regras-de-negocio.md` e `requisitos.md`. CU05, CU06, CU07 e CU08 também estão especificados como **provisórios** (`CU05-consultar-previsao-preditiva.md`, `CU06-manter-favoritos.md`, `CU07-manter-alerta.md` e `CU08-manter-notificacoes.md`, com os documentos de alterações do TC correspondentes em `docs/`) e serão implementados a partir dos pedidos em `estudos/lstm/`. A RN08 (limite de 20 alertas ativos) e a nova RN28 (gatilho e disparo único do alerta), descritas no documento de alterações do CU06 a CU08, prevalecem sobre `regras-de-negocio.md`.
+Os casos de uso **detalhados** em `docs/casos-de-uso/` (CU01, CU02, CU03, CU04, CU09, CU10) estão implementados; cada arquivo traz a situação no código, as decisões tomadas e o que ficou pendente. A relação de testes por fluxo está em `docs/plano-de-testes-por-fluxo.md`. O CU11 (Treinar Modelo) é **provisório**: está especificado em `CU11-treinar-modelo.md`, com a v4 do documento de alterações do TC, ainda não reexportada do TC; as RNs desse arquivo prevalecem sobre `regras-de-negocio.md` e `requisitos.md`. CU05, CU06, CU07 e CU08 estão especificados nos arquivos `CU05-consultar-previsao-preditiva.md`, `CU06-manter-favoritos.md`, `CU07-manter-alerta.md` e `CU08-manter-notificacoes.md`, com o texto igual ao do TC (seções 6.4.5 a 6.4.8), e serão implementados pelos pedidos `estudos/lstm/pedido-cu05.md`, `pedido-cu06-cu07.md` e `pedido-cu08.md`. A RN08 (limite de 20 alertas ativos) e a RN07 (gatilho e disparo único do alerta, antiga RN28) prevalecem sobre `regras-de-negocio.md`.
 
 ## Atores (seção 6.3)
 
-- Usuário: A plataforma é voltada para ele, para que ele possa analisar os preços, histórico e também previsão dos itens em leilão;
-- Admin: Tem a responsabilidade de cadastrar os dados de itens e também iniciar o treinamento do modelo para predição. No sistema, é um usuário com o papel de administrador, atribuído diretamente no banco de dados, sem tela de gestão de papéis;
-- Sistema: Responsável por atividades de rotina ou disparo de notificações;
-- Provider: Ator responsável pela coleta de dados via API e fontes externas à plataforma.
+A plataforma Goblin Ledger conta com dois atores:
+
+- Usuário: a plataforma é voltada para ele, para que possa analisar os preços, o histórico e a previsão dos itens em leilão, manter os itens favoritos e os alertas de preço e consultar as suas notificações;
+- Admin: tem a responsabilidade de cadastrar os dados de mercado e os dados passados dos itens e de iniciar o treinamento do modelo preditivo. No sistema, é um usuário com o papel de administrador, atribuído diretamente no banco de dados, sem tela de gestão de papéis (Apêndice C).
+
+As rotinas automáticas, como a coleta dos dados de mercado de hora em hora, a importação diária do histórico, o retreinamento semanal e a consolidação diária do modelo e a verificação dos alertas a cada ciclo de ingestão, não são representadas como atores. São execuções agendadas do próprio sistema, descritas nos cenários dos casos de uso a que pertencem, no campo Ativação.
 
 ## Glossário do negócio (Quadro 08)
 

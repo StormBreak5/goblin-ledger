@@ -44,8 +44,6 @@ from src.services.treinamento_service import TRAVA_DA_SITUACAO_DOS_ITENS
 
 logger = logging.getLogger(__name__)
 
-AVISO_RN07_DESLIGADA = ("RN07 desligada: o nível mínimo dos equipamentos da temporada vigente (MODELO_ILVL_MINIMO) "
-                        "não foi definido, e os equipamentos não foram filtrados pelo nível de item.")
 AVISO_SERIE_DESATUALIZADA = "série diária desatualizada (último dia encerrado: {dia})"
 METRICAS = ("dias_avaliados", "alvos_avaliados", "mdape", "mdape_ingenuo", "mape", "mape_ingenuo", "rmse_cobre",
             "rmse_ingenuo_cobre", "erro_relativo_ingenuo")
@@ -270,11 +268,9 @@ class TreinamentoInicial:
                        minimo_dias=self.cfg.minimo_dias_rn10)
 
     def _avisos(self, selecao: Selecao, ate: date) -> Optional[str]:
-        """Avisos do resumo, que não bloqueiam: a RN07 desligada e a série diária desatualizada (o último dia encerrado
-        tem mais de MODELO_SERIE_DESATUALIZADA_DIAS dias)."""
+        """Avisos do resumo, que não bloqueiam: a série diária desatualizada (o último dia encerrado tem mais de
+        MODELO_SERIE_DESATUALIZADA_DIAS dias)."""
         avisos: list[str] = []
-        if not selecao.rn07_ativa:
-            avisos.append(AVISO_RN07_DESLIGADA)
         if selecao.ultimo_dia is not None and (ate - selecao.ultimo_dia).days > self.cfg.serie_desatualizada_dias:
             avisos.append(AVISO_SERIE_DESATUALIZADA.format(dia=selecao.ultimo_dia.strftime("%d/%m/%Y")))
         return "\n".join(avisos) or None

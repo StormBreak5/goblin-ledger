@@ -125,13 +125,15 @@ def retreinar(pg_engine, db_session, relogio, pasta: Path, treinador: Any,
 
 def como_versao_antiga(db_session, versao: int) -> None:
     """Tira do normalizacao.json e do treino.json da versão os campos que as versões treinadas antes das etapas 2g e 2i
-    não gravavam (a ativação e a subclasse pelo par), deixando os artefatos como os da v1 do banco real."""
+    não gravavam (a ativação e a subclasse pelo par) e põe um campo que a configuração não tem mais (as v1 a v5 gravaram
+    o nível mínimo dos equipamentos, que saiu do TC), deixando os artefatos como os da v1 do banco real."""
     pasta = Path(db_session.get(ModeloPreditivo, versao).caminho_artefatos)
     for arquivo, chave in (("normalizacao.json", "config"), ("treino.json", "parametros")):
         caminho = pasta / arquivo
         conteudo = json.loads(caminho.read_text(encoding="utf-8"))
         for campo in PADROES_DAS_VERSOES_ANTIGAS:
             del conteudo[chave][campo]
+        conteudo[chave]["campo_retirado"] = None
         caminho.write_text(json.dumps(conteudo, ensure_ascii=False), encoding="utf-8")
 
 
