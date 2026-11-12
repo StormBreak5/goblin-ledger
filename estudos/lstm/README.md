@@ -283,6 +283,8 @@ python treinar.py --pasta saida/treino2j_qual --nome qual_s42 --semente 42 --ati
 
 **Regra de decisão:** a mesma da 2i (não inferioridade), contra os `sub_s*` da base `treino2i_sub`.
 
+**Resultado (`docs/relatorio-etapa2j.md`): não adotado.** Na validação, a mediana do MdAPE por item foi de 20,31% para 20,50%, uma piora de 0,19 ponto contra o limite de 0,11. Os liberados pela RN10 foram de 918 para 854, uma queda de 64 contra o limite de 27. As três sementes pioraram nas duas medidas. A opção continua desligada por padrão.
+
 ## Calendário dos dias previstos (etapa 2h)
 
 **O que muda:** as variáveis 9 a 14 só entram com os 30 dias passados. Na etapa 2h, a rede ganha a entrada `X_fut` [7, 6], com o calendário de D+1 a D+7 como conhecido em D (RN25). Ela é achatada e juntada antes da camada densa de 32.
