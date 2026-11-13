@@ -86,7 +86,7 @@ docker-compose exec worker python src/scraper/backfill.py --region US
 
 ## 📖 Documentação Adicional
 
-Para mais detalhes sobre as regras de negócio, modelagem do banco de dados e arquitetura, consulte a pasta [`/specs/001-wow-token-price`](./specs/001-wow-token-price/). O planejamento completo e a monografia base estão disponíveis no documento PDF na raiz do repositório.
+A especificação completa do sistema (casos de uso, requisitos, regras de negócio, modelagem do banco de dados e arquitetura) e os resultados do modelo preditivo estão descritos no documento do Trabalho de Curso.
 
 ## 📝 Licença
 

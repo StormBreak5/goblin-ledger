@@ -173,7 +173,7 @@ do item (2d), redução da taxa de aprendizado e LSTM de 128 unidades (2e). O c�
 
 ## Configuração escolhida (etapa 2b)
 
-Foram comparadas 4 configurações, com 3 sementes cada, na validação (`docs/relatorio-etapa2b.md`). A escolhida é **eventos agregados, sem máscara**, que é o padrão dos scripts:
+Foram comparadas 4 configurações, com 3 sementes cada, na validação. A escolhida é **eventos agregados, sem máscara**, que é o padrão dos scripts:
 
 | Configuração | Mediana do MAPE por item (média ± desvio, 3 sementes) |
 |---|---|
@@ -200,18 +200,17 @@ cada um sozinho contra a configuração da etapa 2b, com 3 sementes:
 | Redução da taxa de aprendizado | `--reduzir-taxa` (`--fator-taxa 0.5`, `--paciencia-taxa 3`, `--taxa-minima 1e-5`) | Os treinos param entre as épocas 20 e 40 com a taxa fixa. Reduzir a taxa quando a validação estaciona costuma refinar os pesos. A taxa de cada época fica no `historico.csv` e a final, no `treino.json`. |
 | LSTM de 128 unidades | `--unidades 128` | Mais capacidade para 6.500 itens com comportamentos diferentes. |
 
-**Resultado (`docs/relatorio-etapa2e.md`):** só a perda MAE foi aprovada (mediana do MdAPE por item de 22,67% para
+**Resultado:** só a perda MAE foi aprovada (mediana do MdAPE por item de 22,67% para
 20,62%, com desvio de 0,09 a 0,15 ponto entre sementes; itens liberados pela RN10 de 603 para 1.090). A redução da taxa e
 as 128 unidades pioraram a medida principal. Com um só aprovado, não houve combinação, e a configuração congelou.
 
 A janela de 60 dias ficou de fora de propósito: ela subiria o histórico mínimo de um item novo de uns 60 para uns 90
-dias, o contrário do que se quer com a previsão de itens novos (etapa 2c). A regra de decisão e os comandos estão em
-`pedido-etapa2e.md`. Depois dela, a configuração congela.
+dias, o contrário do que se quer com a previsão de itens novos (etapa 2c). Depois dela, a configuração congela.
 
 ## Melhorias baratas (etapa 2g)
 
-Testa três melhorias contra a configuração final (`mae_s{42,7,2026}`), na validação, com a regra de decisão de
-`pedido-etapa2g.md`. Duas não precisam de treino novo, porque usam as previsões já gravadas.
+Testa três melhorias contra a configuração final (`mae_s{42,7,2026}`), na validação, com uma regra de decisão definida antes
+dos treinos. Duas não precisam de treino novo, porque usam as previsões já gravadas.
 
 | Candidato | Como | Ideia |
 |---|---|---|
@@ -232,8 +231,6 @@ python avaliar.py --pasta saida/treino01_agr --periodo validacao \
 python treinar.py --pasta saida/treino01_agr --nome lrelu_s42 --semente 42 --ativacao leaky_relu
 python ativacoes.py --modelo saida/treino01_agr/modelos/lrelu_s42 --pasta saida/treino01_agr --periodo validacao
 ```
-
-O resultado está em `docs/relatorio-etapa2g.md`.
 
 ## Subclasse dentro da classe (etapa 2i)
 
@@ -283,7 +280,7 @@ python treinar.py --pasta saida/treino2j_qual --nome qual_s42 --semente 42 --ati
 
 **Regra de decisão:** a mesma da 2i (não inferioridade), contra os `sub_s*` da base `treino2i_sub`.
 
-**Resultado (`docs/relatorio-etapa2j.md`): não adotado.** Na validação, a mediana do MdAPE por item foi de 20,31% para 20,50%, uma piora de 0,19 ponto contra o limite de 0,11. Os liberados pela RN10 foram de 918 para 854, uma queda de 64 contra o limite de 27. As três sementes pioraram nas duas medidas. A opção continua desligada por padrão.
+**Resultado: não adotado.** Na validação, a mediana do MdAPE por item foi de 20,31% para 20,50%, uma piora de 0,19 ponto contra o limite de 0,11. Os liberados pela RN10 foram de 918 para 854, uma queda de 64 contra o limite de 27. As três sementes pioraram nas duas medidas. A opção continua desligada por padrão.
 
 ## Calendário dos dias previstos (etapa 2h)
 
@@ -315,8 +312,6 @@ python eventos_no_horizonte.py --pasta saida/treino01_agr --calendario saida/cal
     --detalhe saida/treino01_agr/avaliacao_validacao_cal_s42_detalhe.parquet --rotulo cal_s42
 ```
 
-A regra de decisão e os comandos estão em `pedido-etapa2h.md`.
-
 ## Generalização para itens fora do treino (etapa 2c)
 
 **Pergunta.** O modelo não recebe nenhum identificador do item: só a janela de 30 dias, já em escala relativa ao
@@ -344,9 +339,9 @@ pela idade do item no dia da previsão (`por_idade`), que serve para definir o h
 relação ao sistema: na base `fora2c`, a variação do índice da subclasse (variável 6) é calculada só com os itens dessa
 base, e não com o mercado inteiro.
 
-Os comandos estão em `pedido-etapa2c.md`. Tudo na validação: o teste continua reservado ao CU11 (RN25).
+Tudo na validação: o teste continua reservado ao CU11 (RN25).
 
-**Resultado (`docs/relatorio-etapa2c.md`, perda Huber).** Nos itens reservados, o erro do modelo que nunca os viu ficou
+**Resultado (perda Huber).** Nos itens reservados, o erro do modelo que nunca os viu ficou
 do tamanho da diferença entre duas sementes. Os 755 itens sem nenhuma amostra de treino (quase todos da expansão nova)
 foram previstos melhor que pelo ingênuo em 62% a 69% dos casos. Fora da seleção, o modelo perdeu para o ingênuo, mas
 porque esses itens são ilíquidos: com a mesma liquidez, itens do treino e de fora dele se comportam igual. A fronteira de
@@ -357,7 +352,7 @@ uso do modelo é a liquidez (RN02), não o item ter entrado no treino.
 - `liquidez`: erro por faixa de quantidade média ofertada, em uma ou mais bases;
 - `novos`: itens sem nenhuma amostra de treino contra os demais.
 
-**Resultado com a configuração final (`docs/relatorio-etapa2f.md`, perda MAE).** A 2f repetiu a 2c com a perda MAE. Os
+**Resultado com a configuração final (perda MAE).** A 2f repetiu a 2c com a perda MAE. Os
 números do TC vêm daqui.
 
 - **Itens não vistos:** o erro de quem nunca foi visto ficou igual ao de quem foi. A diferença mediana no MdAPE foi de
@@ -397,8 +392,7 @@ obsolescência que a RN17 quer separar das flutuações normais.
 e a idade máxima (variável 20 = 1). Um item antigo que só aparece no leilão anos depois seria contado como da expansão
 daquele momento; nas commodities, que são negociadas o tempo todo, isso é raro.
 
-O `transicao.py` mede o erro por grupo (expansão que sai, que entra, anteriores) na janela da troca e fora dela. Os
-comandos e a regra de decisão estão em `pedido-etapa2d.md`.
+O `transicao.py` mede o erro por grupo (expansão que sai, que entra, anteriores) na janela da troca e fora dela.
 
 ## RN03: EMA só com os preços aceitos
 
