@@ -56,3 +56,15 @@ backend/modelos/
 *.h5
 *.npz
 .ipynb_checkpoints/
+
+# Entrega final (UEG-TC2-FINAL): documentação do TC, pedidos, relatórios e
+# instruções de IA ficam só no repositório local
+/docs/
+/Claude outputs/
+/CLAUDE.md
+/.claude/
+/.cursor/
+/.specify/
+/specs/
+estudos/lstm/ROTEIRO.md
+estudos/lstm/pedido-*.md
